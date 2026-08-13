@@ -1,0 +1,15 @@
+# Private documentation — lives in its own private repo (newcal-docs)
+docs/
+
+# Secrets & env
+.env
+.env.*
+.dev.vars
+
+# Dependencies & build
+node_modules/
+dist/
+.wrangler/
+
+# OS / editor
+.DS_Store
