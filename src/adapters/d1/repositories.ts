@@ -312,6 +312,17 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
       }
     },
 
+    async dueBetween(from, to) {
+      const rows = await all<Record<string, unknown>>(
+        `SELECT * FROM bookings
+         WHERE status = 'confirmed' AND start_utc >= ? AND start_utc < ?
+         ORDER BY start_utc`,
+        from,
+        to,
+      )
+      return rows.map((r) => mapBooking(r)!).filter(Boolean)
+    },
+
     async cancelWithLockRelease(bookingId, at) {
       // Releasing locks in the same batch keeps "cancelled" and "slot free"
       // from ever disagreeing.
@@ -642,6 +653,19 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
   return {
     users, eventTypes, availability, bookings, slotLocks, teams, connections,
     sessions, apiKeys, webhooks, idempotency,
+    async telemetryCounts() {
+      const row = await first<{ users: number; event_types: number; bookings: number }>(
+        `SELECT
+           (SELECT COUNT(*) FROM users)       AS users,
+           (SELECT COUNT(*) FROM event_types) AS event_types,
+           (SELECT COUNT(*) FROM bookings)    AS bookings`,
+      )
+      return {
+        users: row?.users ?? 0,
+        eventTypes: row?.event_types ?? 0,
+        bookings: row?.bookings ?? 0,
+      }
+    },
     bookmark: () => session.getBookmark() ?? null,
   }
 }

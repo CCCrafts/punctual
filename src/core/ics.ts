@@ -285,7 +285,9 @@ function defaultDescription(booking: Booking, et: EventType): string {
 export function buildIcs(input: IcsInput): string {
   const { booking, eventType: et, method } = input
   const status: IcsStatus = input.status ?? (method === 'CANCEL' ? 'CANCELLED' : 'CONFIRMED')
-  const dtstamp = input.dtstamp ?? (method === 'CANCEL' ? booking.cancelledAt ?? booking.createdAt : booking.createdAt)
+  const dtstamp =
+    input.dtstamp ??
+    (method === 'CANCEL' ? booking.cancelledAt ?? booking.createdAt : booking.createdAt)
 
   const lines: string[] = [
     'BEGIN:VCALENDAR',
@@ -328,6 +330,10 @@ export function buildIcs(input: IcsInput): string {
   return lines.map(foldLine).join('\r\n') + '\r\n'
 }
 
-/** Base64 for the `EmailMessage.attachments` port, which takes encoded content. */
+/**
+ * Content types for the attachment. The `method` parameter has to match the
+ * METHOD inside the document: Outlook reads the MIME parameter, not the body,
+ * when deciding whether an attachment is an invitation or a cancellation.
+ */
 export const ICS_CONTENT_TYPE = 'text/calendar; charset=utf-8; method=REQUEST'
 export const ICS_CANCEL_CONTENT_TYPE = 'text/calendar; charset=utf-8; method=CANCEL'
