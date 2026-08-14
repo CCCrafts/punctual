@@ -14,7 +14,6 @@ import type { Availability, EventType, WeeklySchedule } from '../../src/core/dom
  * left behind. These tests keep that property from regressing silently.
  */
 
-const HOUR = 3_600_000
 const DAY = 86_400_000
 
 function weeklyAllDay(): WeeklySchedule {

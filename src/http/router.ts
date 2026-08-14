@@ -13,6 +13,9 @@
 
 import { Hono, type Context } from 'hono'
 import { streamPage } from './streaming.js'
+import { buildApiRoutes } from './api/rest.js'
+import { buildMcpRoutes } from './mcp/server.js'
+import { buildEmbedRoutes } from './embed.js'
 import type { EnginePorts, RequestScope } from '../ports.js'
 import type { SlotService } from '../engine.js'
 import { daysWithSlots, monthRange } from '../engine.js'
@@ -38,6 +41,12 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
   const publicScope: RequestScope = { consistency: 'unconstrained' }
 
   app.get('/health', (c) => c.json({ ok: true, service: 'punctual' }))
+
+  // Programmatic surfaces. Mounted before the /:userSlug/:eventSlug catch-all
+  // so a host cannot claim the slug "api" and shadow them.
+  app.route('/api/v1', buildApiRoutes(ports, slots))
+  app.route('/', buildMcpRoutes(ports, slots))
+  app.route('/', buildEmbedRoutes(ports))
 
   app.get('/favicon.svg', (c) =>
     c.body(FAVICON, 200, {
