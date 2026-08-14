@@ -130,6 +130,12 @@ export interface Booking {
   guestTimezone: string
   startUtc: number
   endUtc: number
+  /**
+   * Host-local calendar date of the start, `YYYY-MM-DD`, stamped at creation.
+   * The per-day cap is defined on host-local dates (ADR-0004 §3.7), and SQLite
+   * has no timezone data to derive it, so it is stored rather than computed.
+   */
+  localDate: string
   status: BookingStatus
   answers: Record<string, string>
   /** Provider event ids, keyed by connection id, for later update/delete. */
