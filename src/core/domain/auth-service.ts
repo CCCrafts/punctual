@@ -125,6 +125,7 @@ export interface ParsedManageToken {
   bookingId: string
   purpose: ManageTokenPurpose
   exp: number
+  nonce: string
   /** Exactly the bytes that were signed. */
   payload: string
   signature: string
@@ -137,19 +138,31 @@ export interface ParsedManageToken {
  * cancel link — which we hand to every guest in every confirmation email —
  * could be replayed as a reschedule by editing the URL, and the signature
  * would still check out.
+ *
+ * `nonce` is what makes rotation possible at all. An HMAC over `id|purpose|exp`
+ * alone is deterministic, so re-issuing for an unchanged booking reproduces the
+ * identical token — and "rotate `manage_token_hash` on state change" would
+ * silently do nothing. Fresh randomness per issuance means the new link
+ * displaces the old one.
  */
-export function manageTokenPayload(bookingId: string, purpose: ManageTokenPurpose, exp: number): string {
-  return `${bookingId}|${purpose}|${exp}`
+export function manageTokenPayload(
+  bookingId: string,
+  purpose: ManageTokenPurpose,
+  exp: number,
+  nonce: string,
+): string {
+  return `${bookingId}|${purpose}|${exp}|${nonce}`
 }
 
-/** `<bookingId>.<purpose>.<exp>.<signature>` — url-safe, no encoding step. */
+/** `<bookingId>.<purpose>.<exp>.<nonce>.<signature>` — url-safe, no encoding step. */
 export function formatManageToken(
   bookingId: string,
   purpose: ManageTokenPurpose,
   exp: number,
+  nonce: string,
   signature: string,
 ): string {
-  return `${bookingId}.${purpose}.${exp}.${signature}`
+  return `${bookingId}.${purpose}.${exp}.${nonce}.${signature}`
 }
 
 /**
@@ -160,9 +173,9 @@ export function formatManageToken(
 export function parseManageToken(raw: string): ParsedManageToken | null {
   if (typeof raw !== 'string' || raw.length === 0 || raw.length > 512) return null
   const parts = raw.split('.')
-  if (parts.length !== 4) return null
-  const [bookingId, purpose, expRaw, signature] = parts as [string, string, string, string]
-  if (bookingId.length === 0 || signature.length === 0) return null
+  if (parts.length !== 5) return null
+  const [bookingId, purpose, expRaw, nonce, signature] = parts as [string, string, string, string, string]
+  if (bookingId.length === 0 || nonce.length === 0 || signature.length === 0) return null
   if (!MANAGE_PURPOSES.includes(purpose)) return null
   if (!/^\d{1,15}$/.test(expRaw)) return null
   const exp = Number(expRaw)
@@ -171,7 +184,8 @@ export function parseManageToken(raw: string): ParsedManageToken | null {
     bookingId,
     purpose: typedPurpose,
     exp,
-    payload: manageTokenPayload(bookingId, typedPurpose, exp),
+    nonce,
+    payload: manageTokenPayload(bookingId, typedPurpose, exp, nonce),
     signature,
   }
 }

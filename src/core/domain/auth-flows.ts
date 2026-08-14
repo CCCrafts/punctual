@@ -335,7 +335,8 @@ export interface IssuedManageToken {
  * signature is what makes `booking_id`, `purpose` and `exp` unforgeable
  * together. TTL runs from the booking's start, not from issuance — guests act
  * on old email, so what bounds exposure is rotation on state change, not a
- * short clock (ADR-0005 §4).
+ * short clock (ADR-0005 §4). The nonce is what lets that rotation actually
+ * change the token; see `manageTokenPayload`.
  */
 export async function issueManageToken(
   deps: { crypto: Crypto },
@@ -344,8 +345,9 @@ export async function issueManageToken(
   ttlMs: number = MANAGE_TOKEN_TTL_MS,
 ): Promise<IssuedManageToken> {
   const exp = booking.startUtc + ttlMs
-  const signature = await deps.crypto.sign(manageTokenPayload(booking.id, purpose, exp))
-  const token = formatManageToken(booking.id, purpose, exp, signature)
+  const nonce = deps.crypto.randomToken(9)
+  const signature = await deps.crypto.sign(manageTokenPayload(booking.id, purpose, exp, nonce))
+  const token = formatManageToken(booking.id, purpose, exp, nonce, signature)
   return { token, tokenHash: await deps.crypto.hash(token), expiresAt: exp }
 }
 

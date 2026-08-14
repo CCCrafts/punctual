@@ -55,6 +55,9 @@ export interface Repositories {
   webhooks: WebhookRepository
   idempotency: IdempotencyRepository
 
+  /** Counts for the opt-in telemetry ping (ADR-0006 §5). Nothing identifying. */
+  telemetryCounts(): Promise<{ users: number; eventTypes: number; bookings: number }>
+
   /**
    * The bookmark for this session's most recent write (ADR-0007 §2).
    * Persisted on the host's session row so a host never reads a replica older
@@ -105,6 +108,14 @@ export interface BookingRepository {
    *          the caller turns that into a 409, never a retry loop.
    */
   createWithLocks(booking: Booking, buckets: BucketClaim[]): Promise<Booking | null>
+
+  /**
+   * Confirmed bookings starting in `[from, to)`, across ALL hosts.
+   *
+   * Reminders need a cross-host query, which is precisely why bookings live in
+   * D1 rather than in per-host DO storage (ADR-0002 §2).
+   */
+  dueBetween(from: number, to: number): Promise<Booking[]>
 
   cancelWithLockRelease(bookingId: string, at: number): Promise<void>
   markRescheduled(bookingId: string, newBookingId: string): Promise<void>

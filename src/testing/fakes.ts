@@ -164,6 +164,9 @@ export function createFakeRepositories(): FakeRepositories {
     sessions: sessionRepo,
     apiKeys: apiKeyRepo,
     bookings: bookingRepo,
+    async telemetryCounts() {
+      return { users: users.size, eventTypes: 0, bookings: bookings.size }
+    },
     eventTypes: unimplemented('eventTypes'),
     availability: unimplemented('availability'),
     slotLocks: unimplemented('slotLocks'),
