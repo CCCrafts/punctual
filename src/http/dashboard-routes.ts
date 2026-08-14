@@ -509,10 +509,13 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
 
     const user = c.get('user')
     const repos = c.get('repos')
-    const draft = readEventTypeForm(form, user.id)
-    const errors = await validateEventType(repos, user, draft, null)
+    const { draft, questionsText } = readEventTypeForm(form, user.id)
+    const errors = await validateEventType(repos, user, draft, questionsText, null)
     if (Object.keys(errors).length > 0) {
-      return c.html(eventTypeForm({ brandName, user, csrf: c.get('csrf'), eventType: draft, errors }), 400)
+      return c.html(
+        eventTypeForm({ brandName, user, csrf: c.get('csrf'), eventType: draft, questionsText, errors }),
+        400,
+      )
     }
 
     await repos.eventTypes.create({ ...draft, id: `evt_${ports.crypto.randomToken(12)}` })
@@ -529,10 +532,21 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
 
     const user = c.get('user')
     const repos = c.get('repos')
-    const draft = { ...readEventTypeForm(form, user.id), id: existing.id, createdAt: existing.createdAt }
-    const errors = await validateEventType(repos, user, draft, existing.id)
+    const read = readEventTypeForm(form, user.id)
+    const draft = { ...read.draft, id: existing.id, createdAt: existing.createdAt }
+    const errors = await validateEventType(repos, user, draft, read.questionsText, existing.id)
     if (Object.keys(errors).length > 0) {
-      return c.html(eventTypeForm({ brandName, user, csrf: c.get('csrf'), eventType: draft, errors }), 400)
+      return c.html(
+        eventTypeForm({
+          brandName,
+          user,
+          csrf: c.get('csrf'),
+          eventType: draft,
+          questionsText: read.questionsText,
+          errors,
+        }),
+        400,
+      )
     }
 
     await repos.eventTypes.update(existing.id, draft)
@@ -1164,7 +1178,10 @@ function defaultAvailability(user: User): Availability {
  * when validation fails, so discarding a bad value here would silently clear
  * the field the host needs to fix.
  */
-function readEventTypeForm(form: FormData, ownerUserId: string): EventType {
+function readEventTypeForm(
+  form: FormData,
+  ownerUserId: string,
+): { draft: EventType; questionsText: string } {
   const text = (name: string): string => String(form.get(name) ?? '').trim()
   const int = (name: string, fallback: number): number => {
     const raw = text(name)
@@ -1178,7 +1195,8 @@ function readEventTypeForm(form: FormData, ownerUserId: string): EventType {
   }
 
   const title = text('title')
-  return {
+  const questionsText = String(form.get('questions') ?? '')
+  const draft: EventType = {
     id: '',
     ownerUserId,
     ownerTeamId: null,
@@ -1195,10 +1213,11 @@ function readEventTypeForm(form: FormData, ownerUserId: string): EventType {
     maxPerDay: optionalInt('maxPerDay'),
     locationType: locationTypeOf(text('locationType')),
     locationValue: text('locationValue') || null,
-    questions: parseQuestions(String(form.get('questions') ?? '')) ?? [],
+    questions: parseQuestions(questionsText) ?? [],
     active: form.get('active') !== null,
     createdAt: 0,
   }
+  return { draft, questionsText }
 }
 
 function locationTypeOf(value: string): EventType['locationType'] {
@@ -1216,6 +1235,7 @@ async function validateEventType(
   repos: Repositories,
   user: User,
   draft: EventType,
+  questionsText: string,
   currentId: string | null,
 ): Promise<Record<string, string>> {
   const errors: Record<string, string> = {}
@@ -1257,8 +1277,9 @@ async function validateEventType(
   if (draft.maxPerDay !== null && (draft.maxPerDay < 1 || draft.maxPerDay > 100)) {
     errors['maxPerDay'] = 'Leave blank for unlimited, or use 1 to 100'
   }
-  if (parseQuestions(String(draft.questions.length > 0 ? '' : '')) === null) {
-    errors['questions'] = 'One question per line'
+  if (parseQuestions(questionsText) === null) {
+    errors['questions'] =
+      'One per line: Label | text, textarea or select | required or optional | options for select'
   }
 
   return errors
