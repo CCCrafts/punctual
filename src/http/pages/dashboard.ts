@@ -981,7 +981,15 @@ export function parseWindows(value: string): DayWindow[] | null {
     const start = timeToMinutes(rawStart)
     const end = timeToMinutes(rawEnd)
     if (start === null || end === null || end <= start) return null
-    out.push({ startMinute: start, endMinute: end })
+    // Snap INWARD to the 5-minute bucket grid: start up, end down. A window
+    // beginning at 09:07 would anchor the slot grid off-grid, which lets two
+    // adjacent offered slots claim the same bucket and 409 each other
+    // (ADR-0004 §4). Snapping inward can never widen availability beyond what
+    // the host typed.
+    const snappedStart = Math.ceil(start / 5) * 5
+    const snappedEnd = Math.floor(end / 5) * 5
+    if (snappedEnd <= snappedStart) return null
+    out.push({ startMinute: snappedStart, endMinute: snappedEnd })
   }
   return out.sort((a, b) => a.startMinute - b.startMinute)
 }

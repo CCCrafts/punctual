@@ -69,12 +69,12 @@ export function createSlotService(ports: EnginePorts): SlotService {
       // on (ADR-0007, and the measurement in EventTypeRepository).
       const built: Array<HostAvailabilityInput | null> = await Promise.all(
         hostUsers.map(async (user) => {
-          const [availability, external, perDay] = await Promise.all([
+          const [availability, external] = await Promise.all([
             repos.availability.forUser(user.id),
             externalBusyFor(ports, repos, user.id, range),
-            perDayCounts(repos, user, range, eventType),
           ])
           if (!availability) return null
+          const perDay = await perDayCounts(repos, user, range, eventType, availability.timezone)
           return {
             hostUserId: user.id,
             availability,
@@ -140,12 +140,17 @@ async function perDayCounts(
   user: User,
   range: Interval,
   eventType: EventType,
+  availabilityTz: string,
 ): Promise<Map<string, number> | undefined> {
   if (eventType.maxPerDay == null) return undefined
   const counts = new Map<string, number>()
   const bookings = await repos.bookings.listForHost(user.id, range)
   for (const b of bookings) {
-    const date = b.localDate || localDateString(b.startUtc, user.tz)
+    // Keyed on the AVAILABILITY timezone, which is what computeSlots and
+    // prepareBooking both use. `user.tz` is a separate field that can drift
+    // from it, and when it does every cap lookup misses and the cap silently
+    // stops applying.
+    const date = b.localDate || localDateString(b.startUtc, availabilityTz)
     counts.set(date, (counts.get(date) ?? 0) + 1)
   }
   return counts

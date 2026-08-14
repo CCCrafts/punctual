@@ -27,7 +27,7 @@ import {
   localDatesBetween,
   localTimeToInstant,
 } from '../time/zone.js'
-import { intersectAll, mergeIntervals, subtractIntervals } from './intervals.js'
+import { BUCKET_MS, intersectAll, mergeIntervals, subtractIntervals } from './intervals.js'
 
 const MINUTE = 60_000
 const DAY = 86_400_000
@@ -105,12 +105,24 @@ function candidatesInWindow(
   bufferAfterMs: number,
 ): number[] {
   const out: number[] = []
-  // The first candidate must leave room for its own leading buffer.
-  let start = window.start + bufferBeforeMs
-  // Guard against a pathological step; callers validate, this is belt and braces.
   if (stepMs <= 0) return out
+
+  // The grid is anchored at the WINDOW start (ADR-0004 §3.4) and snapped UP to
+  // the 5-minute bucket grid.
+  //
+  // The snap is what keeps the generator/arbiter contract (§4) true. A free
+  // window can begin on any minute — external freeBusy returns raw provider
+  // timestamps — and without snapping, two adjacent offered slots can bucket
+  // onto a SHARED bucket. `slot_locks` has a primary key on
+  // (host, bucket_start), so the second guest would get a hard 409 on a slot
+  // we had just offered, and merely opening the form on the first would remove
+  // the second from everyone else's listing.
+  //
+  // Buffers FILTER candidates; they do not move the anchor (§3.5).
+  let start = Math.ceil(window.start / BUCKET_MS) * BUCKET_MS
+
   while (start + durationMs + bufferAfterMs <= window.end) {
-    out.push(start)
+    if (start - bufferBeforeMs >= window.start) out.push(start)
     start += stepMs
   }
   return out
@@ -251,6 +263,12 @@ export function isSlotStillValid(
   start: number,
   now: number,
 ): boolean {
+  // A start off the 5-minute grid was never offered, and would claim buckets
+  // that straddle two legitimately-offered slots — blocking both. The client
+  // supplies `start` directly, so this must be checked here rather than
+  // trusted from the listing.
+  if (start % BUCKET_MS !== 0) return false
+
   const end = start + et.durationMinutes * MINUTE
   const footprint = bookingFootprint(start, end, et)
 

@@ -25,6 +25,15 @@ export interface BookingRequest {
   eventType: EventType
   /** Every candidate host. Round-robin narrows this; collective uses all. */
   hosts: HostAvailabilityInput[]
+  /**
+   * How many hosts the CALLER intended to include.
+   *
+   * `hosts` contains only those that resolved — a member with no availability
+   * row silently disappears upstream. For a collective booking that difference
+   * is the whole meeting: committing with the survivors writes locks for some
+   * hosts and leaves the dropped one's calendar unprotected and uninvited.
+   */
+  expectedHostCount?: number
   start: number
   guestName: string
   guestEmail: string
@@ -57,9 +66,14 @@ export type BookingResult =
  * that last tie-break two identical requests could pick different hosts, which
  * makes the behaviour untestable.
  *
- * Ratio rather than raw weight: dividing elapsed time by weight means a
- * heavier host becomes "due" faster, which distributes proportionally instead
- * of merely preferring the heaviest host forever.
+ * Idle time MULTIPLIED by weight, then pick the maximum. A heavier host
+ * accrues "due-ness" faster and is therefore chosen more often, which is what
+ * distributes load proportionally.
+ *
+ * This was originally written as `idleMs / weight`, which inverts the
+ * behaviour exactly: dividing makes a heavier host score LOWER, so a host
+ * configured for triple load received a third of it. Caught by a simulation
+ * over 40 sequential picks (weights 1 and 3 gave 30/10 instead of 10/30).
  */
 export function pickRoundRobinHost(
   eligibleIds: string[],
@@ -76,7 +90,7 @@ export function pickRoundRobinHost(
     const weight = Math.max(1, byId.get(id)?.rrWeight ?? 1)
     const last = lastAssignedAt.get(id) ?? 0
     const idleMs = Math.max(0, now - last)
-    const score = idleMs / weight
+    const score = idleMs * weight
     if (score > bestScore) {
       bestScore = score
       best = id
@@ -122,7 +136,16 @@ export function prepareBooking(req: BookingRequest): BookingResult {
   // Which hosts must be free depends on the scheduling type.
   let participating: HostAvailabilityInput[]
   if (et.schedulingType === 'collective') {
-    // All of them — and if any one fails, the whole booking fails.
+    // All of them — and if any one fails, the whole booking fails. That
+    // includes hosts that failed to resolve at all, which would otherwise
+    // vanish from the set and be silently excluded from their own meeting.
+    if (req.expectedHostCount != null && req.hosts.length < req.expectedHostCount) {
+      return {
+        ok: false,
+        reason: 'outside_availability',
+        detail: 'one or more hosts have no availability configured',
+      }
+    }
     participating = req.hosts
     for (const h of participating) {
       if (!isSlotStillValid(h, et, req.start, now)) {
@@ -217,6 +240,23 @@ export function combineBusy(
  * inline; a booking page that just says "invalid" is a booking page people
  * abandon.
  */
+export function pickDeclaredAnswers(
+  et: EventType,
+  answers: Record<string, string>,
+): Record<string, string> {
+  // Only keys the event type actually declares. Anything else bypasses the
+  // required/select checks and the length cap below, and `buildDescription`
+  // writes every key into the event on the host's real calendar — so an
+  // unauthenticated guest could otherwise put arbitrary text of arbitrary
+  // size there.
+  const out: Record<string, string> = {}
+  for (const q of et.questions) {
+    const v = answers[q.id]
+    if (v !== undefined) out[q.id] = v
+  }
+  return out
+}
+
 export function validateAnswers(
   et: EventType,
   answers: Record<string, string>,
