@@ -330,6 +330,19 @@ export interface HostCoordinator {
   releaseLease(hostUserIds: string[], leaseId: string): Promise<void>
 }
 
+export interface HoldRequest {
+  eventTypeId: string
+  /**
+   * For round-robin this is the provisional pick, not a commitment: an
+   * abandoned form must not skew the rotation, so assignment still re-runs at
+   * commit (ADR-0004 §5).
+   */
+  hostUserIds: string[]
+  start: number
+  end: number
+  ttlMs: number
+}
+
 export interface BookingAttempt {
   eventTypeId: string
   hostUserIds: string[]

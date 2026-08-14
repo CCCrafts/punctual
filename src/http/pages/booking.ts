@@ -1,0 +1,356 @@
+/**
+ * The public booking page (spec §5.1, ADR-0007 §3).
+ *
+ * Server-rendered strings rather than a component framework: the §7 budget is
+ * <100 ms TTFB and <80 KB gzip, and the interaction model — pick a day, pick a
+ * slot, fill a form — is three navigations, not an application.
+ *
+ * The page is session-free by design (ADR-0005 §5). It carries no cookie and
+ * no ambient authority, which is what lets the dashboard cookie stay
+ * SameSite=Lax while this page is embedded cross-origin in an iframe.
+ *
+ * Streaming: `shellHead` is flushed before any D1 read so TTFB is a function of
+ * edge render, not of a replica round trip. We also hold a time-to-first-slot
+ * budget (<400 ms) precisely so that flushing early cannot flatter the number
+ * while the page is still useless (ADR-0007 §3).
+ */
+
+import type { EventType, Slot, User } from '../../core/domain/types.js'
+import { formatInZone, localDateString, offsetLabel } from '../../core/time/zone.js'
+import { pageCss } from '../styles.js'
+
+export function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+export interface PageChrome {
+  title: string
+  description?: string
+  brandName: string
+  themeColor?: string
+}
+
+/**
+ * Everything before the first data-dependent byte. Flushed immediately.
+ */
+export function shellHead(chrome: PageChrome): string {
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${escapeHtml(chrome.title)}</title>
+${chrome.description ? `<meta name="description" content="${escapeHtml(chrome.description)}">` : ''}
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="${chrome.themeColor ?? '#0E7C4C'}">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<style>${pageCss()}</style>
+</head>
+<body>
+<div class="pu-wrap">`
+}
+
+export function shellFoot(brandName: string, poweredBy = true): string {
+  return `</div>
+${poweredBy ? `<p class="pu-foot"><a class="pu-mark" href="/">${escapeHtml(brandName.toLowerCase())}<span>:</span></a> — scheduling that shows up on time</p>` : ''}
+</body></html>`
+}
+
+/** Placeholder emitted with the shell, replaced when slot data arrives. */
+export function slotsSkeleton(): string {
+  return `<div id="pu-slots" aria-busy="true" aria-live="polite">
+  <p class="pu-sr">Loading available times…</p>
+  ${Array.from({ length: 6 }, () => '<div class="pu-skeleton"></div>').join('\n  ')}
+</div>`
+}
+
+export interface BookingPageData {
+  host: User
+  eventType: EventType
+  /** The month being displayed, as a host-local `YYYY-MM`. */
+  month: string
+  /** Day → whether it has any bookable slot. */
+  daysWithSlots: Map<string, boolean>
+  selectedDate?: string
+  slots?: Slot[]
+  guestTimezone: string
+  baseUrl: string
+}
+
+export function eventHeader(d: BookingPageData): string {
+  const durationLabel = `${d.eventType.durationMinutes} min`
+  const location = locationLabel(d.eventType)
+  return `<header class="pu-card" style="margin-bottom:1.5rem">
+  <p class="pu-muted" style="margin:0 0 .25rem">${escapeHtml(d.host.name || d.host.slug)}</p>
+  <h1>${escapeHtml(d.eventType.title)}</h1>
+  ${d.eventType.description ? `<p class="pu-muted">${escapeHtml(d.eventType.description)}</p>` : ''}
+  <ul class="pu-meta">
+    <li><span class="pu-dot"></span> ${escapeHtml(durationLabel)}</li>
+    ${location ? `<li>${escapeHtml(location)}</li>` : ''}
+    <li>${escapeHtml(d.guestTimezone)} (${escapeHtml(offsetLabel(Date.now(), d.guestTimezone))})</li>
+  </ul>
+</header>`
+}
+
+function locationLabel(et: EventType): string {
+  switch (et.locationType) {
+    case 'google_meet':
+      return 'Google Meet'
+    case 'phone':
+      return 'Phone call'
+    case 'in_person':
+      return et.locationValue ?? 'In person'
+    case 'custom_link':
+      return 'Online'
+    default:
+      return ''
+  }
+}
+
+/**
+ * The month grid.
+ *
+ * Rendered as links, not buttons: a day view is a URL, which means the back
+ * button works, the page is shareable, and the whole flow degrades to plain
+ * HTML with no JavaScript at all.
+ */
+export function monthGrid(d: BookingPageData): string {
+  const [yStr, mStr] = d.month.split('-')
+  const year = Number(yStr)
+  const month = Number(mStr)
+  const firstOfMonth = new Date(Date.UTC(year, month - 1, 1))
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate()
+  const leading = firstOfMonth.getUTCDay()
+  const todayLocal = localDateString(Date.now(), d.host.tz)
+
+  const cells: string[] = []
+  for (let i = 0; i < leading; i++) cells.push('<span></span>')
+
+  for (let day = 1; day <= daysInMonth; day++) {
+    const date = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+    const has = d.daysWithSlots.get(date) === true
+    const current = date === todayLocal ? ' aria-current="date"' : ''
+    if (has) {
+      const href = `${bookingPath(d)}?date=${date}&tz=${encodeURIComponent(d.guestTimezone)}`
+      cells.push(
+        `<a class="pu-day" data-has-slots="1"${current} href="${escapeHtml(href)}" ` +
+          `aria-label="${escapeHtml(humanDate(date, d.guestTimezone))}, times available">${day}</a>`,
+      )
+    } else {
+      cells.push(`<span class="pu-day" aria-disabled="true"${current}>${day}</span>`)
+    }
+  }
+
+  const monthLabel = new Intl.DateTimeFormat('en-US', {
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(firstOfMonth)
+
+  const prev = shiftMonth(d.month, -1)
+  const next = shiftMonth(d.month, 1)
+  const base = bookingPath(d)
+  const tzq = `&tz=${encodeURIComponent(d.guestTimezone)}`
+
+  return `<section class="pu-card" aria-label="Choose a day">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem">
+    <a class="pu-btn pu-btn-ghost" style="padding:.35rem .6rem"
+       href="${escapeHtml(`${base}?month=${prev}${tzq}`)}" aria-label="Previous month">←</a>
+    <h2 style="margin:0">${escapeHtml(monthLabel)}</h2>
+    <a class="pu-btn pu-btn-ghost" style="padding:.35rem .6rem"
+       href="${escapeHtml(`${base}?month=${next}${tzq}`)}" aria-label="Next month">→</a>
+  </div>
+  <div class="pu-cal" role="grid">
+    ${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+      .map((x) => `<div class="pu-cal-head" role="columnheader" aria-label="${x}day">${x}</div>`)
+      .join('')}
+    ${cells.join('\n    ')}
+  </div>
+</section>`
+}
+
+/** Slot list for a chosen day, in the GUEST's timezone. */
+export function slotList(d: BookingPageData): string {
+  if (!d.selectedDate) {
+    return `<section class="pu-card" aria-label="Available times">
+      <p class="pu-muted">Pick a day to see available times.</p></section>`
+  }
+  const slots = d.slots ?? []
+  if (slots.length === 0) {
+    return `<section class="pu-card" aria-label="Available times">
+      <h2>${escapeHtml(humanDate(d.selectedDate, d.guestTimezone))}</h2>
+      <p class="pu-muted">No times available on this day.</p></section>`
+  }
+
+  const items = slots
+    .map((s) => {
+      const label = formatInZone(s.start, d.guestTimezone, { hour: 'numeric', minute: '2-digit' })
+      const href =
+        `${bookingPath(d)}/confirm?start=${s.start}` +
+        `&tz=${encodeURIComponent(d.guestTimezone)}`
+      return `<a class="pu-slot" href="${escapeHtml(href)}">
+        <time datetime="${new Date(s.start).toISOString()}">${escapeHtml(label)}</time></a>`
+    })
+    .join('\n    ')
+
+  return `<section class="pu-card" aria-label="Available times">
+  <h2>${escapeHtml(humanDate(d.selectedDate, d.guestTimezone))}</h2>
+  <p class="pu-muted" style="font-size:.8125rem">
+    Times shown in ${escapeHtml(d.guestTimezone)} (${escapeHtml(offsetLabel(slots[0]!.start, d.guestTimezone))})
+  </p>
+  <div class="pu-slots">
+    ${items}
+  </div>
+</section>`
+}
+
+/** The confirmation form. Includes the hidden hold id when one was placed. */
+export function confirmForm(
+  d: BookingPageData,
+  start: number,
+  opts: { holdId?: string; errors?: Record<string, string>; values?: Record<string, string> } = {},
+): string {
+  const et = d.eventType
+  const errors = opts.errors ?? {}
+  const values = opts.values ?? {}
+  const when = formatInZone(start, d.guestTimezone, {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+
+  const questions = et.questions
+    .map((q) => {
+      const err = errors[q.id]
+      const val = escapeHtml(values[q.id] ?? '')
+      const req = q.required ? ' required aria-required="true"' : ''
+      const desc = err ? ` aria-describedby="err-${escapeHtml(q.id)}"` : ''
+      const field =
+        q.type === 'textarea'
+          ? `<textarea id="q-${escapeHtml(q.id)}" name="q_${escapeHtml(q.id)}"${req}${desc}>${val}</textarea>`
+          : q.type === 'select'
+            ? `<select id="q-${escapeHtml(q.id)}" name="q_${escapeHtml(q.id)}"${req}${desc}>
+                 <option value=""></option>
+                 ${(q.options ?? [])
+                   .map(
+                     (o) =>
+                       `<option value="${escapeHtml(o)}"${values[q.id] === o ? ' selected' : ''}>${escapeHtml(o)}</option>`,
+                   )
+                   .join('')}
+               </select>`
+            : `<input id="q-${escapeHtml(q.id)}" name="q_${escapeHtml(q.id)}" value="${val}"${req}${desc}>`
+      return `<label for="q-${escapeHtml(q.id)}">${escapeHtml(q.label)}${q.required ? '' : ' <span class="pu-muted">(optional)</span>'}</label>
+        ${field}
+        ${err ? `<p class="pu-err" id="err-${escapeHtml(q.id)}">${escapeHtml(err)}</p>` : ''}`
+    })
+    .join('\n')
+
+  return `<section class="pu-card" aria-label="Confirm your booking">
+  <h2>Confirm your booking</h2>
+  <p><strong class="pu-time">${escapeHtml(when)}</strong><br>
+     <span class="pu-muted">${escapeHtml(d.guestTimezone)} · ${escapeHtml(String(et.durationMinutes))} min</span></p>
+  <form method="post" action="${escapeHtml(bookingPath(d))}/confirm">
+    <input type="hidden" name="start" value="${start}">
+    <input type="hidden" name="tz" value="${escapeHtml(d.guestTimezone)}">
+    ${opts.holdId ? `<input type="hidden" name="hold" value="${escapeHtml(opts.holdId)}">` : ''}
+    <label for="name">Your name</label>
+    <input id="name" name="name" required aria-required="true" autocomplete="name"
+           value="${escapeHtml(values['name'] ?? '')}"
+           ${errors['name'] ? 'aria-describedby="err-name"' : ''}>
+    ${errors['name'] ? `<p class="pu-err" id="err-name">${escapeHtml(errors['name'])}</p>` : ''}
+    <label for="email">Email</label>
+    <input id="email" name="email" type="email" required aria-required="true" autocomplete="email"
+           value="${escapeHtml(values['email'] ?? '')}"
+           ${errors['email'] ? 'aria-describedby="err-email"' : ''}>
+    ${errors['email'] ? `<p class="pu-err" id="err-email">${escapeHtml(errors['email'])}</p>` : ''}
+    ${questions}
+    <div style="margin-top:1.25rem;display:flex;gap:.75rem;flex-wrap:wrap">
+      <button class="pu-btn" type="submit">Confirm booking</button>
+      <a class="pu-btn pu-btn-ghost" href="${escapeHtml(bookingPath(d))}?date=${escapeHtml(localDateString(start, d.guestTimezone))}">Back</a>
+    </div>
+  </form>
+</section>`
+}
+
+export function bookedConfirmation(opts: {
+  eventTitle: string
+  hostName: string
+  start: number
+  guestTimezone: string
+  manageUrl: string
+  locationLabel?: string
+}): string {
+  const when = formatInZone(opts.start, opts.guestTimezone, {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+  return `<section class="pu-card" aria-label="Booking confirmed">
+  <p><span class="pu-badge">Confirmed</span></p>
+  <h1>You're booked</h1>
+  <p><strong>${escapeHtml(opts.eventTitle)}</strong> with ${escapeHtml(opts.hostName)}</p>
+  <p class="pu-time"><strong>${escapeHtml(when)}</strong><br>
+    <span class="pu-muted">${escapeHtml(opts.guestTimezone)}</span></p>
+  ${opts.locationLabel ? `<p class="pu-muted">${escapeHtml(opts.locationLabel)}</p>` : ''}
+  <p class="pu-muted">A calendar invitation is on its way to your inbox.</p>
+  <p style="margin-top:1.25rem">
+    <a class="pu-btn pu-btn-ghost" href="${escapeHtml(opts.manageUrl)}">Reschedule or cancel</a>
+  </p>
+</section>`
+}
+
+/**
+ * The 409 page.
+ *
+ * A slot can be listed and then lost: listings may come from a read replica
+ * (ADR-0007 §2) and round-robin listings are advisory about who. This is an
+ * expected outcome, so it reads as a normal step with the next action right
+ * there — not as an error.
+ */
+export function slotTakenPage(d: BookingPageData, date: string): string {
+  return `<section class="pu-card" aria-label="Time no longer available">
+  <h1>That time was just taken</h1>
+  <p class="pu-muted">Someone booked it while you were filling in the form. Here are the other times that day.</p>
+  <p style="margin-top:1rem">
+    <a class="pu-btn" href="${escapeHtml(bookingPath(d))}?date=${escapeHtml(date)}&tz=${encodeURIComponent(d.guestTimezone)}">See available times</a>
+  </p>
+</section>`
+}
+
+export function errorPage(title: string, message: string): string {
+  return `<section class="pu-card">
+  <h1>${escapeHtml(title)}</h1>
+  <p class="pu-muted">${escapeHtml(message)}</p>
+</section>`
+}
+
+// ---------------------------------------------------------------------------
+
+export function bookingPath(d: { host: User; eventType: EventType }): string {
+  return `/${encodeURIComponent(d.host.slug)}/${encodeURIComponent(d.eventType.slug)}`
+}
+
+function humanDate(date: string, tz: string): string {
+  const [y, m, dd] = date.split('-').map(Number) as [number, number, number]
+  return new Intl.DateTimeFormat('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    timeZone: 'UTC',
+  }).format(new Date(Date.UTC(y, m - 1, dd)))
+}
+
+export function shiftMonth(month: string, delta: number): string {
+  const [y, m] = month.split('-').map(Number) as [number, number]
+  const d = new Date(Date.UTC(y, m - 1 + delta, 1))
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`
+}

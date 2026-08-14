@@ -1,0 +1,69 @@
+#:schema node_modules/wrangler/config-schema.json
+name = "punctual"
+main = "src/index.ts"
+compatibility_date = "2025-08-23"
+compatibility_flags = ["nodejs_compat"]
+
+# The OSS deliverable is one Worker and one D1 (spec §8). Nothing below
+# requires a paid plan; a self-hoster runs `wrangler deploy` and is done.
+
+[observability]
+enabled = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "punctual"
+database_id = "REPLACE_WITH_YOUR_DATABASE_ID"
+migrations_dir = "migrations"
+
+# freeBusy cache ONLY (ADR-0006 §1). Own bookings and holds are always read
+# from D1 — KV propagates in "up to 60 seconds or more", which is unacceptable
+# for the writes users check immediately.
+[[kv_namespaces]]
+binding = "CACHE"
+id = "REPLACE_WITH_YOUR_KV_ID"
+
+[[durable_objects.bindings]]
+name = "HOST_CALENDAR"
+class_name = "HostCalendar"
+
+[[durable_objects.bindings]]
+name = "RATE_LIMITER"
+class_name = "RateLimiter"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["HostCalendar", "RateLimiter"]
+
+# Emails and webhooks. Both degrade gracefully when absent: the engine falls
+# back to inline delivery so a self-hoster without Queues still works.
+[[queues.producers]]
+binding = "TASKS"
+queue = "punctual-tasks"
+
+[[queues.consumers]]
+queue = "punctual-tasks"
+max_batch_size = 10
+max_batch_timeout = 5
+max_retries = 5
+dead_letter_queue = "punctual-tasks-dlq"
+
+# Reminders at 24h and 1h, plus hold expiry and lock pruning.
+[triggers]
+crons = ["*/5 * * * *"]
+
+[vars]
+BASE_URL = "http://localhost:8787"
+BRAND_NAME = "Punctual"
+FROM_EMAIL = "hello@example.com"
+FROM_NAME = "Punctual"
+SUPPORT_EMAIL = "hello@example.com"
+# Off unless explicitly enabled (ADR-0006 §5).
+TELEMETRY_ENABLED = "0"
+
+# Secrets — set with `wrangler secret put`, never in this file:
+#   ENCRYPTION_KEY_V1   base64 32 bytes, AES-GCM for refresh tokens at rest
+#   SIGNING_KEY         base64 32 bytes, HMAC for manage links
+#   GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET
+#   MICROSOFT_CLIENT_ID / MICROSOFT_CLIENT_SECRET
+#   RESEND_API_KEY      (or leave unset to log emails to console)
