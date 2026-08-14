@@ -12,6 +12,7 @@
  */
 
 import { Hono, type Context } from 'hono'
+import { streamPage } from './streaming.js'
 import type { EnginePorts, RequestScope } from '../ports.js'
 import type { SlotService } from '../engine.js'
 import { daysWithSlots, monthRange } from '../engine.js'
@@ -52,50 +53,59 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
     const repos = ports.repositories(publicScope)
     const { userSlug, eventSlug } = c.req.param()
 
-    const host = await repos.users.bySlug(userSlug)
-    const eventType = host ? await repos.eventTypes.bySlug(userSlug, eventSlug) : null
-    if (!host || !eventType) return notFound(c, ports)
+    // One round trip, not two awaits — see EventTypeRepository.bookingPageContext.
+    const ctx = await repos.eventTypes.bookingPageContext(userSlug, eventSlug)
+    if (!ctx) return notFound(c, ports)
+    const { host, eventType } = ctx
 
     const guestTimezone = resolveGuestTimezone(c.req.query('tz'), c.req.raw, host.tz)
     const month = validMonth(c.req.query('month')) ?? localDateString(ports.clock.now(), host.tz).slice(0, 7)
     const selectedDate = validDate(c.req.query('date'))
 
-    const hostUsers = await resolveHosts(repos, eventType, host)
-
-    // Month view drives the calendar; a selected day narrows the slot list.
-    const monthSlots = await slots.forEventType({
-      eventType,
-      hostUsers,
-      range: monthRange(month, host.tz),
-      scope: publicScope,
-    })
-
-    const daySlots = selectedDate
-      ? monthSlots.filter((s) => localDateString(s.start, guestTimezone) === selectedDate)
-      : undefined
-
-    const data: BookingPageData = {
+    // Flush the shell and the event header before touching D1 for slots: TTFB
+    // then measures edge render rather than a replica round trip (ADR-0007 §3).
+    // The header is safe to emit early because it comes from the context read
+    // we already have.
+    const headerData: BookingPageData = {
       host,
       eventType,
       month,
-      daysWithSlots: daysWithSlots(monthSlots, host.tz),
-      selectedDate,
-      slots: daySlots,
+      daysWithSlots: new Map(),
       guestTimezone,
       baseUrl: ports.config.baseUrl,
     }
 
-    const html =
+    const head =
       shellHead({
         title: `${eventType.title} · ${host.name || host.slug}`,
         description: eventType.description || undefined,
         brandName: ports.config.brandName,
-      }) +
-      eventHeader(data) +
-      `<div class="pu-grid">${monthGrid(data)}${slotList(data)}</div>` +
-      shellFoot(ports.config.brandName)
+      }) + eventHeader(headerData)
 
-    return c.html(html)
+    return streamPage(head, async () => {
+      const hostUsers = await resolveHosts(repos, eventType, host)
+
+      // Month view drives the calendar; a selected day narrows the slot list.
+      const monthSlots = await slots.forEventType({
+        eventType,
+        hostUsers,
+        range: monthRange(month, host.tz),
+        scope: publicScope,
+      })
+
+      const daySlots = selectedDate
+        ? monthSlots.filter((s) => localDateString(s.start, guestTimezone) === selectedDate)
+        : undefined
+
+      const data: BookingPageData = {
+        ...headerData,
+        daysWithSlots: daysWithSlots(monthSlots, host.tz),
+        selectedDate,
+        slots: daySlots,
+      }
+
+      return `<div class="pu-grid">${monthGrid(data)}${slotList(data)}</div>`
+    }, shellFoot(ports.config.brandName))
   })
 
   // -------------------------------------------------------------------------
@@ -104,9 +114,9 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
   app.get('/:userSlug/:eventSlug/confirm', async (c) => {
     const repos = ports.repositories(publicScope)
     const { userSlug, eventSlug } = c.req.param()
-    const host = await repos.users.bySlug(userSlug)
-    const eventType = host ? await repos.eventTypes.bySlug(userSlug, eventSlug) : null
-    if (!host || !eventType) return notFound(c, ports)
+    const ctx = await repos.eventTypes.bookingPageContext(userSlug, eventSlug)
+    if (!ctx) return notFound(c, ports)
+    const { host, eventType } = ctx
 
     const start = Number(c.req.query('start'))
     if (!Number.isFinite(start)) return notFound(c, ports)
@@ -150,9 +160,9 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
 
     // The commit path reads its own writes.
     const repos = ports.repositories({ consistency: 'bookmark' })
-    const host = await repos.users.bySlug(userSlug)
-    const eventType = host ? await repos.eventTypes.bySlug(userSlug, eventSlug) : null
-    if (!host || !eventType) return notFound(c, ports)
+    const ctx = await repos.eventTypes.bookingPageContext(userSlug, eventSlug)
+    if (!ctx) return notFound(c, ports)
+    const { host, eventType } = ctx
 
     const form = await c.req.formData()
     const start = Number(form.get('start'))

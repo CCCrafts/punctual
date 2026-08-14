@@ -77,6 +77,19 @@ export interface UserRepository {
 export interface EventTypeRepository {
   byId(id: string): Promise<EventType | null>
   bySlug(ownerSlug: string, eventSlug: string): Promise<EventType | null>
+  /**
+   * Host and event type in ONE round trip.
+   *
+   * Measured on the deployed Worker (2026-08-14): the edge alone answers in
+   * ~100 ms, while the booking page took ~380 ms because it made six
+   * sequential D1 calls at ~40 ms each. Round-trip COUNT dominates replica
+   * distance, so the page's first two lookups are collapsed here rather than
+   * being two awaits that read nicely.
+   */
+  bookingPageContext(
+    ownerSlug: string,
+    eventSlug: string,
+  ): Promise<{ host: User; eventType: EventType } | null>
   listForUser(userId: string): Promise<EventType[]>
   listForTeam(teamId: string): Promise<EventType[]>
   create(et: Omit<EventType, 'createdAt'>): Promise<EventType>
