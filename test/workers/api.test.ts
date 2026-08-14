@@ -272,7 +272,14 @@ describe('event types', () => {
     const created = await app.request('/api/v1/event-types', {
       method: 'POST',
       headers,
-      body: JSON.stringify({ slug: 'intro', title: 'Intro call', durationMinutes: 15 }),
+      body: JSON.stringify({
+        slug: 'intro',
+        title: 'Intro call',
+        description: 'Fifteen minutes to say hello',
+        durationMinutes: 15,
+        bufferAfterMinutes: 10,
+        minNoticeMinutes: 120,
+      }),
     })
     expect(created.status).toBe(201)
     const createdBody = (await created.json()) as { data: { id: string } }
@@ -285,7 +292,16 @@ describe('event types', () => {
     expect(patched.status).toBe(200)
     // The response is a read-after-write: it must show the stored row, not the
     // patch echoed back (ADR-0007 §2).
-    expect(((await patched.json()) as { data: { title: string } }).data.title).toBe('Intro chat')
+    const patchedBody = (await patched.json()) as {
+      data: { title: string; description: string; bufferAfterMinutes: number; minNoticeMinutes: number }
+    }
+    expect(patchedBody.data.title).toBe('Intro chat')
+    // A PATCH names what changes. Fields it does not name must survive it —
+    // the failure mode being guarded is a schema whose absent keys quietly
+    // materialise their defaults and wipe the host's settings.
+    expect(patchedBody.data.description).toBe('Fifteen minutes to say hello')
+    expect(patchedBody.data.bufferAfterMinutes).toBe(10)
+    expect(patchedBody.data.minNoticeMinutes).toBe(120)
 
     const deleted = await app.request(`/api/v1/event-types/${createdBody.data.id}`, {
       method: 'DELETE',
