@@ -1,0 +1,39 @@
+{
+  "name": "@punctual/engine",
+  "version": "0.1.0",
+  "description": "Edge-native scheduling engine — the complete single-team product, on Cloudflare Workers",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./core": "./src/core/index.ts",
+    "./adapters": "./src/adapters/index.ts",
+    "./testing": "./src/testing/index.ts"
+  },
+  "files": ["src", "migrations", "README.md", "LICENSE"],
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "migrate": "wrangler d1 migrations apply punctual",
+    "migrate:local": "wrangler d1 migrations apply punctual --local",
+    "generate": "drizzle-kit generate",
+    "test": "vitest run",
+    "test:core": "vitest run test/core",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.45.2",
+    "hono": "^4.13.2",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.21.3",
+    "@cloudflare/workers-types": "^5.20260814.1",
+    "drizzle-kit": "^0.31.10",
+    "typescript": "^5.9.2",
+    "vitest": "^4.1.10",
+    "wrangler": "^4.123.0"
+  },
+  "engines": { "node": ">=20" }
+}
