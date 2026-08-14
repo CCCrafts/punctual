@@ -53,7 +53,10 @@ describe('encrypt / decrypt', () => {
   it('rejects a tampered ciphertext', async () => {
     const c = subject({ 1: KEY_V1 }, 1)
     const { ciphertext } = await c.encrypt('refresh-token-abc', AAD)
-    const flipped = ciphertext.slice(0, -1) + (ciphertext.endsWith('A') ? 'B' : 'A')
+    // Flip the FIRST character, not the last: base64url's final character
+    // carries spare bits, so a tail flip can decode to identical bytes and
+    // the assertion would pass or fail on the luck of the key material.
+    const flipped = (ciphertext.startsWith('A') ? 'B' : 'A') + ciphertext.slice(1)
     await expect(c.decrypt(flipped, AAD, 1)).rejects.toThrow()
   })
 
@@ -118,7 +121,8 @@ describe('sign / verify', () => {
     const c = subject({ 1: KEY_V1 }, 1)
     const payload = 'bk_123|cancel|1789000000000'
     const sig = await c.sign(payload)
-    const tampered = sig.slice(0, -1) + (sig.endsWith('A') ? 'B' : 'A')
+    // First character, for the same reason as above.
+    const tampered = (sig.startsWith('A') ? 'B' : 'A') + sig.slice(1)
     expect(await c.verify(payload, tampered)).toBe(false)
     expect(await c.verify(payload, '')).toBe(false)
     expect(await c.verify(payload, 'not-base64!!')).toBe(false)
