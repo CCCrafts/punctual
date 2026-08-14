@@ -20,11 +20,6 @@
 
 import { DurableObject } from 'cloudflare:workers'
 
-interface Lease {
-  leaseId: string
-  expiresAt: number
-}
-
 interface HeldSlot {
   holdId: string
   start: number

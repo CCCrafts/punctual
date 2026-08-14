@@ -133,7 +133,7 @@ export function freeByHost(query: SlotQuery): Map<string, Interval[]> {
  * Round-robin — at least one member free; grid per host, then union by start.
  */
 export function computeSlots(query: SlotQuery): Slot[] {
-  const { eventType: et, range, now } = query
+  const { eventType: et, now } = query
   if (!et.active || query.hosts.length === 0) return []
 
   const durationMs = et.durationMinutes * MINUTE

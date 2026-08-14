@@ -339,7 +339,7 @@ export function bookingPath(d: { host: User; eventType: EventType }): string {
   return `/${encodeURIComponent(d.host.slug)}/${encodeURIComponent(d.eventType.slug)}`
 }
 
-function humanDate(date: string, tz: string): string {
+function humanDate(date: string, _tz: string): string {
   const [y, m, dd] = date.split('-').map(Number) as [number, number, number]
   return new Intl.DateTimeFormat('en-US', {
     weekday: 'long',

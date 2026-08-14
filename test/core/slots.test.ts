@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import {
   bookingFootprint,
   computeSlots,
-  freeIntervalsForHost,
   isSlotStillValid,
   type HostAvailabilityInput,
 } from '../../src/core/slots/engine.js'
