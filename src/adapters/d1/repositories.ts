@@ -132,6 +132,34 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
       )
       return mapEventType(row)
     },
+    async bookingPageContext(ownerSlug, eventSlug) {
+      // One query instead of two awaits: round-trip count is what the booking
+      // page's latency budget is actually spent on (see the port doc).
+      const row = await first<Record<string, unknown>>(
+        `SELECT
+           u.id AS u_id, u.email AS u_email, u.name AS u_name, u.tz AS u_tz,
+           u.slug AS u_slug, u.created_at AS u_created_at,
+           et.*
+         FROM event_types et
+         JOIN users u ON u.id = et.owner_user_id
+         WHERE u.slug = ? AND et.slug = ? AND et.active = 1
+         LIMIT 1`,
+        ownerSlug,
+        eventSlug,
+      )
+      if (!row) return null
+      const host = mapUser({
+        id: row['u_id'],
+        email: row['u_email'],
+        name: row['u_name'],
+        tz: row['u_tz'],
+        slug: row['u_slug'],
+        created_at: row['u_created_at'],
+      })
+      const eventType = mapEventType(row)
+      return host && eventType ? { host, eventType } : null
+    },
+
     async listForUser(userId) {
       const rows = await all<Record<string, unknown>>(
         'SELECT * FROM event_types WHERE owner_user_id = ? ORDER BY created_at',

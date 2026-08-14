@@ -63,25 +63,31 @@ export function createSlotService(ports: EnginePorts): SlotService {
         repos.slotLocks.activeHolds(hostIds, range, ports.clock.now()),
       ])
 
-      const hosts: HostAvailabilityInput[] = []
-      for (const user of hostUsers) {
-        const availability = await repos.availability.forUser(user.id)
-        if (!availability) continue
-
-        const external = await externalBusyFor(ports, repos, user.id, range)
-        const busy = combineBusy(
-          busyByHost.get(user.id) ?? [],
-          holdsByHost.get(user.id) ?? [],
-          external,
-        )
-
-        hosts.push({
-          hostUserId: user.id,
-          availability,
-          busy,
-          bookingsPerLocalDate: await perDayCounts(repos, user, range, eventType),
-        })
-      }
+      // Per-host reads run concurrently rather than in an await loop: with N
+      // hosts the sequential version costs N x (availability + connections)
+      // round trips, and round-trip count is what the latency budget is spent
+      // on (ADR-0007, and the measurement in EventTypeRepository).
+      const built: Array<HostAvailabilityInput | null> = await Promise.all(
+        hostUsers.map(async (user) => {
+          const [availability, external, perDay] = await Promise.all([
+            repos.availability.forUser(user.id),
+            externalBusyFor(ports, repos, user.id, range),
+            perDayCounts(repos, user, range, eventType),
+          ])
+          if (!availability) return null
+          return {
+            hostUserId: user.id,
+            availability,
+            busy: combineBusy(
+              busyByHost.get(user.id) ?? [],
+              holdsByHost.get(user.id) ?? [],
+              external,
+            ),
+            bookingsPerLocalDate: perDay,
+          }
+        }),
+      )
+      const hosts = built.filter((h): h is HostAvailabilityInput => h !== null)
 
       return computeSlots({ eventType, hosts, range, now: ports.clock.now() })
     },
