@@ -1,5 +1,6 @@
-# Local working notes
-docs/
+# Local working notes (docs/ itself is public — self-hosting guide lives there)
+notes/
+scratch/
 
 # Secrets & env
 .env
