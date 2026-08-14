@@ -13,7 +13,7 @@ enabled = true
 [[d1_databases]]
 binding = "DB"
 database_name = "punctual"
-database_id = "REPLACE_WITH_YOUR_DATABASE_ID"
+database_id = "0e4a644c-0d59-42a2-b438-e83aa85b2996"
 migrations_dir = "migrations"
 
 # freeBusy cache ONLY (ADR-0006 §1). Own bookings and holds are always read
@@ -21,7 +21,7 @@ migrations_dir = "migrations"
 # for the writes users check immediately.
 [[kv_namespaces]]
 binding = "CACHE"
-id = "REPLACE_WITH_YOUR_KV_ID"
+id = "fd1bb2cb37b942b480a8e80dc169a8df"
 
 [[durable_objects.bindings]]
 name = "HOST_CALENDAR"
