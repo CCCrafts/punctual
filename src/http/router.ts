@@ -16,6 +16,7 @@ import { streamPage } from './streaming.js'
 import { buildApiRoutes } from './api/rest.js'
 import { buildMcpRoutes } from './mcp/server.js'
 import { buildEmbedRoutes } from './embed.js'
+import { buildDashboardRoutes } from './dashboard-routes.js'
 import type { EnginePorts, RequestScope } from '../ports.js'
 import type { SlotService } from '../engine.js'
 import { daysWithSlots, monthRange } from '../engine.js'
@@ -48,6 +49,12 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
   // The MCP sub-app registers its handlers at '/', so it mounts at '/mcp'.
   app.route('/mcp', buildMcpRoutes(ports, slots))
   app.route('/', buildEmbedRoutes(ports))
+
+  // Dashboard, auth and guest-manage routes. Mount order is load-bearing:
+  // `/:userSlug/:eventSlug` below swallows ANY two-segment path, so
+  // `/dashboard/event-types` would resolve as a booking page for a host called
+  // "dashboard" if this came after it.
+  app.route('/', buildDashboardRoutes(ports, slots))
 
   app.get('/favicon.svg', (c) =>
     c.body(FAVICON, 200, {
