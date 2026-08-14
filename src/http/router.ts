@@ -69,7 +69,17 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
     const { host, eventType } = ctx
 
     const guestTimezone = resolveGuestTimezone(c.req.query('tz'), c.req.raw, host.tz)
-    const month = validMonth(c.req.query('month')) ?? localDateString(ports.clock.now(), host.tz).slice(0, 7)
+    const currentMonth = localDateString(ports.clock.now(), host.tz).slice(0, 7)
+    // Clamp to the event type's own horizon. Without this, walking ?month=
+    // forever mints a new freeBusy cache key each time and forces one live
+    // provider call per connection per request — which burns the deployment's
+    // Google/Graph quota and eventually degrades conflict checking for every
+    // host on it.
+    const month = clampMonth(
+      validMonth(c.req.query('month')) ?? currentMonth,
+      currentMonth,
+      eventType.maxHorizonDays,
+    )
     const selectedDate = validDate(c.req.query('date'))
 
     // Flush the shell and the event header before touching D1 for slots: TTFB
@@ -176,6 +186,9 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
 
     const form = await c.req.formData()
     const start = Number(form.get('start'))
+    // The GET guards this; the POST must too, or a malformed value renders an
+    // Invalid Date deep inside the page.
+    if (!Number.isFinite(start)) return notFound(c, ports)
     const guestTimezone = resolveGuestTimezone(String(form.get('tz') ?? ''), c.req.raw, host.tz)
     const name = String(form.get('name') ?? '').trim()
     const email = String(form.get('email') ?? '').trim()
@@ -195,8 +208,11 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
       baseUrl: ports.config.baseUrl,
     }
 
-    const { validateAnswers, isValidEmail } = await import('../core/domain/booking-service.js')
-    const errors = validateAnswers(eventType, answers)
+    const { validateAnswers, isValidEmail, pickDeclaredAnswers } = await import(
+      '../core/domain/booking-service.js'
+    )
+    const declared = pickDeclaredAnswers(eventType, answers)
+    const errors = validateAnswers(eventType, declared)
     if (name === '') errors['name'] = 'Please tell us your name'
     if (!isValidEmail(email)) errors['email'] = 'Please enter a valid email address'
 
@@ -219,7 +235,7 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
       guestName: name,
       guestEmail: email,
       guestTimezone,
-      answers,
+      answers: declared,
       holdId,
       idempotencyKey: c.req.header('idempotency-key') ?? undefined,
     })
@@ -293,6 +309,15 @@ function resolveGuestTimezone(param: string | undefined, req: Request, fallback:
 
 function validMonth(v: string | undefined): string | undefined {
   return v && /^\d{4}-\d{2}$/.test(v) ? v : undefined
+}
+
+/** Keep `month` inside [current, current + horizon]; anything else snaps back. */
+function clampMonth(month: string, currentMonth: string, horizonDays: number): string {
+  if (month < currentMonth) return currentMonth
+  const [cy, cm] = currentMonth.split('-').map(Number) as [number, number]
+  const last = new Date(Date.UTC(cy, cm - 1 + Math.ceil(Math.max(0, horizonDays) / 28), 1))
+  const lastMonth = `${last.getUTCFullYear()}-${String(last.getUTCMonth() + 1).padStart(2, '0')}`
+  return month > lastMonth ? lastMonth : month
 }
 
 function validDate(v: string | undefined): string | undefined {

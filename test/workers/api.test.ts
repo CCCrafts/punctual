@@ -11,7 +11,7 @@
  */
 
 import { beforeAll, describe, expect, it } from 'vitest'
-import { env } from 'cloudflare:test'
+import { applyD1Migrations, env } from 'cloudflare:test'
 import { Hono } from 'hono'
 import { buildPorts, type Env } from '../../src/index.js'
 import { createSlotService } from '../../src/engine.js'
@@ -21,15 +21,6 @@ import { buildEmbedRoutes, embedScript } from '../../src/http/embed.js'
 import { createApiKey } from '../../src/core/domain/auth-flows.js'
 import type { EnginePorts } from '../../src/ports.js'
 import type { EventType, User } from '../../src/core/domain/types.js'
-
-// The migration is the schema under test; reading it back through Vite's raw
-// loader keeps this file from becoming a second, silently diverging copy.
-// @ts-expect-error -- `?raw` is a Vite loader, not a typed module
-import migrationSql from '../../migrations/0001_initial.sql?raw'
-
-declare module 'cloudflare:test' {
-  interface ProvidedEnv extends Env {}
-}
 
 // ---------------------------------------------------------------------------
 // Harness
@@ -44,16 +35,16 @@ function keyMaterial(seed: number): string {
   return btoa(binary)
 }
 
+/**
+ * The real `migrations/` directory, not a copy.
+ *
+ * A hand-maintained schema in the test file is a schema that drifts, and the
+ * drift shows up as a test suite that passes against a database no deployment
+ * has. Idempotent, so it costs nothing that `test/workers/setup.ts` also runs
+ * it — this file stays runnable on its own.
+ */
 beforeAll(async () => {
-  const sql = String(migrationSql)
-    .split('\n')
-    .filter((line) => !line.trimStart().startsWith('--'))
-    .join('\n')
-  const statements = sql
-    .split(';')
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0)
-  await env.DB.batch(statements.map((s) => env.DB.prepare(s)))
+  await applyD1Migrations(env.DB, env.TEST_MIGRATIONS)
 })
 
 function testPorts(): EnginePorts {

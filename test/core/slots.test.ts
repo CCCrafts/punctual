@@ -248,9 +248,18 @@ describe('buffers are additive', () => {
       range: { start: dayStart, end: dayStart + DAY },
       now: dayStart - DAY,
     })
-    // First slot starts at 09:15 — 09:00 plus the leading buffer.
+    // The grid is anchored at the WINDOW start (09:00) and buffers only
+    // FILTER (ADR-0004 §3.4-3.5). So 09:00 is a candidate but is rejected —
+    // its 15-minute leading buffer would start at 08:45, outside the window —
+    // and the first OFFERED slot is 09:30, on the grid.
+    //
+    // An earlier implementation folded the buffer into the anchor and offered
+    // 09:15, 09:45 … Ragged times aside, an off-grid anchor is what lets two
+    // adjacent offered slots claim the same 5-minute bucket and 409 each other.
     expect(toWallClock(slots[0]!.start, tz).hour).toBe(9)
-    expect(toWallClock(slots[0]!.start, tz).minute).toBe(15)
+    expect(toWallClock(slots[0]!.start, tz).minute).toBe(30)
+    // Every offered start sits on the 5-minute bucket grid.
+    for (const s of slots) expect(s.start % (5 * MINUTE)).toBe(0)
     // Last slot must end by 16:45 so its trailing buffer fits before 17:00.
     const last = slots[slots.length - 1]!
     expect(last.end + 15 * MINUTE).toBeLessThanOrEqual(localTimeToInstant('2026-06-15', 17 * 60, tz))
@@ -573,5 +582,105 @@ describe('failureReason distinguishes taken from never-offered', () => {
     const h = host(tz, [{ start: busyStart, end: busyStart + 5 * MINUTE }])
     const et = eventType({ bufferAfterMinutes: 15 })
     expect(failureReason(h, et, start)).toBe('slot_taken')
+  })
+})
+
+// ===========================================================================
+// Regressions from the 2026-08-14 adversarial review
+// ===========================================================================
+
+describe('generator/arbiter bucket contract (ADR-0004 §4)', () => {
+  const tz = 'UTC'
+
+  /**
+   * The contract: a slot the engine offers is a slot the D1 batch will accept.
+   * `slot_locks` has a primary key on (host, bucket_start), so two adjacent
+   * offered slots sharing a bucket means the second guest gets a hard 409 on a
+   * time we advertised — and a hold on the first silently removes the second
+   * from everyone else's listing.
+   */
+  it('adjacent offered slots never share a bucket, even from an off-grid window', async () => {
+    const { intervalToBuckets } = await import('../../src/core/slots/intervals.js')
+    const { bookingFootprint } = await import('../../src/core/slots/engine.js')
+
+    const day = localDay('2026-06-15', tz)
+    // External freeBusy returns raw provider timestamps, so a free window can
+    // begin on any minute — here 09:22.
+    const busyEnd = localTimeToInstant('2026-06-15', 9 * 60 + 22, tz)
+    const slots = computeSlots({
+      eventType: eventType(),
+      hosts: [host(tz, [{ start: day.start, end: busyEnd }])],
+      range: day,
+      now: day.start - DAY,
+    })
+
+    const seen = new Set<number>()
+    for (const s of slots) {
+      for (const b of intervalToBuckets(bookingFootprint(s.start, s.end, eventType()))) {
+        expect(seen.has(b)).toBe(false)
+        seen.add(b)
+      }
+    }
+  })
+
+  it('every offered start lands on the 5-minute grid, whatever the window', async () => {
+    const { BUCKET_MS } = await import('../../src/core/slots/intervals.js')
+    const av: Availability = {
+      userId: 'h1',
+      timezone: tz,
+      // 09:07 — the API and dashboard can produce off-grid minutes.
+      weekly: weekly([{ startMinute: 547, endMinute: 17 * 60 }]),
+      overrides: [],
+    }
+    const day = localDay('2026-06-15', tz)
+    const slots = computeSlots({
+      eventType: eventType(),
+      hosts: [{ hostUserId: 'h1', availability: av, busy: [] }],
+      range: day,
+      now: day.start - DAY,
+    })
+    expect(slots.length).toBeGreaterThan(0)
+    for (const s of slots) expect(s.start % BUCKET_MS).toBe(0)
+  })
+})
+
+describe('isSlotStillValid rejects starts that were never offered', () => {
+  const tz = 'UTC'
+
+  it('refuses a start off the 5-minute grid', () => {
+    // A 09:07 start would claim buckets straddling the offered 09:05 and 09:10
+    // slots, blocking both. `start` comes straight from the client.
+    const start = localTimeToInstant('2026-06-15', 9 * 60 + 7, tz)
+    expect(isSlotStillValid(host(tz), eventType(), start, start - DAY)).toBe(false)
+  })
+
+  it('accepts the same slot once it is on the grid', () => {
+    const start = localTimeToInstant('2026-06-15', 9 * 60 + 5, tz)
+    expect(isSlotStillValid(host(tz), eventType(), start, start - DAY)).toBe(true)
+  })
+})
+
+describe('round-robin weights distribute proportionally', () => {
+  it('a weight-3 host takes roughly 3x the bookings of a weight-1 host', async () => {
+    const { pickRoundRobinHost } = await import('../../src/core/domain/booking-service.js')
+    const members = [
+      { teamId: 't', userId: 'a', role: 'member' as const, rrWeight: 1 },
+      { teamId: 't', userId: 'b', role: 'member' as const, rrWeight: 3 },
+    ]
+    const last = new Map<string, number>([['a', 0], ['b', 0]])
+    const counts: Record<string, number> = { a: 0, b: 0 }
+
+    let now = 0
+    for (let i = 0; i < 40; i++) {
+      now += HOUR
+      const picked = pickRoundRobinHost(['a', 'b'], members, last, now)!
+      counts[picked] = (counts[picked] ?? 0) + 1
+      last.set(picked, now)
+    }
+
+    // Was exactly inverted before the fix (a:30, b:10) — dividing by weight
+    // made the heavier host score lower.
+    expect(counts['b']).toBeGreaterThan(counts['a']!)
+    expect(counts['b']! / counts['a']!).toBeGreaterThan(2)
   })
 })

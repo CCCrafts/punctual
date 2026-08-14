@@ -309,7 +309,9 @@ describe('magic link consumption (ADR-0005 §3)', () => {
     const first = await consumeMagicLink(h, { token: await requestAndGetToken(h, 'New@Example.com'), now: NOW })
     expect(first.ok && first.createdUser).toBe(true)
     expect(first.ok && first.user.email).toBe('new@example.com')
-    expect(first.ok && first.user.slug).toBe('new')
+    // 'new' is a reserved first path segment, so the slug is suffixed rather
+    // than shadowing a system route (see core/domain/slugs.ts).
+    expect(first.ok && first.user.slug).toBe('new-1')
 
     const second = await consumeMagicLink(h, { token: await requestAndGetToken(h, 'new@example.com'), now: NOW })
     expect(second.ok && second.createdUser).toBe(false)

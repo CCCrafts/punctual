@@ -14,6 +14,7 @@
  *  - secrets are compared with `constantTimeEqual`, never `===`.
  */
 
+import { suggestSlug, validateSlug } from './slugs.js'
 import type { ApiKey, Booking, MagicLinkToken, Session, User } from './types.js'
 import type {
   Crypto,
@@ -440,12 +441,11 @@ function defaultNameFrom(email: string): string {
  * not hidden.
  */
 async function uniqueSlug(deps: SessionDeps, email: string): Promise<string> {
-  const base = (email.split('@')[0] ?? 'user')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 32)
-  const candidate = base.length >= 2 ? base : 'user'
+  const base = suggestSlug(email)
+  // A slug is the first path segment of the booking page, so it shares a
+  // namespace with every system route. Someone signing up as dashboard@ or
+  // login@ would otherwise get a page shadowed by those routes.
+  const candidate = validateSlug(base).ok ? base : `${base}-1`
   if (!(await deps.repos.users.bySlug(candidate))) return candidate
   for (let i = 0; i < 5; i++) {
     const suffixed = `${candidate}-${deps.crypto.randomToken(3).toLowerCase().replace(/[^a-z0-9]/g, '')}`

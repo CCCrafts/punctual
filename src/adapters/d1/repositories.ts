@@ -53,11 +53,18 @@ import type {
  * calendar (ADR-0007 §2).
  */
 const UNCONSTRAINED = 'first-unconstrained'
+const PRIMARY = 'first-primary'
 
 export function createD1Repositories(db: D1Database, scope: RequestScope): Repositories {
+  // Three modes, and the middle one is the trap. Asking for `bookmark` without
+  // having a bookmark yet must fall back to the PRIMARY, not to
+  // `first-unconstrained` — which is the stalest mode there is. Getting this
+  // backwards would mean session and API-key revocation stop being immediate
+  // the moment read replication is enabled (ADR-0005 §2 rejects KV for
+  // sessions precisely to avoid that).
   const session =
-    scope.consistency === 'bookmark' && scope.bookmark
-      ? db.withSession(scope.bookmark)
+    scope.consistency === 'bookmark'
+      ? db.withSession(scope.bookmark ?? PRIMARY)
       : db.withSession(UNCONSTRAINED)
 
   const q = (sql: string, ...binds: unknown[]) =>

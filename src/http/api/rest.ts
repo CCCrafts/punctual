@@ -311,8 +311,12 @@ const eventTypeFields = {
   // (ADR-0002 §1).
   durationMinutes: z.number().int().min(5).max(1440).multipleOf(5),
   slotIntervalMinutes: z.number().int().min(5).max(1440).multipleOf(5).nullable(),
-  bufferBeforeMinutes: z.number().int().min(0).max(720),
-  bufferAfterMinutes: z.number().int().min(0).max(720),
+  // Multiples of 5, like duration and interval above. Buffers extend the
+  // footprint that gets bucketed, so an off-grid buffer lets two adjacent
+  // offered slots claim the same bucket and 409 each other (ADR-0004 §4 and
+  // its Consequences section).
+  bufferBeforeMinutes: z.number().int().min(0).max(720).multipleOf(5),
+  bufferAfterMinutes: z.number().int().min(0).max(720).multipleOf(5),
   minNoticeMinutes: z.number().int().min(0).max(60 * 24 * 365),
   maxHorizonDays: z.number().int().min(1).max(730),
   maxPerDay: z.number().int().min(1).max(100).nullable(),
@@ -341,8 +345,10 @@ const eventTypePatchBody = z.object(eventTypeFields).partial()
 
 const dayWindowSchema = z
   .object({
-    startMinute: z.number().int().min(0).max(1440),
-    endMinute: z.number().int().min(0).max(1440),
+    // Also multiples of 5: an availability window beginning at 09:07 anchors
+    // the slot grid off the bucket grid, with the same consequence.
+    startMinute: z.number().int().min(0).max(1440).multipleOf(5),
+    endMinute: z.number().int().min(0).max(1440).multipleOf(5),
   })
   .refine((w) => w.endMinute > w.startMinute, 'endMinute must be after startMinute')
 

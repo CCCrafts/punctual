@@ -16,6 +16,7 @@ import type {
 import { combineBusy, partitionConnections, prepareBooking } from '../core/domain/booking-service.js'
 import { bookingFootprint } from '../core/slots/engine.js'
 import { intervalToBuckets } from '../core/slots/intervals.js'
+import { localDateString } from '../core/time/zone.js'
 import type { HostAvailabilityInput } from '../core/slots/engine.js'
 
 export interface CoordinatorDeps {
@@ -79,10 +80,13 @@ export function createCoordinator(deps: CoordinatorDeps): HostCoordinator {
         }
 
         // ---- Re-validate against fresh data (ADR-0002 §2) -----------------
-        const hosts = await buildHostInputs(ports, repos, request.hostUserIds, {
-          start: request.start,
-          end: request.end,
-        })
+        // Query the BUFFERED footprint, not the bare meeting. For our own
+        // bookings a narrow window only costs an avoidable 409, because
+        // slot_locks still arbitrates — but external calendars have no such
+        // backstop, so an event sitting entirely inside the buffer would never
+        // be fetched and the booking would commit on top of it.
+        const footprint = bookingFootprint(request.start, request.end, eventType)
+        const hosts = await buildHostInputs(ports, repos, request.hostUserIds, footprint, eventType)
         if (hosts.length === 0) return { ok: false, reason: 'outside_availability' }
 
         const rrContext =
@@ -114,6 +118,7 @@ export function createCoordinator(deps: CoordinatorDeps): HostCoordinator {
           manageTokenHash,
           rescheduleOf: request.rescheduleOf ?? null,
           rrContext,
+          expectedHostCount: request.hostUserIds.length,
         })
 
         if (!prepared.ok) {
@@ -224,6 +229,7 @@ async function buildHostInputs(
   repos: Repositories,
   hostUserIds: string[],
   range: { start: number; end: number },
+  eventType?: { maxPerDay: number | null },
 ): Promise<HostAvailabilityInput[]> {
   const now = ports.clock.now()
   const [busyByHost, holdsByHost] = await Promise.all([
@@ -250,11 +256,23 @@ async function buildHostInputs(
       }
     }
 
+    // The cap MUST be populated here, not left undefined. `isSlotStillValid`
+    // reads `bookingsPerLocalDate?.get(...) ?? 0`, so an absent map makes the
+    // check `0 >= maxPerDay` — always false — and the cap silently exists only
+    // as a listing-time filter. A direct API booking would bypass it entirely,
+    // and concurrent bookings on a capped day would all commit, because the D1
+    // batch arbitrates buckets, not counts.
+    let perDay: Map<string, number> | undefined
+    if (eventType?.maxPerDay != null) {
+      const localDate = localDateString(range.start, availability.timezone)
+      perDay = new Map([[localDate, await repos.bookings.countForHostOnDate(id, localDate)]])
+    }
+
     out.push({
       hostUserId: id,
       availability,
       busy: combineBusy(busyByHost.get(id) ?? [], holdsByHost.get(id) ?? [], external),
-      bookingsPerLocalDate: undefined,
+      bookingsPerLocalDate: perDay,
     })
   }
   return out
