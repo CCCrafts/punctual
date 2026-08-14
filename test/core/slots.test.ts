@@ -543,3 +543,35 @@ describe('isSlotStillValid', () => {
     expect(isSlotStillValid(host(tz), et, start, start - DAY)).toBe(false)
   })
 })
+
+// ===========================================================================
+// Failure reasons (a taken slot is not the same as an unavailable one)
+// ===========================================================================
+
+describe('failureReason distinguishes taken from never-offered', () => {
+  const tz = 'Europe/Kyiv'
+
+  it('reports slot_taken when existing busy time collides', async () => {
+    const { failureReason } = await import('../../src/core/domain/booking-service.js')
+    const start = localTimeToInstant('2026-06-15', 10 * 60, tz)
+    const h = host(tz, [{ start, end: start + 30 * MINUTE }])
+    expect(failureReason(h, eventType(), start)).toBe('slot_taken')
+  })
+
+  it('reports outside_availability when the host simply is not working', async () => {
+    const { failureReason } = await import('../../src/core/domain/booking-service.js')
+    // 20:00 is outside the 09:00-17:00 schedule, and nothing is booked.
+    const start = localTimeToInstant('2026-06-15', 20 * 60, tz)
+    expect(failureReason(host(tz), eventType(), start)).toBe('outside_availability')
+  })
+
+  it('counts a collision with the BUFFERED footprint, not just the meeting', async () => {
+    const { failureReason } = await import('../../src/core/domain/booking-service.js')
+    const start = localTimeToInstant('2026-06-15', 10 * 60, tz)
+    // Busy strictly after the meeting ends, but inside its trailing buffer.
+    const busyStart = start + 30 * MINUTE + 5 * MINUTE
+    const h = host(tz, [{ start: busyStart, end: busyStart + 5 * MINUTE }])
+    const et = eventType({ bufferAfterMinutes: 15 })
+    expect(failureReason(h, et, start)).toBe('slot_taken')
+  })
+})

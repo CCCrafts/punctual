@@ -86,6 +86,27 @@ export function pickRoundRobinHost(
 }
 
 /**
+ * Did this slot fail because someone already has it, or because it was never
+ * on offer?
+ *
+ * Both look identical to `isSlotStillValid`, because a confirmed booking
+ * arrives as busy time — so the naive answer is always "outside availability",
+ * which is actively misleading. A guest told "already taken" reloads the day;
+ * an agent told "outside availability" may abandon the whole date range. The
+ * distinction is cheap to compute and changes what the caller does next.
+ */
+export function failureReason(
+  host: HostAvailabilityInput,
+  et: EventType,
+  start: number,
+): 'slot_taken' | 'outside_availability' {
+  const end = start + et.durationMinutes * 60_000
+  const footprint = bookingFootprint(start, end, et)
+  const collides = host.busy.some((b) => b.start < footprint.end && footprint.start < b.end)
+  return collides ? 'slot_taken' : 'outside_availability'
+}
+
+/**
  * Build the booking and the buckets it must claim, after re-validating.
  *
  * Returns the intended write rather than performing it: the caller (inside the
@@ -105,12 +126,17 @@ export function prepareBooking(req: BookingRequest): BookingResult {
     participating = req.hosts
     for (const h of participating) {
       if (!isSlotStillValid(h, et, req.start, now)) {
-        return { ok: false, reason: 'outside_availability', detail: h.hostUserId }
+        return { ok: false, reason: failureReason(h, et, req.start), detail: h.hostUserId }
       }
     }
   } else if (et.schedulingType === 'round_robin') {
     const eligible = req.hosts.filter((h) => isSlotStillValid(h, et, req.start, now))
-    if (eligible.length === 0) return { ok: false, reason: 'outside_availability' }
+    if (eligible.length === 0) {
+      // Round-robin: only report "taken" if EVERY candidate is busy. If any
+      // host was merely unavailable, the slot was never really on offer.
+      const allBusy = req.hosts.every((h) => failureReason(h, et, req.start) === 'slot_taken')
+      return { ok: false, reason: allBusy ? 'slot_taken' : 'outside_availability' }
+    }
     const chosen = pickRoundRobinHost(
       eligible.map((h) => h.hostUserId),
       req.rrContext?.members ?? [],
@@ -123,7 +149,7 @@ export function prepareBooking(req: BookingRequest): BookingResult {
   } else {
     const host = req.hosts[0]!
     if (!isSlotStillValid(host, et, req.start, now)) {
-      return { ok: false, reason: 'outside_availability' }
+      return { ok: false, reason: failureReason(host, et, req.start) }
     }
     participating = [host]
   }

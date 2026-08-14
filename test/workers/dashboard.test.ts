@@ -1,6 +1,3 @@
-/// <reference types="@cloudflare/vitest-pool-workers/types" />
-/// <reference types="vite/client" />
-
 /**
  * The authenticated surface, under the real Workers runtime (ADR-0003 §5).
  *
@@ -12,7 +9,6 @@
 
 import { env } from 'cloudflare:test'
 import { beforeAll, describe, expect, it } from 'vitest'
-import schemaSql from '../../migrations/0001_initial.sql?raw'
 
 import { buildDashboardRoutes } from '../../src/http/dashboard-routes.js'
 import { createD1Repositories } from '../../src/adapters/d1/repositories.js'
@@ -37,7 +33,7 @@ import type {
   QueuePort,
 } from '../../src/ports.js'
 
-const db = (env as unknown as { DB: D1Database }).DB
+const db = env.DB
 
 const BASE = 'http://localhost'
 const NOW = Date.now()
@@ -122,11 +118,15 @@ const slots: SlotService = {
 
 const app = buildDashboardRoutes(ports, slots)
 
-function get(path: string, cookie?: string): Promise<Response> {
+async function get(path: string, cookie?: string): Promise<Response> {
   return app.fetch(new Request(`${BASE}${path}`, cookie ? { headers: { cookie } } : {}))
 }
 
-function post(path: string, body: Record<string, string>, cookie?: string): Promise<Response> {
+async function post(
+  path: string,
+  body: Record<string, string>,
+  cookie?: string,
+): Promise<Response> {
   const form = new FormData()
   for (const [k, v] of Object.entries(body)) form.append(k, v)
   return app.fetch(
@@ -136,20 +136,6 @@ function post(path: string, body: Record<string, string>, cookie?: string): Prom
       ...(cookie ? { headers: { cookie } } : {}),
     }),
   )
-}
-
-/**
- * D1's `exec` treats each line as a statement, which a multi-line CREATE TABLE
- * is not — so the migration is split on statement boundaries instead.
- */
-function statements(sql: string): string[] {
-  return sql
-    .split('\n')
-    .filter((line) => !line.trimStart().startsWith('--'))
-    .join('\n')
-    .split(';')
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0)
 }
 
 /** A session row, as `createSession` would have written it. */
@@ -165,9 +151,9 @@ async function seedSession(userId: string): Promise<string> {
   return `${SESSION_COOKIE_NAME}=${token}`
 }
 
+// The schema arrives from `test/workers/setup.ts`, which applies the real
+// migrations to this file's isolated D1 before anything below runs.
 beforeAll(async () => {
-  await db.batch(statements(schemaSql).map((sql) => db.prepare(sql)))
-
   await db
     .prepare('INSERT INTO users (id,email,name,tz,slug,created_at) VALUES (?,?,?,?,?,?)')
     .bind(HOST_ID, HOST_EMAIL, 'Test Host', 'UTC', 'test-host', NOW)
