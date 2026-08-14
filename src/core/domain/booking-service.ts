@@ -15,15 +15,8 @@
  * booking we already promised the guest.
  */
 
-import type {
-  Booking,
-  CalendarConnection,
-  EventType,
-  Interval,
-  TeamMember,
-  User,
-} from './types.js'
-import type { BucketClaim, Repositories } from '../../ports.js'
+import type { Booking, CalendarConnection, EventType, Interval, TeamMember } from './types.js'
+import type { BucketClaim } from '../../ports.js'
 import { bookingFootprint, isSlotStillValid, type HostAvailabilityInput } from '../slots/engine.js'
 import { intervalToBuckets } from '../slots/intervals.js'
 import { localDateString } from '../time/zone.js'

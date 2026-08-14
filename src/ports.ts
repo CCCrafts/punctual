@@ -17,7 +17,6 @@ import type {
   ApiKey,
   Availability,
   Booking,
-  BookingStatus,
   CalendarConnection,
   EventType,
   Interval,

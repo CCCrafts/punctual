@@ -38,7 +38,7 @@ export function createEngine(ports: EnginePorts): Engine {
   const app = buildRouter(ports, slots)
 
   return {
-    fetch: (request, env, ctx) => app.fetch(request, env as never, ctx),
+    fetch: async (request, env, ctx) => app.fetch(request, env as never, ctx),
     slots,
   }
 }

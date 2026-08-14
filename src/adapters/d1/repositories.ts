@@ -18,14 +18,9 @@
 
 import type {
   ApiKey,
-  Availability,
   Booking,
   CalendarConnection,
   EventType,
-  Interval,
-  MagicLinkToken,
-  Session,
-  SlotHold,
   Team,
   TeamMember,
   User,
@@ -36,7 +31,6 @@ import type {
   ApiKeyRepository,
   AvailabilityRepository,
   BookingRepository,
-  BucketClaim,
   CalendarConnectionRepository,
   EventTypeRepository,
   IdempotencyRepository,
@@ -66,7 +60,7 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
       ? db.withSession(scope.bookmark)
       : db.withSession(UNCONSTRAINED)
 
-  const q = <T = Record<string, unknown>>(sql: string, ...binds: unknown[]) =>
+  const q = (sql: string, ...binds: unknown[]) =>
     session.prepare(sql).bind(...binds) as D1PreparedStatement
 
   const all = async <T>(sql: string, ...binds: unknown[]): Promise<T[]> => {
