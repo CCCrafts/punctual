@@ -312,6 +312,12 @@ function locationLabel(et: EventType): string {
 export interface EventTypeFormData extends DashboardChrome {
   /** Absent for a create. On a failed create the route passes the draft back. */
   eventType?: EventType
+  /**
+   * The raw question text as typed. Set when it failed to parse — the draft's
+   * `questions` are empty in that case, and re-rendering from them would erase
+   * exactly the text the host has to correct.
+   */
+  questionsText?: string
   errors?: Record<string, string>
 }
 
@@ -423,7 +429,7 @@ export function eventTypeForm(d: EventTypeFormData): string {
     ${fieldError('locationValue', errors)}
 
     <label for="questions">Custom questions</label>
-    <textarea id="questions" name="questions" rows="5"${describedBy('questions', errors)}>${escapeHtml(formatQuestions(et?.questions ?? []))}</textarea>
+    <textarea id="questions" name="questions" rows="5"${describedBy('questions', errors)}>${escapeHtml(d.questionsText ?? formatQuestions(et?.questions ?? []))}</textarea>
     <p class="pu-muted" style="font-size:.8125rem;margin:.25rem 0 0">
       One per line: <code>Label | text|textarea|select | required|optional | option, option</code>.
       Name and email are always asked and are not listed here.</p>

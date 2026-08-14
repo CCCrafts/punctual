@@ -53,7 +53,7 @@ dead_letter_queue = "punctual-tasks-dlq"
 crons = ["*/5 * * * *"]
 
 [vars]
-BASE_URL = "http://localhost:8787"
+BASE_URL = "https://punctual.sergeonsamui.workers.dev"
 BRAND_NAME = "Punctual"
 FROM_EMAIL = "hello@example.com"
 FROM_NAME = "Punctual"

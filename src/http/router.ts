@@ -45,7 +45,8 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
   // Programmatic surfaces. Mounted before the /:userSlug/:eventSlug catch-all
   // so a host cannot claim the slug "api" and shadow them.
   app.route('/api/v1', buildApiRoutes(ports, slots))
-  app.route('/', buildMcpRoutes(ports, slots))
+  // The MCP sub-app registers its handlers at '/', so it mounts at '/mcp'.
+  app.route('/mcp', buildMcpRoutes(ports, slots))
   app.route('/', buildEmbedRoutes(ports))
 
   app.get('/favicon.svg', (c) =>

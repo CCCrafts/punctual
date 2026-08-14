@@ -293,27 +293,51 @@ const questionSchema = z.object({
   options: z.array(z.string().min(1).max(200)).max(50).optional(),
 })
 
-const eventTypeBody = z.object({
+/**
+ * The field validators, without defaults.
+ *
+ * Kept separate because `z.object({…}).partial()` does NOT strip a `.default()`
+ * — an absent key still materialises its default value. Deriving the PATCH
+ * schema from a create schema that carries defaults would therefore turn
+ * "rename this event type" into "rename it and reset its buffers, questions and
+ * notice period", silently.
+ */
+const eventTypeFields = {
   slug: slugSchema,
   title: z.string().min(1).max(200),
-  description: z.string().max(5000).default(''),
+  description: z.string().max(5000),
   // A multiple of 5 is not a style preference: bookings claim 5-minute buckets
   // in `slot_locks`, and a 7-minute meeting cannot be expressed on that grid
   // (ADR-0002 §1).
   durationMinutes: z.number().int().min(5).max(1440).multipleOf(5),
-  slotIntervalMinutes: z.number().int().min(5).max(1440).multipleOf(5).nullable().default(null),
-  bufferBeforeMinutes: z.number().int().min(0).max(720).default(0),
-  bufferAfterMinutes: z.number().int().min(0).max(720).default(0),
-  minNoticeMinutes: z.number().int().min(0).max(60 * 24 * 365).default(0),
-  maxHorizonDays: z.number().int().min(1).max(730).default(60),
-  maxPerDay: z.number().int().min(1).max(100).nullable().default(null),
-  locationType: z.enum(['google_meet', 'custom_link', 'phone', 'in_person']).default('google_meet'),
-  locationValue: z.string().max(500).nullable().default(null),
-  questions: z.array(questionSchema).max(20).default([]),
-  active: z.boolean().default(true),
+  slotIntervalMinutes: z.number().int().min(5).max(1440).multipleOf(5).nullable(),
+  bufferBeforeMinutes: z.number().int().min(0).max(720),
+  bufferAfterMinutes: z.number().int().min(0).max(720),
+  minNoticeMinutes: z.number().int().min(0).max(60 * 24 * 365),
+  maxHorizonDays: z.number().int().min(1).max(730),
+  maxPerDay: z.number().int().min(1).max(100).nullable(),
+  locationType: z.enum(['google_meet', 'custom_link', 'phone', 'in_person']),
+  locationValue: z.string().max(500).nullable(),
+  questions: z.array(questionSchema).max(20),
+  active: z.boolean(),
+}
+
+const eventTypeBody = z.object({
+  ...eventTypeFields,
+  description: eventTypeFields.description.default(''),
+  slotIntervalMinutes: eventTypeFields.slotIntervalMinutes.default(null),
+  bufferBeforeMinutes: eventTypeFields.bufferBeforeMinutes.default(0),
+  bufferAfterMinutes: eventTypeFields.bufferAfterMinutes.default(0),
+  minNoticeMinutes: eventTypeFields.minNoticeMinutes.default(0),
+  maxHorizonDays: eventTypeFields.maxHorizonDays.default(60),
+  maxPerDay: eventTypeFields.maxPerDay.default(null),
+  locationType: eventTypeFields.locationType.default('google_meet'),
+  locationValue: eventTypeFields.locationValue.default(null),
+  questions: eventTypeFields.questions.default([]),
+  active: eventTypeFields.active.default(true),
 })
 
-const eventTypePatchBody = eventTypeBody.partial()
+const eventTypePatchBody = z.object(eventTypeFields).partial()
 
 const dayWindowSchema = z
   .object({
@@ -418,8 +442,8 @@ export function buildApiRoutes(ports: EnginePorts, slots: SlotService): Hono<Api
 
   app.post('/event-types', async (c) => {
     const { repos, user } = c.get('auth')
-    const parsed = eventTypeBody.safeParse(await readJson(c.req.raw))
-    if (!parsed.success) return zodProblem(parsed.error)
+    const parsed = await readBody(c.req.raw, eventTypeBody)
+    if (!parsed.ok) return parsed.response
     const body = parsed.data
 
     const clash = await repos.eventTypes.bySlug(user.slug, body.slug)
@@ -465,8 +489,8 @@ export function buildApiRoutes(ports: EnginePorts, slots: SlotService): Hono<Api
     const et = await repos.eventTypes.byId(id)
     if (!et || !(await ownsEventType(repos, user, et))) return notFound('event type')
 
-    const parsed = eventTypePatchBody.safeParse(await readJson(c.req.raw))
-    if (!parsed.success) return zodProblem(parsed.error)
+    const parsed = await readBody(c.req.raw, eventTypePatchBody)
+    if (!parsed.ok) return parsed.response
 
     await repos.eventTypes.update(id, parsed.data as Partial<EventType>)
     // Read-after-write on the same bookmarked session, so the response is the
@@ -498,8 +522,8 @@ export function buildApiRoutes(ports: EnginePorts, slots: SlotService): Hono<Api
 
   app.put('/availability', async (c) => {
     const { repos, user } = c.get('auth')
-    const parsed = availabilityBody.safeParse(await readJson(c.req.raw))
-    if (!parsed.success) return zodProblem(parsed.error)
+    const parsed = await readBody(c.req.raw, availabilityBody)
+    if (!parsed.ok) return parsed.response
 
     const availability: Availability = {
       userId: user.id,
@@ -579,8 +603,8 @@ export function buildApiRoutes(ports: EnginePorts, slots: SlotService): Hono<Api
 
   app.post('/bookings', async (c) => {
     const { repos, user } = c.get('auth')
-    const parsed = bookingCreateBody.safeParse(await readJson(c.req.raw))
-    if (!parsed.success) return zodProblem(parsed.error)
+    const parsed = await readBody(c.req.raw, bookingCreateBody)
+    if (!parsed.ok) return parsed.response
     const body = parsed.data
 
     const start = toInstant(body.start)
@@ -620,8 +644,8 @@ export function buildApiRoutes(ports: EnginePorts, slots: SlotService): Hono<Api
 
   app.post('/bookings/:id/cancel', async (c) => {
     const { repos, user } = c.get('auth')
-    const parsed = cancelBody.safeParse(await readJson(c.req.raw, {}))
-    if (!parsed.success) return zodProblem(parsed.error)
+    const parsed = await readBody(c.req.raw, cancelBody)
+    if (!parsed.ok) return parsed.response
 
     const booking = await repos.bookings.byId(c.req.param('id'))
     if (!booking || !isHost(booking, user)) return notFound('booking')
@@ -648,8 +672,8 @@ export function buildApiRoutes(ports: EnginePorts, slots: SlotService): Hono<Api
 
   app.post('/bookings/:id/reschedule', async (c) => {
     const { repos, user } = c.get('auth')
-    const parsed = rescheduleBody.safeParse(await readJson(c.req.raw))
-    if (!parsed.success) return zodProblem(parsed.error)
+    const parsed = await readBody(c.req.raw, rescheduleBody)
+    if (!parsed.ok) return parsed.response
 
     const start = toInstant(parsed.data.start)
     if (start === null) {
@@ -707,8 +731,8 @@ export function buildApiRoutes(ports: EnginePorts, slots: SlotService): Hono<Api
 
   app.post('/webhooks', async (c) => {
     const { repos, user } = c.get('auth')
-    const parsed = webhookCreateBody.safeParse(await readJson(c.req.raw))
-    if (!parsed.success) return zodProblem(parsed.error)
+    const parsed = await readBody(c.req.raw, webhookCreateBody)
+    if (!parsed.ok) return parsed.response
 
     const webhook: Webhook = {
       id: `whk_${ports.crypto.randomToken(12)}`,
@@ -813,15 +837,37 @@ export function bookingFailure(
   }
 }
 
-/** A body-less or malformed JSON body is a 400, never a thrown 500. */
-async function readJson(request: Request, fallback?: unknown): Promise<unknown> {
+/**
+ * A malformed body is a 400 that says so, never a thrown 500 and never a
+ * confusing list of "required field missing" errors about a body that was
+ * simply not JSON. An EMPTY body is `{}`, so endpoints whose fields are all
+ * optional work without one.
+ */
+async function readJson(request: Request): Promise<{ ok: true; value: unknown } | { ok: false; response: Response }> {
+  let raw: string
   try {
-    const text = await request.text()
-    if (text.trim() === '') return fallback ?? {}
-    return JSON.parse(text) as unknown
+    raw = await request.text()
   } catch {
-    return fallback ?? { __invalid: true }
+    return { ok: false, response: problem(400, 'Invalid request', 'The request body could not be read.') }
   }
+  if (raw.trim() === '') return { ok: true, value: {} }
+  try {
+    return { ok: true, value: JSON.parse(raw) as unknown }
+  } catch {
+    return { ok: false, response: problem(400, 'Invalid request', 'The request body is not valid JSON.') }
+  }
+}
+
+/** Read + validate in one step, since every write endpoint does exactly this. */
+async function readBody<T extends z.ZodTypeAny>(
+  request: Request,
+  schema: T,
+): Promise<{ ok: true; data: z.infer<T> } | { ok: false; response: Response }> {
+  const body = await readJson(request)
+  if (!body.ok) return body
+  const parsed = schema.safeParse(body.value)
+  if (!parsed.success) return { ok: false, response: zodProblem(parsed.error) }
+  return { ok: true, data: parsed.data as z.infer<T> }
 }
 
 function emptyAvailability(user: User): Availability {

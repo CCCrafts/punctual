@@ -84,6 +84,7 @@ const METHOD_NOT_FOUND = -32601
 const INVALID_PARAMS = -32602
 const INTERNAL_ERROR = -32603
 const UNAUTHORIZED = -32001
+const RATE_LIMITED = -32002
 const INSUFFICIENT_SCOPE = -32003
 
 // ---------------------------------------------------------------------------
@@ -382,7 +383,7 @@ export function buildMcpRoutes(ports: EnginePorts, slots: SlotService): Hono<{ B
       // would otherwise see a problem document it cannot interpret.
       return rpcError(
         id,
-        status === 429 ? INTERNAL_ERROR : UNAUTHORIZED,
+        status === 429 ? RATE_LIMITED : UNAUTHORIZED,
         status === 429
           ? 'Rate limit exceeded for this API key. Retry shortly.'
           : 'Provide a Punctual API key as `Authorization: Bearer pk_…`.',
