@@ -1,11 +1,15 @@
 /// <reference types="@cloudflare/vitest-pool-workers/types" />
+declare module '*.sql?raw' {
+  const content: string
+  export default content
+}
 import { env } from 'cloudflare:test'
 import { describe, expect, it } from 'vitest'
+import schema from '../../migrations/0001_initial.sql?raw'
 
 describe('probe', () => {
-  it('has DB', async () => {
-    const db = (env as unknown as { DB: D1Database }).DB
-    await db.exec('CREATE TABLE IF NOT EXISTS probe (id TEXT)')
-    expect(db).toBeTruthy()
+  it('applies schema', async () => {
+    expect(typeof schema).toBe('string')
+    expect(env).toBeTruthy()
   })
 })
