@@ -28,6 +28,7 @@
  */
 
 import { Hono } from 'hono'
+import { notifyBookingCancelled, notifyBookingRescheduled } from '../../adapters/notify.js'
 import { z } from 'zod'
 import type { EnginePorts, RequestScope } from '../../ports.js'
 import type { SlotService } from '../../engine.js'
@@ -707,6 +708,19 @@ async function rescheduleBooking(
     .send({ kind: 'calendar.sync', bookingId: original.id, action: 'delete' })
     .catch(() => {})
 
+  // An agent moving a meeting must not do it silently — the humans involved
+  // learn about it only from this mail. Host resolved from the NEW booking,
+  // since round-robin re-picks at commit time.
+  const newHost = (await repos.users.byId(outcome.booking.hostUserId)) ?? user
+  await notifyBookingRescheduled({
+    ports: deps.ports,
+    booking: outcome.booking,
+    previous: original,
+    eventType,
+    host: newHost,
+    ...(outcome.manageToken ? { manageToken: outcome.manageToken } : {}),
+  }).catch((err) => console.error('[punctual] mcp reschedule emails failed', err))
+
   return text({
     rescheduled: true,
     previousBookingId: original.id,
@@ -728,6 +742,21 @@ async function cancelBooking(deps: ToolDeps, input: z.infer<typeof cancelArgs>):
   await deps.ports.queue
     .send({ kind: 'calendar.sync', bookingId: booking.id, action: 'delete' })
     .catch(() => {})
+
+  // The tool description promises "notify the guest", and nothing was sending
+  // anything — an agent could cancel a real meeting and the guest would find
+  // out by turning up to it.
+  const cancelEt = await repos.eventTypes.byId(booking.eventTypeId)
+  const cancelHost = await repos.users.byId(booking.hostUserId)
+  if (cancelEt && cancelHost) {
+    await notifyBookingCancelled({
+      ports: deps.ports,
+      booking,
+      eventType: cancelEt,
+      host: cancelHost,
+      cancelledBy: 'host',
+    }).catch((err) => console.error('[punctual] mcp cancellation emails failed', err))
+  }
 
   return text({
     cancelled: true,
