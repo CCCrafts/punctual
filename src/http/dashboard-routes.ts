@@ -30,6 +30,7 @@
  */
 
 import { Hono, type Context, type MiddlewareHandler } from 'hono'
+import { notifyBookingCancelled, notifyBookingRescheduled } from '../adapters/notify.js'
 import type {
   CalendarProviderName,
   EnginePorts,
@@ -858,6 +859,21 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
       verified.booking.id,
       await ports.crypto.hash(ports.crypto.randomToken(32)),
     )
+
+    // The confirmation page tells the guest "the host is notified". Nothing
+    // here was sending anything, so that sentence was untrue on the path real
+    // guests use.
+    const cancelEt = await repos.eventTypes.byId(verified.booking.eventTypeId)
+    const cancelHost = await repos.users.byId(verified.booking.hostUserId)
+    if (cancelEt && cancelHost) {
+      await notifyBookingCancelled({
+        ports,
+        booking: verified.booking,
+        eventType: cancelEt,
+        host: cancelHost,
+        cancelledBy: 'guest',
+      }).catch((err) => console.error('[punctual] cancellation emails failed', err))
+    }
     // After the commit, deliberately: a calendar or mail failure must not
     // leave a booking the guest believes is cancelled still holding the slot.
     await ports.queue
@@ -935,6 +951,18 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
       old.id,
       await ports.crypto.hash(ports.crypto.randomToken(32)),
     )
+
+    // notifyBookingCreated deliberately skips a booking with rescheduleOf set,
+    // expecting the moving route to send this instead — which the REST path
+    // did and this one did not.
+    await notifyBookingRescheduled({
+      ports,
+      booking: outcome.booking,
+      previous: old,
+      eventType,
+      host,
+      ...(outcome.manageToken ? { manageToken: outcome.manageToken } : {}),
+    }).catch((err) => console.error('[punctual] reschedule emails failed', err))
     await ports.queue
       .send({ kind: 'calendar.sync', bookingId: old.id, action: 'delete' })
       .catch(() => {})

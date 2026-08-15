@@ -138,7 +138,14 @@ async function syncCalendar(
           if (existing) await provider.updateEvent(conn, existing, external)
         } else if (msg.action === 'delete') {
           const existing = booking.externalEventIds[conn.id]
-          if (existing) await provider.deleteEvent(conn, existing)
+          if (existing) {
+            await provider.deleteEvent(conn, existing)
+            // Only drop the id once the provider confirms. Clearing the whole
+            // map unconditionally meant one host's expired token discarded
+            // another host's id too, leaving that event on a real calendar
+            // with nothing left to delete it by.
+            delete createdIds[conn.id]
+          }
         }
       } catch (err) {
         console.error(`[punctual] calendar sync failed for connection ${conn.id}`, err)
@@ -155,7 +162,11 @@ async function syncCalendar(
     const changed = JSON.stringify(createdIds) !== JSON.stringify(booking.externalEventIds)
     if (changed) await repos.bookings.setExternalEventIds(booking.id, createdIds)
   } else if (msg.action === 'delete') {
-    await repos.bookings.setExternalEventIds(booking.id, {})
+    // Persist what actually got deleted, not an empty map. A per-connection
+    // failure is caught and logged above, so an unconditional wipe would
+    // orphan that event permanently.
+    const changed = JSON.stringify(createdIds) !== JSON.stringify(booking.externalEventIds)
+    if (changed) await repos.bookings.setExternalEventIds(booking.id, createdIds)
   }
 }
 
