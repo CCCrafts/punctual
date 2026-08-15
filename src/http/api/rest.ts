@@ -718,7 +718,11 @@ export function buildApiRoutes(ports: EnginePorts, slots: SlotService): Hono<Api
     if (!outcome.ok) return bookingFailure(outcome.reason, outcome.detail)
 
     await repos.bookings.markRescheduled(original.id, outcome.booking.id)
-    await notifyRescheduled(ports, outcome.booking, original, eventType, user)
+    // The host of the NEW booking, not the API key's owner: round-robin
+    // re-picks at commit time, so the two differ for team event types and the
+    // mail would name — and reach — the wrong person.
+    const newHost = (await repos.users.byId(outcome.booking.hostUserId)) ?? user
+    await notifyRescheduled(ports, outcome.booking, original, eventType, newHost)
     await ports.queue
       .send({ kind: 'calendar.sync', bookingId: original.id, action: 'delete' })
       .catch(() => {})

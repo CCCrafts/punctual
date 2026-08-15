@@ -955,12 +955,18 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     // notifyBookingCreated deliberately skips a booking with rescheduleOf set,
     // expecting the moving route to send this instead — which the REST path
     // did and this one did not.
+    //
+    // Resolve the host from the NEW booking, not from `old`. Round-robin
+    // re-picks a host at commit time, so reusing the old one mails whoever is
+    // no longer on the meeting, leaves the newly-assigned host uninformed, and
+    // prints the wrong name in the guest's copy.
+    const newHost = (await repos.users.byId(outcome.booking.hostUserId)) ?? host
     await notifyBookingRescheduled({
       ports,
       booking: outcome.booking,
       previous: old,
       eventType,
-      host,
+      host: newHost,
       ...(outcome.manageToken ? { manageToken: outcome.manageToken } : {}),
     }).catch((err) => console.error('[punctual] reschedule emails failed', err))
     await ports.queue
