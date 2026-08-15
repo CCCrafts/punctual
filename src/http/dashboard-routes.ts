@@ -822,7 +822,9 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
         eventType,
         host,
         token,
-        purpose,
+        // A 'manage' token authorises both actions; the page uses this only to
+        // decide which one to lead with.
+        purpose: purpose === 'cancel' ? 'cancel' : 'reschedule',
         ...(offered ? { slots: offered } : {}),
         ...(selectedDate ? { selectedDate } : {}),
         ...(Number.isFinite(startParam) ? { newStart: startParam } : {}),
@@ -839,7 +841,22 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     if (!verified.ok) return manageError(c, verified.message)
 
     const repos = ports.repositories(guestScope())
+
+    // A booking that is already cancelled or superseded must not be acted on
+    // again: without this, one link stays replayable forever.
+    if (verified.booking.status !== 'confirmed') {
+      return manageError(c, 'This booking is no longer active.')
+    }
+
     await repos.bookings.cancelWithLockRelease(verified.booking.id, ports.clock.now())
+
+    // Rotate the hash so the link in the guest's inbox stops working. ADR-0005
+    // §4 names rotation-on-state-change as THE invalidation mechanism, and it
+    // had no production call site.
+    await repos.bookings.rotateManageToken(
+      verified.booking.id,
+      await ports.crypto.hash(ports.crypto.randomToken(32)),
+    )
     // After the commit, deliberately: a calendar or mail failure must not
     // leave a booking the guest believes is cancelled still holding the slot.
     await ports.queue
@@ -865,6 +882,14 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     if (!Number.isFinite(start)) return manageError(c, 'No new time was chosen.')
 
     const old = verified.booking
+
+    // Same guard as cancel: without it a reschedule link is replayable, and
+    // each submission creates ANOTHER booking that consumes another slot on
+    // the host's calendar.
+    if (old.status !== 'confirmed') {
+      return manageError(c, 'This booking is no longer active.')
+    }
+
     const repos = ports.repositories(guestScope())
     const eventType = await repos.eventTypes.byId(old.eventTypeId)
     const host = await repos.users.byId(old.hostUserId)
@@ -902,6 +927,13 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     // slot locks, and releasing them before the replacement is committed would
     // open a window where neither time is held.
     await repos.bookings.markRescheduled(old.id, outcome.booking.id)
+
+    // Kill the old link. The new booking carries its own freshly signed token,
+    // so the guest's superseded email stops working (ADR-0005 §4).
+    await repos.bookings.rotateManageToken(
+      old.id,
+      await ports.crypto.hash(ports.crypto.randomToken(32)),
+    )
     await ports.queue
       .send({ kind: 'calendar.sync', bookingId: outcome.booking.id, action: 'create' })
       .catch(() => {})

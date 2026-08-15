@@ -685,3 +685,45 @@ describe('constantTimeEqual', () => {
     expect(constantTimeEqual(a, b)).toBe(false)
   })
 })
+
+// ===========================================================================
+// Manage links: the surface that was dead until 2026-08-15
+// ===========================================================================
+
+describe('manage tokens are signed, and one token authorises both actions', () => {
+  async function seeded(purpose: 'manage' | 'cancel' | 'reschedule' = 'manage') {
+    const h = harness()
+    const bk = booking()
+    const token = await issueManageToken(h, bk, purpose)
+    h.repos.seedBooking({ ...bk, manageTokenHash: token.tokenHash })
+    return { h, bk, token }
+  }
+
+  it('a token issued by the booking path actually verifies', async () => {
+    // The regression this guards: the coordinator used to store
+    // hash(randomToken()) — bare randomness with no signature — so
+    // verifyManageToken could never parse it, and every guest link was dead
+    // while the code looked correct.
+    const { h, token } = await seeded('manage')
+    expect((await verifyManageToken(h, token.token, 'manage', NOW)).ok).toBe(true)
+  })
+
+  it('is rejected for a booking it was not issued for', async () => {
+    const { h, bk, token } = await seeded('manage')
+    // The signature binds the booking id, so retargeting it fails.
+    const forged = token.token.replace(bk.id, 'bk_someone_else')
+    expect((await verifyManageToken(h, forged, 'manage', NOW)).ok).toBe(false)
+  })
+
+  it('rotating the hash kills the previous link', async () => {
+    const { h, bk, token } = await seeded('manage')
+    expect((await verifyManageToken(h, token.token, 'manage', NOW)).ok).toBe(true)
+
+    // Exactly what cancel and reschedule now do after changing state.
+    await h.repos.bookings.rotateManageToken(bk.id, await h.crypto.hash(h.crypto.randomToken(32)))
+
+    const after = await verifyManageToken(h, token.token, 'manage', NOW)
+    expect(after.ok).toBe(false)
+    expect(after.ok === false && after.reason).toBe('superseded')
+  })
+})

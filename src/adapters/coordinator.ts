@@ -16,6 +16,7 @@ import type {
 import { combineBusy, partitionConnections, prepareBooking } from '../core/domain/booking-service.js'
 import { bookingFootprint } from '../core/slots/engine.js'
 import { intervalToBuckets } from '../core/slots/intervals.js'
+import { issueManageToken } from '../core/domain/auth-flows.js'
 import { localDateString } from '../core/time/zone.js'
 import type { HostAvailabilityInput } from '../core/slots/engine.js'
 
@@ -102,8 +103,15 @@ export function createCoordinator(deps: CoordinatorDeps): HostCoordinator {
             : undefined
 
         const bookingId = crypto.randomUUID()
-        const manageToken = ports.crypto.randomToken(32)
-        const manageTokenHash = await ports.crypto.hash(manageToken)
+        // A SIGNED token, not bare randomness: verifyManageToken parses and
+        // checks the signature, so an unsigned value could never validate and
+        // the whole guest manage surface was silently dead.
+        const issued = await issueManageToken(
+          { crypto: ports.crypto },
+          { id: bookingId, startUtc: request.start },
+          'manage',
+        )
+        const manageTokenHash = issued.tokenHash
 
         const prepared = prepareBooking({
           eventType,
@@ -156,7 +164,8 @@ export function createCoordinator(deps: CoordinatorDeps): HostCoordinator {
           .send({ kind: 'calendar.sync', bookingId: written.id, action: 'create' })
           .catch(() => {})
 
-        return { ok: true, booking: { ...written, manageTokenHash } }
+        // The raw token leaves here exactly once — only its hash is stored.
+        return { ok: true, booking: { ...written, manageTokenHash }, manageToken: issued.token }
       } finally {
         for (const id of acquired) {
           await stub(id).releaseLease(leaseId).catch(() => {})
