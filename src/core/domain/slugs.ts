@@ -24,6 +24,8 @@ export const RESERVED_SLUGS = new Set([
   'admin', 'settings', 'account', 'billing', 'pricing', 'signup', 'signin',
   'register', 'app', 'www', 'static', 'assets', 'public', 'docs', 'help',
   'support', 'status', 'blog', 'about', 'terms', 'privacy', 'legal',
+  // Infrastructure hostnames under punctual.sh (ADR-0008).
+  'mail', 'smtp', 'mx', 'ns', 'cdn',
   'security', 'webhooks', 'oauth', 'callback', 'verify', 'reset',
   'team', 'teams', 'user', 'users', 'me', 'new', 'edit', 'delete',
   '.well-known', 'null', 'undefined',
