@@ -114,9 +114,26 @@ export const MAGIC_LINK_TTL_MS = 15 * 60 * 1000
 // Guest manage tokens
 // ---------------------------------------------------------------------------
 
-export type ManageTokenPurpose = 'cancel' | 'reschedule'
+/**
+ * `manage` authorises both actions from one link.
+ *
+ * The schema has a single `manage_token_hash` column, and the confirmation
+ * email sends the reschedule and cancel links to the SAME person in the SAME
+ * message — so splitting them protects against nothing, while making one of
+ * the two impossible to keep valid. Purpose stays in the signed payload so a
+ * token minted for one booking cannot be replayed against another.
+ */
+/**
+ * The runtime list IS the source of truth, and the type is derived from it.
+ *
+ * These were two independent declarations, so adding 'manage' to the union
+ * left the parser rejecting it — a type-level change with no compile error and
+ * a silent runtime failure. Deriving one from the other makes that impossible.
+ */
+const MANAGE_PURPOSES = ['manage', 'cancel', 'reschedule'] as const
 
-const MANAGE_PURPOSES: readonly string[] = ['cancel', 'reschedule']
+export type ManageTokenPurpose = (typeof MANAGE_PURPOSES)[number]
+
 
 /** Booking time + 30 days (ADR-0005 §4): guests act on old email. */
 export const MANAGE_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000
@@ -176,7 +193,7 @@ export function parseManageToken(raw: string): ParsedManageToken | null {
   if (parts.length !== 5) return null
   const [bookingId, purpose, expRaw, nonce, signature] = parts as [string, string, string, string, string]
   if (bookingId.length === 0 || nonce.length === 0 || signature.length === 0) return null
-  if (!MANAGE_PURPOSES.includes(purpose)) return null
+  if (!(MANAGE_PURPOSES as readonly string[]).includes(purpose)) return null
   if (!/^\d{1,15}$/.test(expRaw)) return null
   const exp = Number(expRaw)
   const typedPurpose = purpose as ManageTokenPurpose

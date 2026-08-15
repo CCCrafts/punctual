@@ -109,3 +109,58 @@ textarea{min-height:5rem;resize:vertical}
 export function pageCss(): string {
   return TOKENS + BASE_CSS
 }
+
+/**
+ * Landing and docs-index page only. Kept separate from BASE_CSS so the
+ * booking page — the one that actually needs to hit the <80 KB budget on
+ * every request — never pays for marketing-page rules it doesn't use.
+ */
+export const LANDING_CSS = `
+.pu-landing{max-width:1120px;margin:0 auto;padding:0 1.25rem 4rem}
+.pu-hero{padding:3.5rem 0 3rem;text-align:center}
+.pu-hero .pu-mark{font-size:1.125rem}
+.pu-hero h1{font-family:var(--pu-font-display);font-size:clamp(1.75rem,4vw + 1rem,2.75rem);
+  margin:1.25rem 0 1rem}
+.pu-hero-lede{font-size:1.125rem;color:var(--pu-ink-500);max-width:34rem;margin:0 auto 2rem}
+.pu-hero-cta{display:flex;gap:.75rem;justify-content:center;flex-wrap:wrap}
+
+.pu-landing section{margin:3.5rem 0}
+.pu-section-head{text-align:center;max-width:38rem;margin:0 auto 1.75rem}
+.pu-section-head h2{font-size:1.375rem}
+
+.pu-pledge{background:var(--pu-green-tint);border-color:var(--pu-green-700);
+  text-align:center;padding:2.25rem 1.5rem}
+.pu-pledge h2{color:var(--pu-green-800)}
+.pu-pledge p{font-size:1.125rem;max-width:40rem;margin:0 auto;color:var(--pu-ink-950)}
+
+.pu-feature-grid{display:grid;gap:1rem;grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
+.pu-feature-grid .pu-stat{display:block;font-family:var(--pu-font-mono);font-weight:700;
+  color:var(--pu-green-700);font-size:1.125rem;margin-bottom:.35rem}
+
+.pu-steps{display:grid;gap:1.5rem 1.25rem;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));
+  list-style:none;padding:0;margin:0;counter-reset:pu-step}
+.pu-steps li{counter-increment:pu-step;padding-top:2.75rem;position:relative}
+.pu-steps li::before{content:counter(pu-step);position:absolute;top:0;left:0;
+  width:2rem;height:2rem;border-radius:99px;background:var(--pu-green-700);color:#fff;
+  display:flex;align-items:center;justify-content:center;font-family:var(--pu-font-mono);
+  font-weight:700;font-size:.875rem}
+
+.pu-compare{display:grid;gap:1.25rem;grid-template-columns:1fr}
+@media(min-width:700px){.pu-compare{grid-template-columns:1fr 1fr}}
+.pu-compare .pu-card{display:flex;flex-direction:column;gap:.25rem}
+.pu-compare h3{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap}
+.pu-compare ul{padding-left:1.1rem;margin:.5rem 0}
+.pu-compare li{margin-bottom:.4rem}
+
+.pu-landing-footer{border-top:1px solid var(--pu-line);margin-top:3rem;padding-top:1.5rem}
+.pu-landing-footer nav{display:flex;gap:1.25rem;justify-content:center;flex-wrap:wrap;
+  font-size:.875rem;margin-bottom:.75rem}
+
+@media(hover:hover){
+  .pu-feature-grid .pu-card,.pu-compare .pu-card{transition:border-color .15s ease}
+  .pu-feature-grid .pu-card:hover,.pu-compare .pu-card:hover{border-color:var(--pu-green-700)}
+}
+@media(prefers-reduced-motion:reduce){
+  .pu-feature-grid .pu-card,.pu-compare .pu-card{transition:none}
+}
+`

@@ -389,7 +389,14 @@ export interface BookingAttempt {
 }
 
 export type BookingOutcome =
-  | { ok: true; booking: Booking }
+  /**
+   * `manageToken` is the RAW signed token, returned exactly once so the
+   * confirmation page and email can link to it. Only its hash is stored.
+   *
+   * Absent on an idempotent replay: the original raw token was never kept, so
+   * a retry can confirm the booking exists but cannot re-issue its link.
+   */
+  | { ok: true; booking: Booking; manageToken?: string }
   | { ok: false; reason: 'slot_taken' | 'outside_availability' | 'policy' | 'lease_failed'; detail?: string }
 
 // ---------------------------------------------------------------------------
