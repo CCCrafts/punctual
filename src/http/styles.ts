@@ -16,25 +16,49 @@ export const TOKENS = `
   --pu-ink-500:#5C6660; --pu-paper:#FAFAF7; --pu-paper-dim:#F0F1EC;
   --pu-line:#E3E5DE; --pu-green-700:#0E7C4C; --pu-green-800:#0A5C3A;
   --pu-signal:#1FC16B; --pu-green-tint:#E4F5EC; --pu-danger:#D92D20;
+  --pu-danger-800:#B8241A; --pu-danger-text:#D92D20; --pu-danger-tint:#FBEAE8;
   --pu-font-display:"Schibsted Grotesk",system-ui,-apple-system,sans-serif;
   --pu-font-ui:"Inter",system-ui,-apple-system,"Segoe UI",sans-serif;
   --pu-font-mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
   --pu-radius:10px; --pu-radius-lg:16px;
+  --pu-shadow-sm:0 1px 2px rgba(15,21,18,.06);
+  --pu-ring:0 0 0 3px color-mix(in srgb,var(--pu-green-700) 25%,transparent);
 }
 @media (prefers-color-scheme:dark){
   :root:not([data-theme=light]){
     --pu-paper:#0F1512; --pu-paper-dim:#17201B; --pu-line:#2E3B34;
     --pu-ink-950:#FAFAF7; --pu-ink-500:#9AA5A0; --pu-green-700:#1FC16B;
-    --pu-green-800:#3ED486; --pu-green-tint:#153A28;
+    --pu-green-800:#3ED486; --pu-green-tint:#153A28; --pu-danger-text:#FF6B5B;
+    --pu-danger-tint:#3A1A16;
+    --pu-shadow-sm:0 1px 2px rgba(0,0,0,.4);
   }
 }
 :root[data-theme=dark]{
   --pu-paper:#0F1512; --pu-paper-dim:#17201B; --pu-line:#2E3B34;
   --pu-ink-950:#FAFAF7; --pu-ink-500:#9AA5A0; --pu-green-700:#1FC16B;
-  --pu-green-800:#3ED486; --pu-green-tint:#153A28;
+  --pu-green-800:#3ED486; --pu-green-tint:#153A28; --pu-danger-text:#FF6B5B;
+  --pu-danger-tint:#3A1A16;
+  --pu-shadow-sm:0 1px 2px rgba(0,0,0,.4);
 }
 `
 
+/**
+ * Design notes (kept here, not as comments inside the template literal below,
+ * because every byte inside BASE_CSS ships in the response):
+ *
+ * - .pu-event-header has no card box: it leads the page, the calendar/slot
+ *   cards below it are the task.
+ * - Calendar availability and "today" are both marked by shape + weight, not
+ *   colour alone — a dot under the number for bookable days, a bar above it
+ *   for today — so the distinction survives greyscale/colour-blind viewing.
+ * - .pu-slot-chosen is a static echo of the slot picker on the confirm page:
+ *   the picker itself has no persisted "selected" state because each slot is
+ *   a navigation, not a client-side selection (no JS on this page).
+ * - input/select/textarea get a red border via :has(+ .pu-err) — CSS-only,
+ *   no per-field error class needed from the route.
+ * - .pu-confirm-icon is the brand's "dot at twelve" ring, landed: the ring
+ *   has finished drawing and the dot sits at 12, i.e. arrived on time.
+ */
 export const BASE_CSS = `
 *,*::before,*::after{box-sizing:border-box}
 body{margin:0;background:var(--pu-paper);color:var(--pu-ink-950);
@@ -44,11 +68,14 @@ h1{font-size:1.5rem} h2{font-size:1.125rem} h3{font-size:1rem}
 p{margin:0 0 .75rem}
 a{color:var(--pu-green-700)}
 time,.pu-time{font-family:var(--pu-font-mono);font-variant-numeric:tabular-nums}
+::selection{background:var(--pu-green-tint);color:var(--pu-green-800)}
 
 .pu-wrap{max-width:900px;margin:0 auto;padding:1.5rem 1rem 4rem}
 .pu-card{background:var(--pu-paper);border:1px solid var(--pu-line);
-  border-radius:var(--pu-radius-lg);padding:1.25rem}
+  border-radius:var(--pu-radius-lg);padding:1.375rem;box-shadow:var(--pu-shadow-sm)}
 .pu-muted{color:var(--pu-ink-500)}
+.pu-kicker{color:var(--pu-ink-500);font-size:.8125rem;font-weight:600;
+  letter-spacing:.03em;text-transform:uppercase;margin:0 0 .35rem}
 .pu-mark{font-family:var(--pu-font-mono);font-weight:600;letter-spacing:-.02em;
   text-decoration:none;color:var(--pu-ink-950)}
 .pu-mark span{color:var(--pu-signal)}
@@ -56,54 +83,111 @@ time,.pu-time{font-family:var(--pu-font-mono);font-variant-numeric:tabular-nums}
 .pu-grid{display:grid;gap:1.5rem;grid-template-columns:1fr}
 @media(min-width:780px){.pu-grid{grid-template-columns:300px 1fr}}
 
-.pu-cal{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
-.pu-cal-head{font-size:.75rem;text-align:center;color:var(--pu-ink-500);padding:.25rem 0}
-.pu-day{aspect-ratio:1;display:flex;align-items:center;justify-content:center;
-  border:1px solid transparent;border-radius:var(--pu-radius);background:none;
-  font:inherit;font-family:var(--pu-font-mono);font-size:.875rem;cursor:pointer;
-  color:var(--pu-ink-950);text-decoration:none}
-.pu-day[data-has-slots="1"]{background:var(--pu-green-tint);color:var(--pu-green-700);font-weight:600}
-.pu-day[aria-disabled="true"]{color:var(--pu-ink-500);opacity:.45;cursor:default}
-.pu-day[aria-current="date"]{border-color:var(--pu-green-700)}
-.pu-day:hover[data-has-slots="1"]{background:var(--pu-green-700);color:var(--pu-paper)}
-.pu-day:focus-visible,.pu-slot:focus-visible,.pu-btn:focus-visible,
-input:focus-visible,select:focus-visible,textarea:focus-visible{
-  outline:2px solid var(--pu-green-700);outline-offset:2px}
+.pu-event-header{padding:0 0 1.5rem;margin:0 0 1.5rem;border-bottom:1px solid var(--pu-line)}
+.pu-event-header h1{font-size:1.75rem;margin:0 0 .5rem}
+.pu-event-header .pu-meta{margin-top:.85rem}
 
-.pu-slots{display:grid;gap:.5rem;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));
-  max-height:60vh;overflow-y:auto}
-.pu-slot{padding:.6rem .5rem;border:1px solid var(--pu-line);border-radius:var(--pu-radius);
-  background:var(--pu-paper);font-family:var(--pu-font-mono);font-size:.9rem;
-  color:var(--pu-ink-950);text-align:center;text-decoration:none;cursor:pointer;display:block}
-.pu-slot:hover{border-color:var(--pu-green-700);background:var(--pu-green-tint)}
+.pu-cal{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
+.pu-cal-head{font-size:.75rem;font-weight:600;text-align:center;color:var(--pu-ink-500);padding:.25rem 0}
+.pu-day{position:relative;aspect-ratio:1;display:flex;align-items:center;justify-content:center;
+  border:1px solid transparent;border-radius:var(--pu-radius);background:none;
+  font:inherit;font-family:var(--pu-font-mono);font-size:.9375rem;cursor:pointer;
+  color:var(--pu-ink-950);text-decoration:none;transition:all .12s ease}
+.pu-day[data-has-slots="1"]{background:var(--pu-green-tint);color:var(--pu-green-700);font-weight:700}
+.pu-day[data-has-slots="1"]::after{content:"";position:absolute;bottom:6px;left:50%;
+  width:4px;height:4px;border-radius:99px;background:currentColor;transform:translateX(-50%)}
+.pu-day[aria-disabled="true"]{color:var(--pu-ink-500);opacity:.45;cursor:default}
+.pu-day[aria-current="date"]{box-shadow:inset 0 0 0 2px var(--pu-green-700);font-weight:700}
+.pu-day[aria-current="date"]::before{content:"";position:absolute;top:5px;left:50%;
+  width:12px;height:2px;border-radius:1px;background:currentColor;opacity:.9;transform:translateX(-50%)}
+.pu-day:hover[data-has-slots="1"]{background:var(--pu-green-700);color:var(--pu-paper);transform:translateY(-1px)}
+.pu-day:focus-visible,.pu-slot:focus-visible,.pu-btn:focus-visible{
+  outline:2px solid var(--pu-green-700);outline-offset:2px}
+input:focus-visible,select:focus-visible,textarea:focus-visible{
+  outline:2px solid var(--pu-green-700);outline-offset:1px;box-shadow:var(--pu-ring)}
+
+.pu-slots{display:grid;gap:.625rem;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));
+  max-height:60vh;overflow-y:auto;padding:2px}
+.pu-slot{padding:.75rem .5rem;border:1px solid var(--pu-line);border-radius:var(--pu-radius);
+  background:var(--pu-paper);font-family:var(--pu-font-mono);font-size:.9375rem;font-weight:600;
+  color:var(--pu-ink-950);text-align:center;text-decoration:none;cursor:pointer;display:block;
+  transition:all .12s ease}
+.pu-slot:hover{border-color:var(--pu-green-700);background:var(--pu-green-tint);
+  box-shadow:var(--pu-shadow-sm);transform:translateY(-1px)}
+.pu-slot:active{background:var(--pu-green-700);border-color:var(--pu-green-700);color:#fff;transform:translateY(0)}
+
+.pu-slot-chosen{display:flex;align-items:center;gap:.75rem;margin:0 0 1.25rem;
+  padding:.85rem 1rem;border:1px solid var(--pu-green-700);border-radius:var(--pu-radius);
+  background:var(--pu-green-tint)}
+.pu-slot-chosen .pu-dot-lg{flex:0 0 auto;width:.65rem;height:.65rem;border-radius:99px;
+  background:var(--pu-green-700)}
 
 .pu-btn{display:inline-block;padding:.7rem 1.1rem;border-radius:var(--pu-radius);
   background:var(--pu-green-700);color:#fff;border:1px solid var(--pu-green-700);
-  font:inherit;font-weight:600;cursor:pointer;text-decoration:none;text-align:center}
+  font:inherit;font-weight:600;cursor:pointer;text-decoration:none;text-align:center;
+  transition:all .12s ease}
 .pu-btn:hover{background:var(--pu-green-800);border-color:var(--pu-green-800)}
 .pu-btn[disabled]{opacity:.6;cursor:default}
 .pu-btn-ghost{background:none;color:var(--pu-ink-950);border-color:var(--pu-line)}
+.pu-btn-ghost:hover{background:var(--pu-paper-dim);border-color:var(--pu-ink-500);color:var(--pu-ink-950)}
 .pu-btn-danger{background:var(--pu-danger);border-color:var(--pu-danger);color:#fff}
+.pu-btn-danger:hover{background:var(--pu-danger-800);border-color:var(--pu-danger-800)}
 
-label{display:block;font-size:.875rem;font-weight:600;margin:.85rem 0 .3rem}
-input,select,textarea{width:100%;padding:.6rem .7rem;border:1px solid var(--pu-line);
+label{display:block;font-size:.875rem;font-weight:600;margin:1rem 0 .35rem}
+input,select,textarea{width:100%;padding:.65rem .75rem;border:1px solid var(--pu-line);
   border-radius:var(--pu-radius);background:var(--pu-paper);color:var(--pu-ink-950);
-  font:inherit}
+  font:inherit;transition:border-color .12s ease}
 textarea{min-height:5rem;resize:vertical}
-.pu-err{color:var(--pu-danger);font-size:.8125rem;margin:.25rem 0 0}
+input:has(+ .pu-err),select:has(+ .pu-err),textarea:has(+ .pu-err){border-color:var(--pu-danger)}
+.pu-err{display:flex;align-items:flex-start;gap:.4rem;color:var(--pu-danger-text);
+  font-size:.8125rem;margin:.4rem 0 0}
+.pu-err::before{content:"!";flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;
+  width:1rem;height:1rem;margin-top:.0625rem;border-radius:99px;background:var(--pu-danger);
+  color:#fff;font-size:.6875rem;font-weight:700;line-height:1}
 .pu-badge{display:inline-block;padding:.15rem .5rem;border-radius:99px;font-size:.75rem;
   background:var(--pu-green-tint);color:var(--pu-green-700);font-weight:600}
 .pu-dot{display:inline-block;width:.5rem;height:.5rem;border-radius:99px;
   background:var(--pu-signal);vertical-align:middle}
 .pu-meta{display:flex;flex-wrap:wrap;gap:.5rem 1rem;font-size:.875rem;color:var(--pu-ink-500);
   list-style:none;padding:0;margin:.5rem 0 0}
+
+.pu-confirm{text-align:center;padding:2rem 1.5rem}
+.pu-confirm-icon{display:block;margin:0 auto .75rem}
+.pu-ring-track{fill:none;stroke:var(--pu-line)}
+.pu-ring-fill{fill:none;stroke:var(--pu-green-700);stroke-dasharray:151;stroke-dashoffset:0}
+.pu-ring-dot{fill:var(--pu-signal)}
+.pu-confirm h1{margin:.15rem 0 .35rem}
+.pu-confirm-details{text-align:left;list-style:none;margin:1.25rem 0;padding:1rem 1.25rem;
+  background:var(--pu-paper-dim);border-radius:var(--pu-radius);display:grid;gap:.6rem}
+.pu-confirm-details div{display:flex;justify-content:space-between;align-items:baseline;
+  gap:1rem;flex-wrap:wrap}
+.pu-confirm-details dt{color:var(--pu-ink-500);font-size:.8125rem;font-weight:600;margin:0}
+.pu-confirm-details dd{margin:0;text-align:right}
+
+.pu-nav-link{text-decoration:none;color:var(--pu-ink-500);font-weight:500;
+  padding:.35rem 0;border-bottom:2px solid transparent}
+.pu-nav-link:hover{color:var(--pu-ink-950)}
+.pu-nav-link[aria-current="page"]{color:var(--pu-ink-950);font-weight:600;
+  border-bottom-color:var(--pu-green-700)}
+.pu-dash-header{border-bottom:1px solid var(--pu-line);padding-bottom:1rem}
+
+.pu-url{display:flex;align-items:center;gap:.5rem;background:var(--pu-paper-dim);
+  border:1px solid var(--pu-line);border-radius:var(--pu-radius);padding:.15rem .15rem .15rem .8rem}
+.pu-url-input{flex:1;min-width:0;border:0;background:none;padding:.5rem 0;
+  font-family:var(--pu-font-mono);font-size:.8125rem;color:var(--pu-ink-950)}
+
 .pu-skeleton{height:2.4rem;border-radius:var(--pu-radius);background:var(--pu-paper-dim);
   animation:pu-pulse 1.2s ease-in-out infinite}
 @keyframes pu-pulse{50%{opacity:.55}}
-@media(prefers-reduced-motion:reduce){.pu-skeleton{animation:none}}
 .pu-sr{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
   clip:rect(0 0 0 0);white-space:nowrap;border:0}
 .pu-foot{margin-top:2.5rem;font-size:.8125rem;color:var(--pu-ink-500);text-align:center}
+
+@media(prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;
+    transition-duration:.01ms!important;scroll-behavior:auto!important}
+  .pu-day:hover[data-has-slots="1"],.pu-slot:hover,.pu-slot:active{transform:none}
+}
 `
 
 export function pageCss(): string {
@@ -155,6 +239,10 @@ export const LANDING_CSS = `
 .pu-landing-footer{border-top:1px solid var(--pu-line);margin-top:3rem;padding-top:1.5rem}
 .pu-landing-footer nav{display:flex;gap:1.25rem;justify-content:center;flex-wrap:wrap;
   font-size:.875rem;margin-bottom:.75rem}
+
+/* Long unbroken tokens (URLs, API paths) must not force horizontal scroll
+   on narrow viewports — see design requirement: no horizontal scroll at 360px. */
+.pu-landing .pu-time{overflow-wrap:anywhere}
 
 @media(hover:hover){
   .pu-feature-grid .pu-card,.pu-compare .pu-card{transition:border-color .15s ease}

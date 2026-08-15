@@ -13,7 +13,7 @@ import { createEngine } from './engine.js'
 import { createD1Repositories } from './adapters/d1/repositories.js'
 import { createWebCrypto } from './adapters/crypto/webcrypto.js'
 import { createKvCache } from './adapters/cache/kv.js'
-import { createConsoleSender, createResendSender } from './adapters/email/index.js'
+import { createBrevoSender, createConsoleSender, createResendSender } from './adapters/email/index.js'
 import { createEnvOAuthCredentials } from './adapters/oauth.js'
 import { createCalendarProviders } from './adapters/providers.js'
 import { createCoordinator } from './adapters/coordinator.js'
@@ -42,6 +42,7 @@ export interface Env {
   ENCRYPTION_KEY_V2?: string
   SIGNING_KEY?: string
   RESEND_API_KEY?: string
+  BREVO_API_KEY?: string
   GOOGLE_CLIENT_ID?: string
   GOOGLE_CLIENT_SECRET?: string
   MICROSOFT_CLIENT_ID?: string
@@ -91,13 +92,17 @@ export function buildPorts(env: Env): EnginePorts {
 
   // A self-hoster with no email provider still gets a working product; the
   // emails land in `wrangler tail` rather than nowhere.
+  // Whichever provider is configured. Neither is required: with no key the
+  // sender logs, so a self-hoster has a working product on day one and can
+  // add deliverability later (ADR-0003 — the port exists so this is a choice,
+  // not a gate).
+  const emailFrom = env.FROM_EMAIL ?? 'hello@example.com'
+  const emailFromName = env.FROM_NAME ?? 'Punctual'
   const email = env.RESEND_API_KEY
-    ? createResendSender({
-        apiKey: env.RESEND_API_KEY,
-        from: env.FROM_EMAIL ?? 'hello@example.com',
-        fromName: env.FROM_NAME ?? 'Punctual',
-      })
-    : createConsoleSender()
+    ? createResendSender({ apiKey: env.RESEND_API_KEY, from: emailFrom, fromName: emailFromName })
+    : env.BREVO_API_KEY
+      ? createBrevoSender({ apiKey: env.BREVO_API_KEY, from: emailFrom, fromName: emailFromName })
+      : createConsoleSender()
 
   const queue = createQueueAdapter(env.TASKS)
   const rateLimiter = createRateLimiterAdapter(env.RATE_LIMITER)
@@ -140,7 +145,17 @@ export default {
   },
 
   async queue(batch: MessageBatch, env: Env): Promise<void> {
-    await handleQueueBatch(batch, buildPorts(env))
+    // A misconfigured deployment (no key material) must surface as a named
+    // error and retried messages, not an unhandled rejection with no context.
+    let ports: EnginePorts
+    try {
+      ports = buildPorts(env)
+    } catch (err) {
+      console.error('[punctual] cannot process queue: engine misconfigured', err)
+      for (const m of batch.messages) m.retry()
+      return
+    }
+    await handleQueueBatch(batch, ports)
   },
 
   /**
@@ -151,6 +166,10 @@ export default {
    * email nobody notices arriving 4 minutes early.
    */
   async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-    ctx.waitUntil(runScheduledTasks(buildPorts(env), event.scheduledTime))
+    try {
+      ctx.waitUntil(runScheduledTasks(buildPorts(env), event.scheduledTime))
+    } catch (err) {
+      console.error('[punctual] cannot run scheduled tasks: engine misconfigured', err)
+    }
   },
 }

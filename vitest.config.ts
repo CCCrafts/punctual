@@ -26,7 +26,16 @@ export default defineConfig({
           cloudflareTest({
             wrangler: { configPath: './wrangler.toml' },
             miniflare: {
-              bindings: { TEST_MIGRATIONS: migrations },
+              bindings: {
+                TEST_MIGRATIONS: migrations,
+                // The engine refuses to start without key material, on purpose
+                // (silently encrypting refresh tokens under a default key is
+                // worse than failing loudly). Tests therefore need real keys.
+                ENCRYPTION_KEY_V1: 'dGVzdC1lbmNyeXB0aW9uLWtleS0zMi1ieXRlcy0hIQ==',
+                SIGNING_KEY: 'dGVzdC1zaWduaW5nLWtleS0zMi1ieXRlcy1sb25nLi4h',
+                BASE_URL: 'https://punctual.test',
+                BRAND_NAME: 'Punctual',
+              },
             },
           }),
         ],

@@ -18,6 +18,7 @@ import { buildMcpRoutes } from './mcp/server.js'
 import { buildEmbedRoutes } from './embed.js'
 import { buildDashboardRoutes } from './dashboard-routes.js'
 import { privacyPage, termsPage } from './pages/legal.js'
+import { docsIndexPage, landingPage } from './pages/landing.js'
 import type { EnginePorts, RequestScope } from '../ports.js'
 import type { SlotService } from '../engine.js'
 import { daysWithSlots, monthRange } from '../engine.js'
@@ -43,6 +44,16 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
   const publicScope: RequestScope = { consistency: 'unconstrained' }
 
   app.get('/health', (c) => c.json({ ok: true, service: 'punctual' }))
+
+  // Marketing landing page and docs index. Registered before every other
+  // route so they win regardless of what else claims '/' — same reasoning as
+  // the /privacy and /terms mounts below.
+  app.get('/', (c) =>
+    c.html(landingPage({ brandName: ports.config.brandName, baseUrl: ports.config.baseUrl })),
+  )
+  app.get('/docs', (c) =>
+    c.html(docsIndexPage({ brandName: ports.config.brandName, baseUrl: ports.config.baseUrl })),
+  )
 
   // Programmatic surfaces. Mounted before the /:userSlug/:eventSlug catch-all
   // so a host cannot claim the slug "api" and shadow them.
@@ -106,12 +117,16 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
     // provider call per connection per request — which burns the deployment's
     // Google/Graph quota and eventually degrades conflict checking for every
     // host on it.
+    const selectedDate = validDate(c.req.query('date'))
+    // A selected date decides the month. Slots are computed for ONE month and
+    // the day view filters that set, so taking the month from `?month=` alone
+    // meant picking any day outside the current month returned "No times
+    // available" — the calendar offered days it then refused to show.
     const month = clampMonth(
-      validMonth(c.req.query('month')) ?? currentMonth,
+      validMonth(c.req.query('month')) ?? selectedDate?.slice(0, 7) ?? currentMonth,
       currentMonth,
       eventType.maxHorizonDays,
     )
-    const selectedDate = validDate(c.req.query('date'))
 
     // Flush the shell and the event header before touching D1 for slots: TTFB
     // then measures edge render rather than a replica round trip (ADR-0007 §3).

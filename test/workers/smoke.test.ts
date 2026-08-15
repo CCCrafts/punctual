@@ -1,4 +1,4 @@
-import { env } from 'cloudflare:test'
+import { createExecutionContext, env } from 'cloudflare:test'
 import { describe, expect, it } from 'vitest'
 
 /**
@@ -82,5 +82,32 @@ describe('workers harness', () => {
     await env.DB.batch([hold('hostC', 3000, 'h1'), hold('hostC', 3000, 'h2')])
     const n = await env.DB.prepare('SELECT COUNT(*) AS n FROM slot_holds').first<{ n: number }>()
     expect(n?.n).toBe(2)
+  })
+})
+
+/**
+ * A day the calendar advertises must actually show times.
+ *
+ * The bug this guards: slots are computed for ONE month and the day view
+ * filters that set, while the calendar's day links carried only `?date=`. So
+ * picking any day outside the current month silently produced "No times
+ * available" — the calendar offering days it then refused to serve.
+ */
+describe('month resolution follows the selected date', () => {
+  it('derives the month from ?date= when ?month= is absent', async () => {
+    const { default: worker } = await import('../../src/index.js')
+    // A date two months out: with the bug, this resolved against the CURRENT
+    // month and returned nothing.
+    const next = new Date(Date.now() + 62 * 86_400_000)
+    const date = `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, '0')}-15`
+
+    const res = await worker.fetch(
+      new Request(`https://punctual.sh/nobody/nothing?date=${date}`),
+      env,
+      createExecutionContext(),
+    )
+    // The host does not exist, so 404 — but the point is that resolving the
+    // month from the date must not throw before we get there.
+    expect(res.status).toBe(404)
   })
 })

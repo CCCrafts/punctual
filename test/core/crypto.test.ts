@@ -166,3 +166,82 @@ describe('randomToken / hash', () => {
     expect(await subject({ 1: KEY_V2 }, 1).hash('abc')).toBe(await c.hash('abc'))
   })
 })
+
+// ===========================================================================
+// Email senders
+// ===========================================================================
+
+describe('Brevo sender', () => {
+  async function capture(message: Parameters<import('../../src/ports.js').EmailSender['send']>[0]) {
+    const { createBrevoSender } = await import('../../src/adapters/email/index.js')
+    let seen: { url: string; headers: Record<string, string>; body: Record<string, unknown> } | null = null
+    const fake = (async (url: RequestInfo | URL, init?: RequestInit) => {
+      seen = {
+        url: String(url),
+        headers: (init?.headers ?? {}) as Record<string, string>,
+        body: JSON.parse(String(init?.body ?? '{}')),
+      }
+      return new Response('{}', { status: 201 })
+    }) as typeof globalThis.fetch
+
+    const sender = createBrevoSender({
+      apiKey: 'xkeysib-test',
+      from: 'hello@punctual.sh',
+      fromName: 'Punctual',
+      fetch: fake,
+    })
+    await sender.send(message)
+    return seen!
+  }
+
+  it('authenticates with api-key, not Authorization', async () => {
+    const seen = await capture({ to: 'g@example.com', subject: 'Hi', html: '<p>Hi</p>', text: 'Hi' })
+    // Brevo differs from Resend here, and getting it wrong is a silent 401.
+    expect(seen.headers['api-key']).toBe('xkeysib-test')
+    expect(seen.headers['Authorization']).toBeUndefined()
+  })
+
+  it('maps the message onto Brevo field names', async () => {
+    const seen = await capture({
+      to: 'g@example.com',
+      toName: 'Guest',
+      subject: 'Booked',
+      html: '<p>x</p>',
+      text: 'x',
+    })
+    expect(seen.body['sender']).toEqual({ email: 'hello@punctual.sh', name: 'Punctual' })
+    expect(seen.body['to']).toEqual([{ email: 'g@example.com', name: 'Guest' }])
+    expect(seen.body['htmlContent']).toBe('<p>x</p>')
+    expect(seen.body['textContent']).toBe('x')
+  })
+
+  it('uses {name, content} for attachments, not {filename, content}', async () => {
+    // Every booking email carries an .ics, so this field name decides whether
+    // the calendar invitation arrives at all.
+    const seen = await capture({
+      to: 'g@example.com',
+      subject: 'Booked',
+      html: '<p>x</p>',
+      text: 'x',
+      attachments: [{ filename: 'invite.ics', content: 'BASE64', contentType: 'text/calendar' }],
+    })
+    expect(seen.body['attachment']).toEqual([{ name: 'invite.ics', content: 'BASE64' }])
+  })
+
+  it('surfaces the response body on failure', async () => {
+    const { createBrevoSender } = await import('../../src/adapters/email/index.js')
+    const failing = (async () =>
+      new Response('{"message":"Sender domain not verified"}', { status: 400 })) as typeof globalThis.fetch
+    const sender = createBrevoSender({
+      apiKey: 'k',
+      from: 'x@y.z',
+      fromName: 'P',
+      fetch: failing,
+    })
+    // The body names the actual cause — usually an unverified sender domain,
+    // which is the most common first-send failure.
+    await expect(
+      sender.send({ to: 'a@b.c', subject: 's', html: 'h', text: 't' }),
+    ).rejects.toThrow(/Sender domain not verified/)
+  })
+})
