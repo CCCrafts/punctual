@@ -40,6 +40,11 @@ export interface NotifyContext {
  */
 export async function notifyBookingCreated(ctx: NotifyContext): Promise<void> {
   const { ports, booking, eventType, host } = ctx
+
+  // The replacement booking of a reschedule already gets a "Rescheduled" mail
+  // from the route that moved it. Sending "Confirmed" as well gives the guest
+  // two contradictory emails for one action.
+  if (booking.rescheduleOf) return
   const manageUrl = ctx.manageToken
     ? `${ports.config.baseUrl}/booking/${booking.id}?token=${encodeURIComponent(ctx.manageToken)}`
     : undefined
@@ -65,15 +70,17 @@ export async function notifyBookingCreated(ctx: NotifyContext): Promise<void> {
     console.error('[punctual] ics generation failed', err)
   }
 
-  const attachments = ics
-    ? [
-        {
-          filename: 'invite.ics',
-          content: base64(ics),
-          contentType: 'text/calendar; method=REQUEST',
-        },
-      ]
-    : undefined
+  // Cloudflare Queues caps a message at 128 KB. A host with many long custom
+  // questions can push the .ics past that, and a rejected batch would lose the
+  // confirmation ENTIRELY — so the attachment is dropped before the email is.
+  const encoded = ics ? base64(ics) : undefined
+  const attachments =
+    encoded && encoded.length <= 40_000
+      ? [{ filename: 'invite.ics', content: encoded, contentType: 'text/calendar; method=REQUEST' }]
+      : undefined
+  if (encoded && !attachments) {
+    console.warn('[punctual] .ics too large to attach; sending confirmation without it')
+  }
 
   const shared = {
     booking,
@@ -88,9 +95,12 @@ export async function notifyBookingCreated(ctx: NotifyContext): Promise<void> {
   const guest = bookingConfirmationForGuest(shared)
   const hostMail = bookingConfirmationForHost(shared)
 
-  await ports.queue
-    .sendBatch([
-      {
+  // Sent independently rather than as one batch: a batch is atomic, so an
+  // oversized or malformed host message would take the guest's confirmation
+  // down with it.
+  await Promise.all([
+    ports.queue
+      .send({
         kind: 'email',
         message: {
           to: booking.guestEmail,
@@ -100,8 +110,10 @@ export async function notifyBookingCreated(ctx: NotifyContext): Promise<void> {
           text: guest.text,
           ...(attachments ? { attachments } : {}),
         },
-      },
-      {
+      })
+      .catch((err) => console.error('[punctual] guest confirmation failed to queue', err)),
+    ports.queue
+      .send({
         kind: 'email',
         message: {
           to: host.email,
@@ -112,11 +124,9 @@ export async function notifyBookingCreated(ctx: NotifyContext): Promise<void> {
           ...(attachments ? { attachments } : {}),
           replyTo: booking.guestEmail,
         },
-      },
-    ])
-    .catch((err) => {
-      console.error('[punctual] queueing confirmation emails failed', err)
-    })
+      })
+      .catch((err) => console.error('[punctual] host notification failed to queue', err)),
+  ])
 }
 
 /**

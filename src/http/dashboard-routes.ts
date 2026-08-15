@@ -823,7 +823,8 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
         host,
         token,
         // A 'manage' token authorises both actions; the page uses this only to
-        // decide which one to lead with.
+        // decide which one to lead with. Reschedule leads because it is the
+        // action a guest is more often looking for.
         purpose: purpose === 'cancel' ? 'cancel' : 'reschedule',
         ...(offered ? { slots: offered } : {}),
         ...(selectedDate ? { selectedDate } : {}),
@@ -935,10 +936,17 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
       await ports.crypto.hash(ports.crypto.randomToken(32)),
     )
     await ports.queue
-      .send({ kind: 'calendar.sync', bookingId: outcome.booking.id, action: 'create' })
+      .send({ kind: 'calendar.sync', bookingId: old.id, action: 'delete' })
       .catch(() => {})
 
-    return c.redirect(`/booking/${encodeURIComponent(outcome.booking.id)}`, 302)
+    // Carry the new booking's token: /booking/:id without one is a 400, so
+    // a guest who successfully rescheduled landed on an error page.
+    const nextToken = outcome.manageToken
+    return c.redirect(
+      `/booking/${encodeURIComponent(outcome.booking.id)}` +
+        (nextToken ? `?token=${encodeURIComponent(nextToken)}` : ''),
+      302,
+    )
   })
 
   type ManageResult =
@@ -965,7 +973,11 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
   ): Promise<ManageResult> {
     const parsed = parseManageToken(token)
     if (!parsed) return { ok: false, message: 'The link is incomplete or was cut short by an email client.' }
-    if (expected && parsed.purpose !== expected) {
+    // A 'manage' token authorises both actions — it is what the coordinator
+    // actually issues. Pinning to 'cancel'/'reschedule' made every real guest
+    // link 400 on both, while the tests passed because they seeded purposes
+    // production never mints.
+    if (expected && parsed.purpose !== expected && parsed.purpose !== 'manage') {
       return { ok: false, message: 'This link cannot perform that action.' }
     }
 

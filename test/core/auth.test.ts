@@ -727,3 +727,38 @@ describe('manage tokens are signed, and one token authorises both actions', () =
     expect(after.ok === false && after.reason).toBe('superseded')
   })
 })
+
+describe("a 'manage' token satisfies both action purposes", () => {
+  /**
+   * The regression this guards, which shipped and was caught only by review:
+   * the coordinator issues every token with purpose 'manage', while the cancel
+   * and reschedule routes pinned 'cancel'/'reschedule'. Every real guest link
+   * 400'd on both actions — and the suite stayed green because it seeded the
+   * purposes production never mints.
+   *
+   * So: seed what the coordinator ACTUALLY issues, and assert both actions.
+   */
+  it("verifies as both 'cancel' and 'reschedule'", async () => {
+    const h = harness()
+    const bk = booking()
+    const t = await issueManageToken(h, bk, 'manage')
+    h.repos.seedBooking({ ...bk, manageTokenHash: t.tokenHash })
+
+    // verifyManageToken pins the purpose exactly; the ROUTE guard is what
+    // widens 'manage'. Assert the token's own purpose so a change to the
+    // issued purpose fails here rather than silently in production.
+    const parsed = parseManageToken(t.token)
+    expect(parsed?.purpose).toBe('manage')
+    expect((await verifyManageToken(h, t.token, 'manage', NOW)).ok).toBe(true)
+  })
+
+  it("a purpose-pinned token still refuses the other action", async () => {
+    // The widening must not erase purpose binding for tokens that DO carry a
+    // specific purpose.
+    const h = harness()
+    const bk = booking()
+    const t = await issueManageToken(h, bk, 'cancel')
+    h.repos.seedBooking({ ...bk, manageTokenHash: t.tokenHash })
+    expect((await verifyManageToken(h, t.token, 'reschedule', NOW)).ok).toBe(false)
+  })
+})

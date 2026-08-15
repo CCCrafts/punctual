@@ -88,7 +88,14 @@ export function createCoordinator(deps: CoordinatorDeps): HostCoordinator {
         // backstop, so an event sitting entirely inside the buffer would never
         // be fetched and the booking would commit on top of it.
         const footprint = bookingFootprint(request.start, request.end, eventType)
-        const hosts = await buildHostInputs(ports, repos, request.hostUserIds, footprint, eventType)
+        const hosts = await buildHostInputs(
+          ports,
+          repos,
+          request.hostUserIds,
+          footprint,
+          eventType,
+          request.start,
+        )
         if (hosts.length === 0) return { ok: false, reason: 'outside_availability' }
 
         const rrContext =
@@ -259,6 +266,8 @@ async function buildHostInputs(
   hostUserIds: string[],
   range: { start: number; end: number },
   eventType?: { maxPerDay: number | null },
+  /** The booking's real start; `range` is buffered and must not be used here. */
+  capAnchor: number = range.start,
 ): Promise<HostAvailabilityInput[]> {
   const now = ports.clock.now()
   const [busyByHost, holdsByHost] = await Promise.all([
@@ -293,7 +302,10 @@ async function buildHostInputs(
     // batch arbitrates buckets, not counts.
     let perDay: Map<string, number> | undefined
     if (eventType?.maxPerDay != null) {
-      const localDate = localDateString(range.start, availability.timezone)
+      // Keyed on the booking's own start, NOT range.start — `range` is the
+      // buffered footprint, so a leading buffer that crosses local midnight
+      // wrote one date and read another, and the cap silently did nothing.
+      const localDate = localDateString(capAnchor, availability.timezone)
       perDay = new Map([[localDate, await repos.bookings.countForHostOnDate(id, localDate)]])
     }
 

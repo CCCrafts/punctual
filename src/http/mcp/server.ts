@@ -704,7 +704,7 @@ async function rescheduleBooking(
 
   await repos.bookings.markRescheduled(original.id, outcome.booking.id)
   await deps.ports.queue
-    .send({ kind: 'calendar.sync', bookingId: outcome.booking.id, action: 'create' })
+    .send({ kind: 'calendar.sync', bookingId: original.id, action: 'delete' })
     .catch(() => {})
 
   return text({

@@ -167,7 +167,13 @@ export default {
    */
   async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     try {
-      ctx.waitUntil(runScheduledTasks(buildPorts(env), event.scheduledTime))
+      // The catch below only covers synchronous buildPorts; the task's own
+      // rejection has to be caught on the promise handed to waitUntil.
+      ctx.waitUntil(
+        runScheduledTasks(buildPorts(env), event.scheduledTime).catch((err) =>
+          console.error('[punctual] scheduled tasks failed', err),
+        ),
+      )
     } catch (err) {
       console.error('[punctual] cannot run scheduled tasks: engine misconfigured', err)
     }

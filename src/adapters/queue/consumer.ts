@@ -149,7 +149,10 @@ async function syncCalendar(
   // Persist whatever succeeded. Partial success is normal — one host's expired
   // token must not discard another host's event id.
   if (msg.action === 'create') {
-    const changed = Object.keys(createdIds).length !== Object.keys(booking.externalEventIds).length
+    // Compare by VALUE, not key count. Counting keys meant a second create for
+    // the same connection (same key, new id) looked unchanged, so the newer
+    // event id was never stored and the event became undeletable.
+    const changed = JSON.stringify(createdIds) !== JSON.stringify(booking.externalEventIds)
     if (changed) await repos.bookings.setExternalEventIds(booking.id, createdIds)
   } else if (msg.action === 'delete') {
     await repos.bookings.setExternalEventIds(booking.id, {})
