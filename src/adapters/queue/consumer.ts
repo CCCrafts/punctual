@@ -103,6 +103,9 @@ async function syncCalendar(
   const eventType = await repos.eventTypes.byId(booking.eventTypeId)
   if (!eventType) return
 
+  // Accumulated across every host and connection, then persisted once.
+  const createdIds: Record<string, string> = { ...booking.externalEventIds }
+
   for (const hostId of booking.hostUserIds) {
     const host = await repos.users.byId(hostId)
     if (!host) continue
@@ -127,7 +130,9 @@ async function syncCalendar(
         }
 
         if (msg.action === 'create') {
-          await provider.createEvent(conn, external)
+          // Keep the id: reschedule and cancel need it, and without it a
+          // cancelled meeting stays on the host's real calendar forever.
+          createdIds[conn.id] = await provider.createEvent(conn, external)
         } else if (msg.action === 'update') {
           const existing = booking.externalEventIds[conn.id]
           if (existing) await provider.updateEvent(conn, existing, external)
@@ -139,6 +144,15 @@ async function syncCalendar(
         console.error(`[punctual] calendar sync failed for connection ${conn.id}`, err)
       }
     }
+  }
+
+  // Persist whatever succeeded. Partial success is normal — one host's expired
+  // token must not discard another host's event id.
+  if (msg.action === 'create') {
+    const changed = Object.keys(createdIds).length !== Object.keys(booking.externalEventIds).length
+    if (changed) await repos.bookings.setExternalEventIds(booking.id, createdIds)
+  } else if (msg.action === 'delete') {
+    await repos.bookings.setExternalEventIds(booking.id, {})
   }
 }
 

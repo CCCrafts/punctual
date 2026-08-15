@@ -378,6 +378,14 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
       ])
     },
 
+    async setExternalEventIds(bookingId, ids) {
+      await run(
+        'UPDATE bookings SET external_event_ids_json = ? WHERE id = ?',
+        JSON.stringify(ids),
+        bookingId,
+      )
+    },
+
     async rotateManageToken(bookingId, tokenHash) {
       await run('UPDATE bookings SET manage_token_hash = ? WHERE id = ?', tokenHash, bookingId)
     },

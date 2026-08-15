@@ -153,6 +153,10 @@ export function createFakeRepositories(): FakeRepositories {
       for (const b of bookings.values()) if (b.manageTokenHash === tokenHash) return b
       return null
     },
+    async setExternalEventIds(bookingId: string, ids: Record<string, string>) {
+      const existing = bookings.get(bookingId)
+      if (existing) bookings.set(bookingId, { ...existing, externalEventIds: ids })
+    },
     async rotateManageToken(bookingId: string, tokenHash: string) {
       const existing = bookings.get(bookingId)
       if (existing) bookings.set(bookingId, { ...existing, manageTokenHash: tokenHash })
