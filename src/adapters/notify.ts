@@ -14,8 +14,10 @@
 import type { Booking, EventType, User } from '../core/domain/types.js'
 import type { EnginePorts } from '../ports.js'
 import {
+  bookingCancelled,
   bookingConfirmationForGuest,
   bookingConfirmationForHost,
+  bookingRescheduled,
 } from '../core/email-templates.js'
 import { buildIcs, icsSequenceForBooking, icsUidForBooking } from '../core/ics.js'
 
@@ -140,4 +142,129 @@ function base64(text: string): string {
   let binary = ''
   for (const b of bytes) binary += String.fromCharCode(b)
   return btoa(binary)
+}
+
+/**
+ * Cancellation, to BOTH parties.
+ *
+ * Lives here rather than in a route because both the REST path and the guest
+ * manage page cancel, and only one of them was notifying anyone — while the
+ * guest-facing page told the reader "the host is notified", which was simply
+ * untrue on that path.
+ */
+export async function notifyBookingCancelled(ctx: {
+  ports: EnginePorts
+  booking: Booking
+  eventType: EventType
+  host: User
+  hosts?: User[]
+  cancelledBy: 'host' | 'guest'
+  reason?: string
+}): Promise<void> {
+  const { ports, booking, eventType, host } = ctx
+  const shared = {
+    booking,
+    eventType,
+    host,
+    ...(ctx.hosts ? { hosts: ctx.hosts } : {}),
+    cancelledBy: ctx.cancelledBy,
+    ...(ctx.reason ? { reason: ctx.reason } : {}),
+    brandName: ports.config.brandName,
+    supportEmail: ports.config.supportEmail,
+  }
+
+  const guest = bookingCancelled({ ...shared, audience: 'guest' })
+  const hostMail = bookingCancelled({ ...shared, audience: 'host' })
+
+  await Promise.all([
+    ports.queue
+      .send({
+        kind: 'email',
+        message: {
+          to: booking.guestEmail,
+          toName: booking.guestName,
+          subject: guest.subject,
+          html: guest.html,
+          text: guest.text,
+        },
+      })
+      .catch((err) => console.error('[punctual] guest cancellation failed to queue', err)),
+    ports.queue
+      .send({
+        kind: 'email',
+        message: {
+          to: host.email,
+          toName: host.name || host.slug,
+          subject: hostMail.subject,
+          html: hostMail.html,
+          text: hostMail.text,
+        },
+      })
+      .catch((err) => console.error('[punctual] host cancellation failed to queue', err)),
+  ])
+}
+
+/**
+ * A move, to BOTH parties.
+ *
+ * `notifyBookingCreated` deliberately skips a booking with `rescheduleOf` set,
+ * on the assumption that the route which moved it sends this instead. That was
+ * only true of the REST path — the guest manage page sent nothing at all, so a
+ * guest who moved their own meeting received no confirmation of the new time.
+ */
+export async function notifyBookingRescheduled(ctx: {
+  ports: EnginePorts
+  booking: Booking
+  previous: Booking
+  eventType: EventType
+  host: User
+  hosts?: User[]
+  manageToken?: string
+}): Promise<void> {
+  const { ports, booking, eventType, host } = ctx
+  const manageUrl = ctx.manageToken
+    ? `${ports.config.baseUrl}/booking/${booking.id}?token=${encodeURIComponent(ctx.manageToken)}`
+    : undefined
+
+  const shared = {
+    booking,
+    eventType,
+    host,
+    ...(ctx.hosts ? { hosts: ctx.hosts } : {}),
+    previous: { startUtc: ctx.previous.startUtc, endUtc: ctx.previous.endUtc },
+    brandName: ports.config.brandName,
+    supportEmail: ports.config.supportEmail,
+    ...(manageUrl ? { rescheduleUrl: manageUrl, cancelUrl: manageUrl } : {}),
+  }
+
+  const guest = bookingRescheduled({ ...shared, audience: 'guest' })
+  const hostMail = bookingRescheduled({ ...shared, audience: 'host' })
+
+  await Promise.all([
+    ports.queue
+      .send({
+        kind: 'email',
+        message: {
+          to: booking.guestEmail,
+          toName: booking.guestName,
+          subject: guest.subject,
+          html: guest.html,
+          text: guest.text,
+        },
+      })
+      .catch((err) => console.error('[punctual] guest reschedule mail failed to queue', err)),
+    ports.queue
+      .send({
+        kind: 'email',
+        message: {
+          to: host.email,
+          toName: host.name || host.slug,
+          subject: hostMail.subject,
+          html: hostMail.html,
+          text: hostMail.text,
+          replyTo: booking.guestEmail,
+        },
+      })
+      .catch((err) => console.error('[punctual] host reschedule mail failed to queue', err)),
+  ])
 }
