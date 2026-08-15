@@ -133,6 +133,14 @@ export interface BookingRepository {
   cancelWithLockRelease(bookingId: string, at: number): Promise<void>
   markRescheduled(bookingId: string, newBookingId: string): Promise<void>
   rotateManageToken(bookingId: string, tokenHash: string): Promise<void>
+
+  /**
+   * Record the provider event ids created for a booking.
+   *
+   * Without these, reschedule and cancel have nothing to update or delete, so
+   * a cancelled meeting stays on the host's real calendar forever.
+   */
+  setExternalEventIds(bookingId: string, ids: Record<string, string>): Promise<void>
 }
 
 /** One 5-minute bucket claimed by a booking, for one host. */
