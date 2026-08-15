@@ -720,7 +720,7 @@ export function buildApiRoutes(ports: EnginePorts, slots: SlotService): Hono<Api
     await repos.bookings.markRescheduled(original.id, outcome.booking.id)
     await notifyRescheduled(ports, outcome.booking, original, eventType, user)
     await ports.queue
-      .send({ kind: 'calendar.sync', bookingId: outcome.booking.id, action: 'create' })
+      .send({ kind: 'calendar.sync', bookingId: original.id, action: 'delete' })
       .catch(() => {})
 
     return c.json({ data: bookingJson(outcome.booking), meta: { rescheduledFrom: original.id } }, 201)
