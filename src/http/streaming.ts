@@ -10,6 +10,13 @@
  * ADR-0007 adds a time-to-first-slot budget alongside TTFB — flushing an empty
  * shell fast is not "instant" in any sense a user recognises. Both numbers are
  * held, and both are reported honestly.
+ *
+ * Note what is NOT set here: `cache-control: no-transform`. It was, to stop a
+ * proxy buffering the stream — and it also forbids compression, so the booking
+ * page shipped 14.7 KB uncompressed where the non-streamed landing page
+ * brotli'd to 5 KB. Cloudflare streams and compresses at the same time; the
+ * header bought nothing and cost 3x the bytes on the page whose weight is a
+ * published budget (spec §7).
  */
 
 /**
@@ -51,9 +58,6 @@ export function streamPage(
     ...init,
     headers: {
       'content-type': 'text/html; charset=utf-8',
-      // Chunks must reach the browser as they are produced; a proxy that
-      // buffers the whole response would silently undo all of this.
-      'cache-control': 'no-transform',
       ...(init.headers ?? {}),
     },
   })
