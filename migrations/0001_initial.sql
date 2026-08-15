@@ -122,7 +122,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS bookings_manage_token_idx ON bookings (manage_
 -- Range overlap cannot be expressed as a SQL constraint. Discretised buckets
 -- can. That substitution is the entire design.
 --
--- Verified on production D1 2026-08-14 (CCC-469): a constraint violation
+-- Verified on production D1, 2026-08-14: a constraint violation
 -- mid-batch rolls back every prior statement in that batch.
 CREATE TABLE IF NOT EXISTS slot_locks (
   host_user_id TEXT NOT NULL,

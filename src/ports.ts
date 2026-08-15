@@ -114,7 +114,7 @@ export interface BookingRepository {
    * conflicting bucket violates the primary key and the whole batch fails, so
    * a partial booking cannot exist.
    *
-   * Verified against production D1 on 2026-08-14 (CCC-469): a constraint
+   * Verified against production D1 on 2026-08-14: a constraint
    * violation mid-batch rolls back every prior statement.
    *
    * @returns the booking on success; `null` when a bucket was already taken —

@@ -17,7 +17,7 @@ describe('workers harness', () => {
   })
 
   /**
-   * The CCC-469 regression test, now permanent.
+   * The batch-rollback regression test, now permanent.
    *
    * The anti-double-booking invariant rests on batch() rolling back the WHOLE
    * batch when one statement violates a constraint. Verified on production D1

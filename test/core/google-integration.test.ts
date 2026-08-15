@@ -16,7 +16,7 @@ import type { OAuthTokens } from '../../src/core/domain/types.js'
  * to the slot list, and how a revoked grant surfaces.
  *
  * It cannot prove Google's real responses match these fixtures — only a live
- * connection does that (CCC-463). The fixtures are taken from Google's
+ * connection does that. The fixtures are taken from Google's
  * documented response shapes, and the parsers already accept both variants the
  * docs disagree on.
  */
