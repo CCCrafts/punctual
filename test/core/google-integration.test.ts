@@ -87,7 +87,11 @@ function connection(over: Partial<CalendarConnection> = {}): CalendarConnection 
 }
 
 /** Deps with the token layer stubbed: these tests are about the wiring above it. */
-function deps(fetchImpl: typeof globalThis.fetch, tokens: OAuthTokens = VALID_TOKENS, onRefresh = async () => {}) {
+function deps(
+  fetchImpl: typeof globalThis.fetch,
+  tokens: OAuthTokens = VALID_TOKENS,
+  onRefresh: (id: string, t: OAuthTokens) => Promise<void> = async () => {},
+) {
   return {
     oauth: createEnvOAuthCredentials(
       { GOOGLE_CLIENT_ID: 'cid', GOOGLE_CLIENT_SECRET: 'csec' },

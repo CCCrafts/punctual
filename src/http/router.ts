@@ -17,6 +17,7 @@ import { buildApiRoutes } from './api/rest.js'
 import { buildMcpRoutes } from './mcp/server.js'
 import { buildEmbedRoutes } from './embed.js'
 import { buildDashboardRoutes } from './dashboard-routes.js'
+import { privacyPage, termsPage } from './pages/legal.js'
 import type { EnginePorts, RequestScope } from '../ports.js'
 import type { SlotService } from '../engine.js'
 import { daysWithSlots, monthRange } from '../engine.js'
@@ -55,6 +56,29 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
   // `/dashboard/event-types` would resolve as a booking page for a host called
   // "dashboard" if this came after it.
   app.route('/', buildDashboardRoutes(ports, slots))
+
+  // Google's OAuth verification checks that both URLs resolve and describe the
+  // handling of the scopes actually requested; a missing or generic page is a
+  // common rejection. Registered before the /:userSlug/:eventSlug catch-all.
+  const legal = () => ({
+    brandName: ports.config.brandName,
+    supportEmail: ports.config.supportEmail,
+    baseUrl: ports.config.baseUrl,
+  })
+  app.get('/privacy', (c) =>
+    c.html(
+      shellHead({ title: `Privacy · ${ports.config.brandName}`, brandName: ports.config.brandName }) +
+        privacyPage(legal()) +
+        shellFoot(ports.config.brandName),
+    ),
+  )
+  app.get('/terms', (c) =>
+    c.html(
+      shellHead({ title: `Terms · ${ports.config.brandName}`, brandName: ports.config.brandName }) +
+        termsPage(legal()) +
+        shellFoot(ports.config.brandName),
+    ),
+  )
 
   app.get('/favicon.svg', (c) =>
     c.body(FAVICON, 200, {
