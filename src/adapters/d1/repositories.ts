@@ -10,7 +10,7 @@
  *
  * 2. `createWithLocks` is the anti-double-booking invariant. The booking row
  *    and its slot_locks rows go into ONE batch(), so a conflicting bucket
- *    fails the whole thing. Verified on production D1 (CCC-469).
+ *    fails the whole thing. Verified against production D1.
  *
  * Nothing here knows about tenants. The cloud control-plane wraps these with
  * an implementation that closes over tenant_id.
@@ -729,8 +729,8 @@ function groupBuckets(rows: Array<{ host_user_id: string; bucket_start: number }
 
 /**
  * D1 surfaces constraint failures as a message string; there is no typed error
- * class. Matching on the SQLite text is the available signal — and the CCC-469
- * spike confirmed the exact wording on production D1.
+ * class. Matching on the SQLite text is the available signal, and the exact
+ * wording was confirmed against production D1.
  */
 export function isConstraintViolation(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err)

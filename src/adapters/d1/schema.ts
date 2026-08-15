@@ -156,7 +156,7 @@ export const bookings = sqliteTable(
  * Range overlap cannot be expressed as a SQL constraint; discretised buckets
  * can. That substitution is the whole design.
  *
- * Verified on production D1, 2026-08-14 (CCC-469): a mid-batch constraint
+ * Verified on production D1, 2026-08-14: a mid-batch constraint
  * violation rolls back every prior statement in the batch.
  */
 export const slotLocks = sqliteTable(
