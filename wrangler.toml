@@ -55,9 +55,9 @@ crons = ["*/5 * * * *"]
 [vars]
 BASE_URL = "https://punctual.sh"
 BRAND_NAME = "Punctual"
-FROM_EMAIL = "hello@example.com"
+FROM_EMAIL = "hello@punctual.sh"
 FROM_NAME = "Punctual"
-SUPPORT_EMAIL = "hello@example.com"
+SUPPORT_EMAIL = "hello@punctual.sh"
 # Off unless explicitly enabled (ADR-0006 §5).
 TELEMETRY_ENABLED = "0"
 

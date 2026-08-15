@@ -73,7 +73,7 @@ export function landingPage(opts: LandingPageOptions): string {
 
   const body = `<div class="pu-landing">
 <header class="pu-hero">
-  <p class="pu-mark"><span aria-hidden="true">punctual<span>:</span></span><span class="pu-sr">Punctual</span></p>
+  <p class="pu-mark">punctual<span>:</span></p>
   <h1>Scheduling that shows up on time</h1>
   <p class="pu-hero-lede">An open, edge-native scheduler — a full single-team alternative to
     Calendly that runs entirely on Cloudflare Workers.</p>

@@ -85,8 +85,8 @@ export interface BookingPageData {
 export function eventHeader(d: BookingPageData): string {
   const durationLabel = `${d.eventType.durationMinutes} min`
   const location = locationLabel(d.eventType)
-  return `<header class="pu-card" style="margin-bottom:1.5rem">
-  <p class="pu-muted" style="margin:0 0 .25rem">${escapeHtml(d.host.name || d.host.slug)}</p>
+  return `<header class="pu-event-header">
+  <p class="pu-kicker">${escapeHtml(d.host.name || d.host.slug)}</p>
   <h1>${escapeHtml(d.eventType.title)}</h1>
   ${d.eventType.description ? `<p class="pu-muted">${escapeHtml(d.eventType.description)}</p>` : ''}
   <ul class="pu-meta">
@@ -254,8 +254,11 @@ export function confirmForm(
 
   return `<section class="pu-card" aria-label="Confirm your booking">
   <h2>Confirm your booking</h2>
-  <p><strong class="pu-time">${escapeHtml(when)}</strong><br>
-     <span class="pu-muted">${escapeHtml(d.guestTimezone)} · ${escapeHtml(String(et.durationMinutes))} min</span></p>
+  <div class="pu-slot-chosen">
+    <span class="pu-dot-lg" aria-hidden="true"></span>
+    <span><strong class="pu-time">${escapeHtml(when)}</strong><br>
+     <span class="pu-muted">${escapeHtml(d.guestTimezone)} · ${escapeHtml(String(et.durationMinutes))} min</span></span>
+  </div>
   <form method="post" action="${escapeHtml(bookingPath(d))}/confirm">
     <input type="hidden" name="start" value="${start}">
     <input type="hidden" name="tz" value="${escapeHtml(d.guestTimezone)}">
@@ -294,13 +297,21 @@ export function bookedConfirmation(opts: {
     hour: 'numeric',
     minute: '2-digit',
   })
-  return `<section class="pu-card" aria-label="Booking confirmed">
+  return `<section class="pu-card pu-confirm" aria-label="Booking confirmed">
+  <svg class="pu-confirm-icon" width="56" height="56" viewBox="0 0 56 56" aria-hidden="true">
+    <circle class="pu-ring-track" cx="28" cy="28" r="24" stroke-width="2"></circle>
+    <circle class="pu-ring-fill" cx="28" cy="28" r="24" stroke-width="2.5" stroke-linecap="round"
+      transform="rotate(-90 28 28)"></circle>
+    <circle class="pu-ring-dot" cx="28" cy="4" r="4"></circle>
+  </svg>
   <p><span class="pu-badge">Confirmed</span></p>
   <h1>You're booked</h1>
-  <p><strong>${escapeHtml(opts.eventTitle)}</strong> with ${escapeHtml(opts.hostName)}</p>
-  <p class="pu-time"><strong>${escapeHtml(when)}</strong><br>
-    <span class="pu-muted">${escapeHtml(opts.guestTimezone)}</span></p>
-  ${opts.locationLabel ? `<p class="pu-muted">${escapeHtml(opts.locationLabel)}</p>` : ''}
+  <p class="pu-muted"><strong style="color:var(--pu-ink-950)">${escapeHtml(opts.eventTitle)}</strong> with ${escapeHtml(opts.hostName)}</p>
+  <dl class="pu-confirm-details">
+    <div><dt>When</dt><dd class="pu-time">${escapeHtml(when)}<br>
+      <span class="pu-muted">${escapeHtml(opts.guestTimezone)}</span></dd></div>
+    ${opts.locationLabel ? `<div><dt>Where</dt><dd>${escapeHtml(opts.locationLabel)}</dd></div>` : ''}
+  </dl>
   <p class="pu-muted">A calendar invitation is on its way to your inbox.</p>
   <p style="margin-top:1.25rem">
     <a class="pu-btn pu-btn-ghost" href="${escapeHtml(opts.manageUrl)}">Reschedule or cancel</a>

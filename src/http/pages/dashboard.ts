@@ -79,13 +79,12 @@ export function csrfField(csrf: string): string {
 function shellTop(chrome: DashboardChrome, title: string, active: NavKey | null): string {
   const links = NAV.map((item) => {
     const current = item.key === active ? ' aria-current="page"' : ''
-    const weight = item.key === active ? 'font-weight:600' : ''
-    return `<a href="${item.href}"${current} style="text-decoration:none;color:var(--pu-ink-950);${weight}">${escapeHtml(item.label)}</a>`
+    return `<a class="pu-nav-link" href="${item.href}"${current}>${escapeHtml(item.label)}</a>`
   }).join('\n      ')
 
   return (
     shellHead({ title: `${title} · ${chrome.brandName}`, brandName: chrome.brandName }) +
-    `<header style="display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;margin-bottom:1.5rem">
+    `<header class="pu-dash-header" style="display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;margin-bottom:1.5rem">
   <a class="pu-mark" href="/dashboard">${escapeHtml(chrome.brandName.toLowerCase())}<span>:</span></a>
   <nav aria-label="Dashboard" style="display:flex;gap:1rem;flex-wrap:wrap;font-size:.9375rem">
       ${links}
@@ -257,8 +256,9 @@ function eventTypeCard(d: DashboardHomeData, et: EventType): string {
     <li>${escapeHtml(locationLabel(et))}</li>
   </ul>
   <label for="${inputId}">Public link</label>
-  <input id="${inputId}" readonly value="${escapeHtml(url)}"
-         style="font-family:var(--pu-font-mono);font-size:.8125rem">
+  <div class="pu-url">
+    <input id="${inputId}" class="pu-url-input" readonly value="${escapeHtml(url)}">
+  </div>
   <div style="margin-top:.75rem;display:flex;gap:.75rem;flex-wrap:wrap">
     <a class="pu-btn pu-btn-ghost" href="/dashboard/event-types/${encodeURIComponent(et.id)}">Edit</a>
     <a class="pu-btn pu-btn-ghost" href="${escapeHtml(url)}">Preview</a>
@@ -719,8 +719,9 @@ export function apiKeysPage(d: ApiKeysPageData): string {
   <p><strong>This is the only time it will be shown.</strong> We store only a hash of it, so if you lose it
      you will have to create a new one.</p>
   <label for="new-key">New API key</label>
-  <input id="new-key" readonly value="${escapeHtml(d.newKey)}"
-         style="font-family:var(--pu-font-mono);font-size:.8125rem">
+  <div class="pu-url">
+    <input id="new-key" class="pu-url-input" readonly value="${escapeHtml(d.newKey)}">
+  </div>
 </section>`
       : '') +
     `<section aria-label="API keys">

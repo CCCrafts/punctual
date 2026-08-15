@@ -88,3 +88,64 @@ function formatAddress(email: string, name?: string): string {
   if (!name) return email
   return `"${name.replace(/"/g, '')}" <${email}>`
 }
+
+// ---------------------------------------------------------------------------
+// Brevo
+// ---------------------------------------------------------------------------
+
+export interface BrevoOptions {
+  apiKey: string
+  from: string
+  fromName: string
+  fetch?: typeof globalThis.fetch
+}
+
+/**
+ * Brevo (formerly Sendinblue).
+ *
+ * A second provider exists because the `EmailSender` port is the whole reason
+ * ADR-0003 lists it: a self-hoster brings whichever transactional provider
+ * they already pay for, and forcing one choice would be a gate in disguise.
+ *
+ * Note the API shape differs from Resend in two ways that are easy to get
+ * wrong: the key goes in `api-key`, not `Authorization`, and attachments are
+ * `{name, content}` rather than `{filename, content}`.
+ */
+export function createBrevoSender(opts: BrevoOptions): EmailSender {
+  const doFetch = opts.fetch ?? globalThis.fetch.bind(globalThis)
+  return {
+    async send(message) {
+      const body: Record<string, unknown> = {
+        sender: { email: opts.from, name: opts.fromName },
+        to: [{ email: message.to, ...(message.toName ? { name: message.toName } : {}) }],
+        subject: message.subject,
+        htmlContent: message.html,
+        textContent: message.text,
+      }
+      if (message.replyTo) body['replyTo'] = { email: message.replyTo }
+      if (message.attachments?.length) {
+        body['attachment'] = message.attachments.map((a) => ({
+          name: a.filename,
+          content: a.content,
+        }))
+      }
+
+      const res = await doFetch('https://api.brevo.com/v3/smtp/email', {
+        method: 'POST',
+        headers: {
+          'api-key': opts.apiKey,
+          'content-type': 'application/json',
+          accept: 'application/json',
+        },
+        body: JSON.stringify(body),
+      })
+
+      if (!res.ok) {
+        // Include the body: Brevo reports a wrong sender domain in it, and
+        // that is the single most common reason a first send fails.
+        const detail = await res.text().catch(() => '')
+        throw new Error(`Brevo send failed: ${res.status} ${res.statusText} ${detail.slice(0, 300)}`)
+      }
+    },
+  }
+}
