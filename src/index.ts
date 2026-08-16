@@ -19,7 +19,7 @@ import { createCalendarProviders } from './adapters/providers.js'
 import { createCoordinator } from './adapters/coordinator.js'
 import { createQueueAdapter } from './adapters/queue/index.js'
 import { createRateLimiterAdapter } from './adapters/rate-limiter.js'
-import { handleQueueBatch } from './adapters/queue/consumer.js'
+import { handleOne, handleQueueBatch } from './adapters/queue/consumer.js'
 import { runScheduledTasks } from './adapters/scheduled.js'
 import type { EnginePorts, RequestScope } from './ports.js'
 
@@ -104,7 +104,14 @@ export function buildPorts(env: Env): EnginePorts {
       ? createBrevoSender({ apiKey: env.BREVO_API_KEY, from: emailFrom, fromName: emailFromName })
       : createConsoleSender()
 
-  const queue = createQueueAdapter(env.TASKS)
+  // Queues is not on the free tier, and docs/self-hosting.md promises inline
+  // delivery without it. The handler was never passed, so an unbound TASKS
+  // meant bookings committed and nothing else EVER happened — no email, no
+  // calendar sync. Late-bound because handleOne needs the finished ports.
+  let portsRef: EnginePorts
+  const queue = createQueueAdapter(env.TASKS, async (message) => {
+    await handleOne(message, portsRef)
+  })
   const rateLimiter = createRateLimiterAdapter(env.RATE_LIMITER)
 
   const ports: EnginePorts = {
@@ -129,6 +136,7 @@ export function buildPorts(env: Env): EnginePorts {
     coordinator: undefined as never,
   }
 
+  portsRef = ports
   ports.coordinator = createCoordinator({
     ports,
     hostCalendarNamespace: env.HOST_CALENDAR,

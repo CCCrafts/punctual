@@ -17,6 +17,7 @@
 
 import type { EventType, Slot, User } from '../../core/domain/types.js'
 import { formatInZone, localDateString, offsetLabel } from '../../core/time/zone.js'
+import { embedResizeScriptTag } from '../embed.js'
 import { pageCss } from '../styles.js'
 
 export function escapeHtml(s: string): string {
@@ -55,9 +56,16 @@ ${chrome.description ? `<meta name="description" content="${escapeHtml(chrome.de
 <div class="pu-wrap">`
 }
 
-export function shellFoot(brandName: string, poweredBy = true): string {
+/**
+ * `embed` appends the resize postMessage snippet (see `../embed.ts`). Without
+ * it the iframe on a customer's page never learns the booking page's real
+ * height and stays pinned at `data-height` (default 620px) for the whole
+ * multi-step flow.
+ */
+export function shellFoot(brandName: string, poweredBy = true, embed = false): string {
   return `</div>
 ${poweredBy ? `<p class="pu-foot"><a class="pu-mark" href="/">${escapeHtml(brandName.toLowerCase())}<span>:</span></a> — scheduling that shows up on time</p>` : ''}
+${embed ? embedResizeScriptTag() : ''}
 </body></html>`
 }
 
@@ -80,6 +88,8 @@ export interface BookingPageData {
   slots?: Slot[]
   guestTimezone: string
   baseUrl: string
+  /** True when served inside the embed iframe (`?embed=1`) — propagated through every internal link so the resize snippet keeps firing past the first navigation. */
+  embed?: boolean
 }
 
 export function eventHeader(d: BookingPageData): string {
@@ -136,7 +146,9 @@ export function monthGrid(d: BookingPageData): string {
     const has = d.daysWithSlots.get(date) === true
     const current = date === todayLocal ? ' aria-current="date"' : ''
     if (has) {
-      const href = `${bookingPath(d)}?date=${date}&tz=${encodeURIComponent(d.guestTimezone)}`
+      const href =
+        `${bookingPath(d)}?date=${date}&tz=${encodeURIComponent(d.guestTimezone)}` +
+        (d.embed ? '&embed=1' : '')
       cells.push(
         `<a class="pu-day" data-has-slots="1"${current} href="${escapeHtml(href)}" ` +
           `aria-label="${escapeHtml(humanDate(date, d.guestTimezone))}, times available">${day}</a>`,
@@ -155,7 +167,7 @@ export function monthGrid(d: BookingPageData): string {
   const prev = shiftMonth(d.month, -1)
   const next = shiftMonth(d.month, 1)
   const base = bookingPath(d)
-  const tzq = `&tz=${encodeURIComponent(d.guestTimezone)}`
+  const tzq = `&tz=${encodeURIComponent(d.guestTimezone)}${d.embed ? '&embed=1' : ''}`
 
   return `<section class="pu-card" aria-label="Choose a day">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem">
@@ -192,7 +204,8 @@ export function slotList(d: BookingPageData): string {
       const label = formatInZone(s.start, d.guestTimezone, { hour: 'numeric', minute: '2-digit' })
       const href =
         `${bookingPath(d)}/confirm?start=${s.start}` +
-        `&tz=${encodeURIComponent(d.guestTimezone)}`
+        `&tz=${encodeURIComponent(d.guestTimezone)}` +
+        (d.embed ? '&embed=1' : '')
       return `<a class="pu-slot" href="${escapeHtml(href)}">
         <time datetime="${new Date(s.start).toISOString()}">${escapeHtml(label)}</time></a>`
     })
@@ -262,6 +275,7 @@ export function confirmForm(
   <form method="post" action="${escapeHtml(bookingPath(d))}/confirm">
     <input type="hidden" name="start" value="${start}">
     <input type="hidden" name="tz" value="${escapeHtml(d.guestTimezone)}">
+    ${d.embed ? '<input type="hidden" name="embed" value="1">' : ''}
     ${opts.holdId ? `<input type="hidden" name="hold" value="${escapeHtml(opts.holdId)}">` : ''}
     <label for="name">Your name</label>
     <input id="name" name="name" required aria-required="true" autocomplete="name"
@@ -276,7 +290,7 @@ export function confirmForm(
     ${questions}
     <div style="margin-top:1.25rem;display:flex;gap:.75rem;flex-wrap:wrap">
       <button class="pu-btn" type="submit">Confirm booking</button>
-      <a class="pu-btn pu-btn-ghost" href="${escapeHtml(bookingPath(d))}?date=${escapeHtml(localDateString(start, d.guestTimezone))}">Back</a>
+      <a class="pu-btn pu-btn-ghost" href="${escapeHtml(bookingPath(d))}?date=${escapeHtml(localDateString(start, d.guestTimezone))}${d.embed ? '&embed=1' : ''}">Back</a>
     </div>
   </form>
 </section>`
@@ -332,7 +346,7 @@ export function slotTakenPage(d: BookingPageData, date: string): string {
   <h1>That time was just taken</h1>
   <p class="pu-muted">Someone booked it while you were filling in the form. Here are the other times that day.</p>
   <p style="margin-top:1rem">
-    <a class="pu-btn" href="${escapeHtml(bookingPath(d))}?date=${escapeHtml(date)}&tz=${encodeURIComponent(d.guestTimezone)}">See available times</a>
+    <a class="pu-btn" href="${escapeHtml(bookingPath(d))}?date=${escapeHtml(date)}&tz=${encodeURIComponent(d.guestTimezone)}${d.embed ? '&embed=1' : ''}">See available times</a>
   </p>
 </section>`
 }

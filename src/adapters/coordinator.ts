@@ -19,6 +19,7 @@ import { intervalToBuckets } from '../core/slots/intervals.js'
 import { issueManageToken } from '../core/domain/auth-flows.js'
 import { notifyBookingCreated } from './notify.js'
 import { localDateString } from '../core/time/zone.js'
+import { needsReconnect } from './oauth.js'
 import type { HostAvailabilityInput } from '../core/slots/engine.js'
 
 export interface CoordinatorDeps {
@@ -50,29 +51,59 @@ export function createCoordinator(deps: CoordinatorDeps): HostCoordinator {
         JSON.stringify([request.eventTypeId, request.start, request.end, request.guestEmail]),
       )
       if (request.idempotencyKey) {
-        const prior = await repos.idempotency.get(request.idempotencyKey, scope)
-        if (prior) {
+        // `reserve` is a compare-and-swap: a plain get-then-work-then-put has
+        // a window where two requests with the same key both see "nothing
+        // yet" and both go on to create a real booking. Only the reservation
+        // winner proceeds past this point.
+        const claim = await repos.idempotency.reserve({
+          key: request.idempotencyKey,
+          scope,
+          requestHash,
+          responseJson: '',
+          status: 0,
+          expiresAt: now + 24 * 3_600_000,
+        })
+        if (!claim.reserved) {
+          const prior = claim.existing
           // A replay with a DIFFERENT body is a client bug, not a retry.
           if (prior.requestHash !== requestHash) {
             return { ok: false, reason: 'policy', detail: 'idempotency key reused with different request' }
           }
-          const booking = await repos.bookings.byId(JSON.parse(prior.responseJson).id)
-          if (booking) return { ok: true, booking }
+          if (prior.responseJson) {
+            const booking = await repos.bookings.byId(JSON.parse(prior.responseJson).id)
+            if (booking) return { ok: true, booking }
+          }
+          // The empty-response placeholder means another request with this
+          // exact key is still mid-flight — proceeding here is the race this
+          // whole mechanism exists to close.
+          return {
+            ok: false,
+            reason: 'policy',
+            detail: 'a booking with this idempotency key is already being created; retry shortly',
+          }
         }
       }
 
-      const eventType = await repos.eventTypes.byId(request.eventTypeId)
-      if (!eventType) return { ok: false, reason: 'policy', detail: 'unknown event type' }
-
-      // ---- Leases for collective (ADR-0002 §3) ----------------------------
-      // Ascending host id order makes deadlock impossible: every caller walks
-      // the same order, so a cycle cannot form.
-      const needsLease = eventType.schedulingType === 'collective' && request.hostUserIds.length > 1
-      const ordered = [...request.hostUserIds].sort()
-      const leaseId = ports.crypto.randomToken(12)
+      // Set once the reservation above actually won. Every exit from here on
+      // — an early return OR a thrown error — must release it unless it was
+      // settled with the real result, or a genuine retry (wrong event type,
+      // lost lease, slot taken) is locked out for the full 24h TTL instead of
+      // being able to try again immediately.
+      const idempotencyClaimed = Boolean(request.idempotencyKey)
+      let idempotencySettled = false
       const acquired: string[] = []
+      const leaseId = ports.crypto.randomToken(12)
 
       try {
+        const eventType = await repos.eventTypes.byId(request.eventTypeId)
+        if (!eventType) return { ok: false, reason: 'policy', detail: 'unknown event type' }
+
+        // ---- Leases for collective (ADR-0002 §3) ----------------------------
+        // Ascending host id order makes deadlock impossible: every caller
+        // walks the same order, so a cycle cannot form.
+        const needsLease = eventType.schedulingType === 'collective' && request.hostUserIds.length > 1
+        const ordered = [...request.hostUserIds].sort()
+
         if (needsLease) {
           for (const id of ordered) {
             const ok = await stub(id).acquireLease(leaseId)
@@ -95,6 +126,7 @@ export function createCoordinator(deps: CoordinatorDeps): HostCoordinator {
           footprint,
           eventType,
           request.start,
+          request.holdId,
         )
         if (hosts.length === 0) return { ok: false, reason: 'outside_availability' }
 
@@ -149,6 +181,14 @@ export function createCoordinator(deps: CoordinatorDeps): HostCoordinator {
         const written = await repos.bookings.createWithLocks(prepared.booking, prepared.buckets)
         if (!written) return { ok: false, reason: 'slot_taken' }
 
+        // Advance the rotation, and only now — a failed commit must not move
+        // it, or a losing race would push the next booking to another host.
+        if (eventType.schedulingType === 'round_robin' && eventType.ownerTeamId) {
+          await repos.teams
+            .recordAssignment(eventType.ownerTeamId, written.hostUserId, now)
+            .catch((err) => console.error('[punctual] round-robin rotation not advanced', err))
+        }
+
         // The hold has done its job; releasing early frees the slot for others
         // if this booking is later cancelled.
         if (request.holdId) {
@@ -164,6 +204,7 @@ export function createCoordinator(deps: CoordinatorDeps): HostCoordinator {
             status: 200,
             expiresAt: now + 24 * 3_600_000,
           })
+          idempotencySettled = true
         }
 
         // Side effects come AFTER the commit, deliberately: a calendar API or
@@ -196,6 +237,14 @@ export function createCoordinator(deps: CoordinatorDeps): HostCoordinator {
       } finally {
         for (const id of acquired) {
           await stub(id).releaseLease(leaseId).catch(() => {})
+        }
+        if (idempotencyClaimed && !idempotencySettled && request.idempotencyKey) {
+          // expiresAt in the past makes the placeholder immediately
+          // reclaimable by `reserve`'s WHERE clause, so the next attempt
+          // with this key does not have to wait out the full 24h TTL.
+          await repos.idempotency
+            .put({ key: request.idempotencyKey, scope, requestHash, responseJson: '', status: 0, expiresAt: now })
+            .catch(() => {})
         }
       }
     },
@@ -268,11 +317,18 @@ async function buildHostInputs(
   eventType?: { maxPerDay: number | null },
   /** The booking's real start; `range` is buffered and must not be used here. */
   capAnchor: number = range.start,
+  /**
+   * The current request's own hold, if any. Without excluding it, a guest
+   * who held this exact slot sees their own advisory hold come back as busy
+   * and the commit-time re-check rejects the booking the hold was meant to
+   * protect.
+   */
+  excludeHoldId?: string,
 ): Promise<HostAvailabilityInput[]> {
   const now = ports.clock.now()
   const [busyByHost, holdsByHost] = await Promise.all([
     repos.slotLocks.busyBuckets(hostUserIds, range),
-    repos.slotLocks.activeHolds(hostUserIds, range, now),
+    repos.slotLocks.activeHolds(hostUserIds, range, now, excludeHoldId),
   ])
 
   const out: HostAvailabilityInput[] = []
@@ -288,9 +344,15 @@ async function buildHostInputs(
     for (const conn of partitionConnections(connections).read) {
       try {
         external.push(...(await ports.calendars.get(conn.provider).getBusy(conn, range)))
-      } catch {
+      } catch (err) {
         // A provider outage must not block bookings outright; slot_locks still
-        // prevents conflicts with our own bookings.
+        // prevents conflicts with our own bookings. A REVOKED grant is
+        // different — it never recovers on its own, so it is recorded and the
+        // host gets a reconnect prompt instead of silently losing conflict
+        // checking on every future booking.
+        if (needsReconnect(err)) {
+          await repos.connections.updateSyncStatus(conn.id, 'needs_reconnect').catch(() => {})
+        }
       }
     }
 

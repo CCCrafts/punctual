@@ -736,7 +736,7 @@ export function apiKeysPage(d: ApiKeysPageData): string {
            placeholder="Laptop CLI"${describedBy('name', errors)}>
     ${fieldError('name', errors)}
     <label for="scopes">Scopes</label>
-    <input id="scopes" name="scopes" value="bookings:read bookings:write event_types:read"
+    <input id="scopes" name="scopes" value="read write"
            maxlength="200"${describedBy('scopes', errors)}>
     <p class="pu-muted" style="font-size:.8125rem;margin:.25rem 0 0">Space-separated. Grant the fewest that work.</p>
     ${fieldError('scopes', errors)}
@@ -785,7 +785,12 @@ export interface BookingDetailPageData {
    */
   token: string
   /** What this token is allowed to do. A cancel link cannot reschedule. */
-  purpose: 'cancel' | 'reschedule'
+  /**
+   * The token's real purpose. `manage` authorises BOTH actions and is the only
+   * purpose the coordinator mints, so narrowing this type is what previously
+   * hid the cancel form from every guest.
+   */
+  purpose: 'manage' | 'cancel' | 'reschedule'
   /** Times offered for a reschedule, when the guest picked a day. */
   slots?: Slot[]
   selectedDate?: string
@@ -841,7 +846,8 @@ function statusLabel(b: Booking): string {
 }
 
 function rescheduleSection(d: BookingDetailPageData, tokenField: string): string {
-  if (d.purpose !== 'reschedule') {
+  // Same as cancelSection: 'manage' authorises this too.
+  if (d.purpose !== 'reschedule' && d.purpose !== 'manage') {
     return `<section class="pu-card" style="margin-top:1.5rem" aria-label="Reschedule">
   <h2>Need a different time?</h2>
   <p class="pu-muted">Use the reschedule link in your confirmation email — this one only cancels.</p>
@@ -912,7 +918,11 @@ function rescheduleSection(d: BookingDetailPageData, tokenField: string): string
 }
 
 function cancelSection(d: BookingDetailPageData, tokenField: string): string {
-  if (d.purpose !== 'cancel') {
+  // A 'manage' token authorises both actions, and it is the ONLY purpose the
+  // coordinator mints. Refusing anything that is not literally 'cancel' left
+  // every real guest looking at "use the cancel link in your email" — while
+  // that email's cancel link is this same URL. The loop never terminated.
+  if (d.purpose !== 'cancel' && d.purpose !== 'manage') {
     return `<section class="pu-card" style="margin-top:1.5rem" aria-label="Cancel">
   <h2>Need to cancel?</h2>
   <p class="pu-muted">Use the cancel link in your confirmation email — this one only reschedules.</p>

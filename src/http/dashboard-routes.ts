@@ -808,12 +808,22 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     let selectedDate: string | undefined
     if (purpose === 'reschedule' && eventType && !Number.isFinite(startParam)) {
       selectedDate = dateParam ?? localDateString(booking.startUtc, booking.guestTimezone)
-      offered = await slots.forEventType({
+      // `selectedDate` is a GUEST-local date (from the picker, or from the
+      // guest's own booking), but `dayRange` resolves a date string in a
+      // given timezone — passing host.tz here computed the wrong 24h window
+      // whenever host and guest sit on opposite sides of a date line, the
+      // same host/guest tz mismatch fixed on the public booking page. Pad the
+      // host-local window by a day on each side and then filter down to the
+      // guest's actual selected day.
+      const DAY_MS = 24 * 60 * 60 * 1000
+      const hostDayRange = dayRange(selectedDate, host.tz)
+      const daySlots = await slots.forEventType({
         eventType,
         hostUsers: await resolveHosts(repos, eventType, host),
-        range: dayRange(selectedDate, host.tz),
+        range: { start: hostDayRange.start - DAY_MS, end: hostDayRange.end + DAY_MS },
         scope: { consistency: 'unconstrained' },
       })
+      offered = daySlots.filter((s) => localDateString(s.start, booking.guestTimezone) === selectedDate)
     }
 
     return c.html(
@@ -823,10 +833,9 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
         eventType,
         host,
         token,
-        // A 'manage' token authorises both actions; the page uses this only to
-        // decide which one to lead with. Reschedule leads because it is the
-        // action a guest is more often looking for.
-        purpose: purpose === 'cancel' ? 'cancel' : 'reschedule',
+        // Pass the RAW purpose. Collapsing 'manage' to 'reschedule' here is
+        // what hid the cancel form from every real guest.
+        purpose,
         ...(offered ? { slots: offered } : {}),
         ...(selectedDate ? { selectedDate } : {}),
         ...(Number.isFinite(startParam) ? { newStart: startParam } : {}),
@@ -850,7 +859,14 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
       return manageError(c, 'This booking is no longer active.')
     }
 
-    await repos.bookings.cancelWithLockRelease(verified.booking.id, ports.clock.now())
+    // The status check above is read-then-write: a concurrent request (a
+    // second tab, a double-submitted reschedule) can change the booking
+    // between that read and this write. The conditional UPDATE is the real
+    // guard — if it reports no row changed, someone else already moved this
+    // booking, so treat it the same as the pre-check above rather than
+    // sending a cancellation for a booking that is actually rescheduled.
+    const cancelled = await repos.bookings.cancelWithLockRelease(verified.booking.id, ports.clock.now())
+    if (!cancelled) return manageError(c, 'This booking is no longer active.')
 
     // Rotate the hash so the link in the guest's inbox stops working. ADR-0005
     // §4 names rotation-on-state-change as THE invalidation mechanism, and it
@@ -943,7 +959,32 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     // Only after the new booking exists: `markRescheduled` releases the old
     // slot locks, and releasing them before the replacement is committed would
     // open a window where neither time is held.
-    await repos.bookings.markRescheduled(old.id, outcome.booking.id)
+    //
+    // The `old.status !== 'confirmed'` check above is read-then-write, so a
+    // second concurrent reschedule (or a cancel) of the same link can land
+    // between that read and here. markRescheduled's UPDATE is conditional on
+    // the CURRENT status — if it reports no change, another request already
+    // moved or cancelled `old`, and the booking just created above is a real,
+    // confirmed, but orphaned duplicate. It must be released, not left live.
+    const moved = await repos.bookings.markRescheduled(old.id, outcome.booking.id)
+    if (!moved) {
+      await repos.bookings.cancelWithLockRelease(outcome.booking.id, ports.clock.now())
+      await ports.queue
+        .send({ kind: 'calendar.sync', bookingId: outcome.booking.id, action: 'delete' })
+        .catch(() => {})
+      return c.html(
+        bookingDetailPage({
+          brandName,
+          booking: old,
+          eventType,
+          host,
+          token,
+          purpose: 'reschedule',
+          error: 'This booking was already updated elsewhere. Refresh and try again.',
+        }),
+        409,
+      )
+    }
 
     // Kill the old link. The new booking carries its own freshly signed token,
     // so the guest's superseded email stops working (ADR-0005 §4).
@@ -1340,11 +1381,15 @@ async function validateEventType(
   if (draft.slotIntervalMinutes !== null && (draft.slotIntervalMinutes < 5 || draft.slotIntervalMinutes % 5 !== 0)) {
     errors['slotIntervalMinutes'] = 'Leave blank, or use a multiple of 5'
   }
-  if (draft.bufferBeforeMinutes < 0 || draft.bufferBeforeMinutes > 240) {
-    errors['bufferBeforeMinutes'] = 'Between 0 and 240 minutes'
+  // The form's step="5" is a UI hint only; a raw POST bypasses it. Off-grid
+  // buffers are not unsafe (slot_locks buckets floor/ceil to cover them
+  // regardless), but they round up to the next 5-minute bucket and quietly
+  // block more of the calendar than the host configured.
+  if (draft.bufferBeforeMinutes < 0 || draft.bufferBeforeMinutes > 240 || draft.bufferBeforeMinutes % 5 !== 0) {
+    errors['bufferBeforeMinutes'] = 'Between 0 and 240 minutes, in steps of 5'
   }
-  if (draft.bufferAfterMinutes < 0 || draft.bufferAfterMinutes > 240) {
-    errors['bufferAfterMinutes'] = 'Between 0 and 240 minutes'
+  if (draft.bufferAfterMinutes < 0 || draft.bufferAfterMinutes > 240 || draft.bufferAfterMinutes % 5 !== 0) {
+    errors['bufferAfterMinutes'] = 'Between 0 and 240 minutes, in steps of 5'
   }
   if (draft.minNoticeMinutes < 0 || draft.minNoticeMinutes > 43200) {
     errors['minNoticeMinutes'] = 'Between 0 minutes and 30 days'

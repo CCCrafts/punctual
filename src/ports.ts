@@ -130,8 +130,10 @@ export interface BookingRepository {
    */
   dueBetween(from: number, to: number): Promise<Booking[]>
 
-  cancelWithLockRelease(bookingId: string, at: number): Promise<void>
-  markRescheduled(bookingId: string, newBookingId: string): Promise<void>
+  /** @returns false if the booking was no longer `confirmed` — a concurrent cancel/reschedule won the race. */
+  cancelWithLockRelease(bookingId: string, at: number): Promise<boolean>
+  /** @returns false if the booking was no longer `confirmed` — the caller must roll back the new booking it just created. */
+  markRescheduled(bookingId: string, newBookingId: string): Promise<boolean>
   rotateManageToken(bookingId: string, tokenHash: string): Promise<void>
 
   /**
@@ -153,7 +155,18 @@ export interface SlotLockRepository {
   /** Buffered busy intervals from confirmed bookings. Pre-expanded by construction. */
   busyBuckets(hostUserIds: string[], range: Interval): Promise<Map<string, number[]>>
   /** Active advisory holds (`expires_at > now`), which suppress but never block. */
-  activeHolds(hostUserIds: string[], range: Interval, now: number): Promise<Map<string, number[]>>
+  /**
+   * `excludeHoldId` omits the caller's own hold from the result — without it,
+   * a guest who holds a slot and then confirms it sees their own advisory
+   * hold reported back as busy, and the commit-time re-check rejects the
+   * booking the hold was placed to protect.
+   */
+  activeHolds(
+    hostUserIds: string[],
+    range: Interval,
+    now: number,
+    excludeHoldId?: string,
+  ): Promise<Map<string, number[]>>
   createHold(hold: SlotHold, buckets: BucketClaim[]): Promise<boolean>
   releaseHold(holdId: string): Promise<void>
   expireHolds(before: number): Promise<number>
@@ -170,6 +183,14 @@ export interface TeamRepository {
   removeMember(teamId: string, userId: string): Promise<void>
   /** Round-robin tie-break: last booking time per member (ADR-0004 §5). */
   lastAssignedAt(teamId: string, userIds: string[]): Promise<Map<string, number>>
+  /**
+   * Advance the rotation after a round-robin booking commits.
+   *
+   * Without this `lastAssignedAt` is always empty, every candidate scores the
+   * same, and the lowest-sorted host id wins forever — a waterfall, which is
+   * the opposite of what ADR-0004 §5 specifies.
+   */
+  recordAssignment(teamId: string, userId: string, at: number): Promise<void>
 }
 
 export interface CalendarConnectionRepository {
@@ -210,6 +231,19 @@ export interface WebhookRepository {
 export interface IdempotencyRepository {
   get(key: string, scope: string): Promise<StoredIdempotentResponse | null>
   put(record: StoredIdempotentResponse): Promise<void>
+  /**
+   * Atomically claim a (key, scope) pair before doing the work it guards.
+   *
+   * `get`-then-work-then-`put` is a race: two requests with the same
+   * idempotency key can both read "nothing yet" and both go on to create a
+   * real booking. `reserve` is the compare-and-swap that closes that window —
+   * only the caller that wins gets `reserved: true`; the loser gets back
+   * whatever is already stored (a placeholder mid-flight, or a finished
+   * response to replay) and must not do the work itself.
+   */
+  reserve(
+    record: StoredIdempotentResponse,
+  ): Promise<{ reserved: true } | { reserved: false; existing: StoredIdempotentResponse }>
 }
 
 export interface StoredIdempotentResponse {
