@@ -45,6 +45,8 @@ function shell(opts: { title: string; description: string }, body: string): stri
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#0E7C4C">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="preload" href="/fonts/ibmplexmono-600.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/schibstedgrotesk-600.woff2" as="font" type="font/woff2" crossorigin>
 <style>${pageCss()}${LANDING_CSS}</style>
 </head>
 <body>

@@ -7,6 +7,15 @@ compatibility_flags = ["nodejs_compat"]
 # The OSS deliverable is one Worker and one D1 (spec §8). Nothing below
 # requires a paid plan; a self-hoster runs `wrangler deploy` and is done.
 
+# Self-hosted OFL font files (docs/branding/brand.md), served directly by
+# Cloudflare's asset edge — never the Worker — so the brand typography loads
+# without a third-party font CDN call. Requests under /fonts/* are the only
+# ones this intercepts; everything else still falls through to the Worker
+# below. No `binding` because nothing in the Worker needs to fetch an asset
+# programmatically.
+[assets]
+directory = "./assets"
+
 [observability]
 enabled = true
 
