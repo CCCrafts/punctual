@@ -36,6 +36,14 @@ export function createWebCrypto(opts: WebCryptoOptions): CryptoPort {
   if (opts.keys[current] === undefined) {
     throw new Error(`crypto: no key material for currentVersion ${current}`)
   }
+  // Same failure mode as a missing encryption key, and the same fix: an empty
+  // string base64-decodes to a zero-length key that WebCrypto imports without
+  // complaint, so a missing SIGNING_KEY would otherwise sign and verify every
+  // guest manage link and OAuth state with a fixed, publicly computable HMAC
+  // key instead of refusing to start.
+  if (!opts.signingKey) {
+    throw new Error('crypto: SIGNING_KEY is required')
+  }
 
   // Key import is async and not free; cache the promise so N concurrent
   // decrypts in one request import once rather than N times.
