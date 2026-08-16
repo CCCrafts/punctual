@@ -8,6 +8,7 @@
  */
 
 import type { EnginePorts, QueueMessage } from '../../ports.js'
+import { needsReconnect } from '../oauth.js'
 
 export async function handleQueueBatch(batch: MessageBatch, ports: EnginePorts): Promise<void> {
   for (const message of batch.messages) {
@@ -23,7 +24,7 @@ export async function handleQueueBatch(batch: MessageBatch, ports: EnginePorts):
   }
 }
 
-async function handleOne(msg: QueueMessage, ports: EnginePorts): Promise<void> {
+export async function handleOne(msg: QueueMessage, ports: EnginePorts): Promise<void> {
   switch (msg.kind) {
     case 'email':
       await ports.email.send(msg.message)
@@ -100,8 +101,16 @@ async function syncCalendar(
   const booking = await repos.bookings.byId(msg.bookingId)
   if (!booking) return
 
+  // A create that is still retrying when the booking gets cancelled must not
+  // land: the delete already ran against an empty id map, so nothing would ever
+  // remove it.
+  if (msg.action === 'create' && booking.status !== 'confirmed') return
+
+  // Looked up here, not earlier: a DELETE needs only externalEventIds, and
+  // bailing on a missing event type meant deleting an event type stranded its
+  // bookings' calendar entries forever.
   const eventType = await repos.eventTypes.byId(booking.eventTypeId)
-  if (!eventType) return
+  if (!eventType && msg.action !== 'delete') return
 
   // Accumulated across every host and connection, then persisted once.
   const createdIds: Record<string, string> = { ...booking.externalEventIds }
@@ -115,6 +124,23 @@ async function syncCalendar(
       if (!conn.calendarIdWrite || conn.syncStatus !== 'ok') continue
       try {
         const provider = ports.calendars.get(conn.provider)
+
+        if (msg.action === 'delete') {
+          const existing = booking.externalEventIds[conn.id]
+          if (existing) {
+            await provider.deleteEvent(conn, existing)
+            // Only drop the id once the provider confirms. Clearing the whole
+            // map unconditionally meant one host's expired token discarded
+            // another host's id too, leaving that event on a real calendar
+            // with nothing left to delete it by.
+            delete createdIds[conn.id]
+          }
+          continue
+        }
+
+        // Reachable only for create/update, which the guard above already
+        // requires a non-null eventType for — this check just proves it to TS.
+        if (!eventType) continue
         const external = {
           title: eventType.title,
           description: buildDescription(booking, eventType.description),
@@ -130,25 +156,25 @@ async function syncCalendar(
         }
 
         if (msg.action === 'create') {
+          // Queues is at-least-once, so this message can arrive twice. Without
+          // this guard a redelivery creates a SECOND real calendar event and
+          // overwrites the first id, leaving it unreachable by every delete
+          // path — a permanent phantom on the host's calendar.
+          if (booking.externalEventIds[conn.id]) continue
           // Keep the id: reschedule and cancel need it, and without it a
           // cancelled meeting stays on the host's real calendar forever.
           createdIds[conn.id] = await provider.createEvent(conn, external)
         } else if (msg.action === 'update') {
           const existing = booking.externalEventIds[conn.id]
           if (existing) await provider.updateEvent(conn, existing, external)
-        } else if (msg.action === 'delete') {
-          const existing = booking.externalEventIds[conn.id]
-          if (existing) {
-            await provider.deleteEvent(conn, existing)
-            // Only drop the id once the provider confirms. Clearing the whole
-            // map unconditionally meant one host's expired token discarded
-            // another host's id too, leaving that event on a real calendar
-            // with nothing left to delete it by.
-            delete createdIds[conn.id]
-          }
         }
       } catch (err) {
         console.error(`[punctual] calendar sync failed for connection ${conn.id}`, err)
+        // A revoked grant will fail every future sync too; record it so the
+        // host is prompted rather than quietly losing calendar writes.
+        if (needsReconnect(err)) {
+          await repos.connections.updateSyncStatus(conn.id, 'needs_reconnect').catch(() => {})
+        }
       }
     }
   }

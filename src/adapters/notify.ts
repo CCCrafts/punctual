@@ -19,7 +19,12 @@ import {
   bookingConfirmationForHost,
   bookingRescheduled,
 } from '../core/email-templates.js'
-import { buildIcs, icsSequenceForBooking, icsUidForBooking } from '../core/ics.js'
+import {
+  ICS_CANCEL_CONTENT_TYPE,
+  buildIcs,
+  icsSequenceForBooking,
+  icsUidForBooking,
+} from '../core/ics.js'
 
 export interface NotifyContext {
   ports: EnginePorts
@@ -128,7 +133,130 @@ export async function notifyBookingCreated(ctx: NotifyContext): Promise<void> {
         },
       })
       .catch((err) => console.error('[punctual] host notification failed to queue', err)),
+    notifyWebhooks(ports, 'booking.created', booking, eventType),
   ])
+}
+
+/**
+ * Fan a booking event out to the host's registered webhooks.
+ *
+ * `deliverWebhook` in the queue consumer was fully implemented and
+ * `POST /api/v1/webhooks` handed back a signing secret, but nothing anywhere
+ * ever enqueued a `webhook` message — so a subscriber registered an endpoint,
+ * got a 201, and never received anything. The README advertises them.
+ */
+export async function notifyWebhooks(
+  ports: EnginePorts,
+  event: 'booking.created' | 'booking.rescheduled' | 'booking.cancelled',
+  booking: Booking,
+  eventType: EventType,
+): Promise<void> {
+  const repos = ports.repositories({ consistency: 'unconstrained' })
+  // Every participating host's subscriptions, not just the primary's — a
+  // collective booking is equally an event for each of them.
+  const seen = new Set<string>()
+  for (const hostId of booking.hostUserIds.length > 0 ? booking.hostUserIds : [booking.hostUserId]) {
+    const hooks = await repos.webhooks.listForUser(hostId).catch(() => [])
+    for (const hook of hooks) {
+      if (seen.has(hook.id) || !hook.events.includes(event)) continue
+      seen.add(hook.id)
+      await ports.queue
+        .send({
+          kind: 'webhook',
+          webhookId: hook.id,
+          event,
+          payload: {
+            id: booking.id,
+            eventTypeId: eventType.id,
+            eventTypeSlug: eventType.slug,
+            title: eventType.title,
+            hostUserId: booking.hostUserId,
+            hostUserIds: booking.hostUserIds,
+            guestName: booking.guestName,
+            guestEmail: booking.guestEmail,
+            guestTimezone: booking.guestTimezone,
+            start: new Date(booking.startUtc).toISOString(),
+            end: new Date(booking.endUtc).toISOString(),
+            status: booking.status,
+            rescheduleOf: booking.rescheduleOf,
+            answers: booking.answers,
+          },
+          attempt: 0,
+        })
+        .catch((err) => console.error('[punctual] webhook failed to queue', err))
+    }
+  }
+}
+
+/**
+ * Walk back the reschedule chain so the UID stays anchored to its root.
+ *
+ * Without this a two-hop move (A→B→C) produces C's UID from B, and the guest's
+ * client creates a SECOND event instead of updating the first.
+ */
+async function loadChain(
+  ports: EnginePorts,
+  booking: Booking,
+): Promise<ReadonlyMap<string, Booking>> {
+  const chain = new Map<string, Booking>()
+  const repos = ports.repositories({ consistency: 'unconstrained' })
+  let cursor: string | null = booking.rescheduleOf
+  let guard = 0
+  while (cursor && guard++ < 20) {
+    const prev: Booking | null = await repos.bookings.byId(cursor)
+    if (!prev) break
+    chain.set(prev.id, prev)
+    cursor = prev.rescheduleOf
+  }
+  return chain
+}
+
+/**
+ * The invitation for an existing booking.
+ *
+ * Same UID as the original plus a higher SEQUENCE is what makes a calendar
+ * client UPDATE the event rather than add a duplicate — and without it the
+ * emails were telling the guest "the updated invite is attached" while
+ * attaching nothing, leaving the old time sitting in their calendar.
+ */
+async function buildAttachment(
+  ports: EnginePorts,
+  booking: Booking,
+  eventType: EventType,
+  host: User,
+  hosts: User[] | undefined,
+  method: 'REQUEST' | 'CANCEL',
+  url?: string,
+): Promise<Array<{ filename: string; content: string; contentType: string }> | undefined> {
+  try {
+    const chain = await loadChain(ports, booking)
+    const ics = buildIcs({
+      uid: icsUidForBooking(booking, chain),
+      sequence: icsSequenceForBooking(booking, chain, method === 'CANCEL'),
+      method,
+      booking,
+      eventType,
+      organizer: { email: host.email, name: host.name || host.slug },
+      attendees: [
+        { email: booking.guestEmail, name: booking.guestName },
+        ...(hosts ?? [host]).map((h) => ({ email: h.email, name: h.name || h.slug })),
+      ],
+      ...(url ? { url } : {}),
+    })
+    const encoded = base64(ics)
+    if (encoded.length > 40_000) return undefined
+    return [
+      {
+        filename: 'invite.ics',
+        content: encoded,
+        contentType: method === 'CANCEL' ? ICS_CANCEL_CONTENT_TYPE : 'text/calendar; method=REQUEST',
+      },
+    ]
+  } catch (err) {
+    // An email with no attachment still beats no email.
+    console.error('[punctual] ics generation failed', err)
+    return undefined
+  }
 }
 
 /**
@@ -176,6 +304,13 @@ export async function notifyBookingCancelled(ctx: {
   const guest = bookingCancelled({ ...shared, audience: 'guest' })
   const hostMail = bookingCancelled({ ...shared, audience: 'host' })
 
+  // METHOD:CANCEL with the chain's UID and a higher SEQUENCE — this is what
+  // actually removes the meeting from the guest's own calendar. The email copy
+  // already claims it has been removed.
+  const attachments = await buildAttachment(
+    ports, booking, eventType, host, ctx.hosts, 'CANCEL',
+  )
+
   await Promise.all([
     ports.queue
       .send({
@@ -186,6 +321,7 @@ export async function notifyBookingCancelled(ctx: {
           subject: guest.subject,
           html: guest.html,
           text: guest.text,
+          ...(attachments ? { attachments } : {}),
         },
       })
       .catch((err) => console.error('[punctual] guest cancellation failed to queue', err)),
@@ -198,9 +334,11 @@ export async function notifyBookingCancelled(ctx: {
           subject: hostMail.subject,
           html: hostMail.html,
           text: hostMail.text,
+          ...(attachments ? { attachments } : {}),
         },
       })
       .catch((err) => console.error('[punctual] host cancellation failed to queue', err)),
+    notifyWebhooks(ports, 'booking.cancelled', booking, eventType),
   ])
 }
 
@@ -240,6 +378,12 @@ export async function notifyBookingRescheduled(ctx: {
   const guest = bookingRescheduled({ ...shared, audience: 'guest' })
   const hostMail = bookingRescheduled({ ...shared, audience: 'host' })
 
+  // Same UID as the original, higher SEQUENCE: the client moves the existing
+  // event instead of leaving the old time and adding a second one.
+  const attachments = await buildAttachment(
+    ports, booking, eventType, host, ctx.hosts, 'REQUEST', manageUrl,
+  )
+
   await Promise.all([
     ports.queue
       .send({
@@ -250,6 +394,7 @@ export async function notifyBookingRescheduled(ctx: {
           subject: guest.subject,
           html: guest.html,
           text: guest.text,
+          ...(attachments ? { attachments } : {}),
         },
       })
       .catch((err) => console.error('[punctual] guest reschedule mail failed to queue', err)),
@@ -263,8 +408,10 @@ export async function notifyBookingRescheduled(ctx: {
           html: hostMail.html,
           text: hostMail.text,
           replyTo: booking.guestEmail,
+          ...(attachments ? { attachments } : {}),
         },
       })
       .catch((err) => console.error('[punctual] host reschedule mail failed to queue', err)),
+    notifyWebhooks(ports, 'booking.rescheduled', booking, eventType),
   ])
 }

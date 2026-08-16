@@ -275,10 +275,18 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
       return mapBooking(await first('SELECT * FROM bookings WHERE manage_token_hash = ?', tokenHash))
     },
     async listForHost(hostUserId, range) {
+      // `host_user_id` is only the PRIMARY host. A collective booking's other
+      // attendees live in `host_user_ids_json`, so matching on the column
+      // alone hid a secondary host's own meetings from their dashboard and,
+      // more importantly, undercounted them for the per-day cap (see
+      // `countForHostOnDate`). The LIKE match is safe because ids are UUIDs
+      // from `crypto.randomUUID()` — no quotes or backslashes to escape.
       const rows = await all<Record<string, unknown>>(
         `SELECT * FROM bookings
-         WHERE host_user_id = ? AND start_utc < ? AND end_utc > ? AND status = 'confirmed'
+         WHERE (host_user_id = ? OR host_user_ids_json LIKE '%"' || ? || '"%')
+           AND start_utc < ? AND end_utc > ? AND status = 'confirmed'
          ORDER BY start_utc`,
+        hostUserId,
         hostUserId,
         range.end,
         range.start,
@@ -288,9 +296,16 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
     async countForHostOnDate(hostUserId, localDate) {
       // The caller resolves the local date to a UTC range, because only it
       // knows the host's timezone. This takes the resolved range.
+      //
+      // Same fix as `listForHost`: without matching `host_user_ids_json`, a
+      // collective event type's non-primary hosts never hit their own
+      // per-day cap, at listing time OR at the commit-time re-check that is
+      // the actual enforcement point.
       const row = await first<{ n: number }>(
         `SELECT COUNT(*) AS n FROM bookings
-         WHERE host_user_id = ? AND status = 'confirmed' AND local_date = ?`,
+         WHERE (host_user_id = ? OR host_user_ids_json LIKE '%"' || ? || '"%')
+           AND status = 'confirmed' AND local_date = ?`,
+        hostUserId,
         hostUserId,
         localDate,
       )
@@ -359,23 +374,37 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
     },
 
     async cancelWithLockRelease(bookingId, at) {
-      // Releasing locks in the same batch keeps "cancelled" and "slot free"
-      // from ever disagreeing.
-      await session.batch([
+      // Conditional on the CURRENT status, not just the id: a cancel racing a
+      // concurrent reschedule (two guest tabs, a double-submitted form) must
+      // not stomp a booking that a parallel request already moved. Releasing
+      // locks in the same batch keeps "cancelled" and "slot free" from ever
+      // disagreeing.
+      const results = await session.batch([
         session
-          .prepare("UPDATE bookings SET status = 'cancelled', cancelled_at = ? WHERE id = ?")
+          .prepare(
+            "UPDATE bookings SET status = 'cancelled', cancelled_at = ? WHERE id = ? AND status = 'confirmed'",
+          )
           .bind(at, bookingId),
         session.prepare('DELETE FROM slot_locks WHERE booking_id = ?').bind(bookingId),
       ])
+      return (results[0]?.meta.changes ?? 0) > 0
     },
 
     async markRescheduled(bookingId, newBookingId) {
-      await session.batch([
+      // Same guard as cancel: without `status = 'confirmed'` here, two
+      // concurrent reschedules of the same booking can each create a real,
+      // confirmed replacement, and this UPDATE would just silently pick
+      // whichever wrote last — leaving the other replacement live and
+      // orphaned. The caller rolls back its new booking when this is false.
+      const results = await session.batch([
         session
-          .prepare("UPDATE bookings SET status = 'rescheduled', rescheduled_to = ? WHERE id = ?")
+          .prepare(
+            "UPDATE bookings SET status = 'rescheduled', rescheduled_to = ? WHERE id = ? AND status = 'confirmed'",
+          )
           .bind(newBookingId, bookingId),
         session.prepare('DELETE FROM slot_locks WHERE booking_id = ?').bind(bookingId),
       ])
+      return (results[0]?.meta.changes ?? 0) > 0
     },
 
     async setExternalEventIds(bookingId, ids) {
@@ -408,19 +437,23 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
       return groupBuckets(rows)
     },
 
-    async activeHolds(hostUserIds, range, now) {
+    async activeHolds(hostUserIds, range, now, excludeHoldId) {
       if (hostUserIds.length === 0) return new Map()
       const placeholders = hostUserIds.map(() => '?').join(',')
       // Filtering expired rows on read means a missed alarm degrades to a
       // slightly stale suppression, never a stuck calendar (ADR-0002 §2).
+      //
+      // `excludeHoldId` drops the caller's own hold from the result — see the
+      // port doc comment for why that matters at commit time.
       const rows = await all<{ host_user_id: string; bucket_start: number }>(
         `SELECT host_user_id, bucket_start FROM slot_holds
          WHERE host_user_id IN (${placeholders}) AND bucket_start >= ? AND bucket_start < ?
-           AND expires_at > ?`,
+           AND expires_at > ? AND hold_id != ?`,
         ...hostUserIds,
         range.start,
         range.end,
         now,
+        excludeHoldId ?? '',
       )
       return groupBuckets(rows)
     },
@@ -499,6 +532,16 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
     async removeMember(teamId, userId) {
       await run('DELETE FROM team_members WHERE team_id = ? AND user_id = ?', teamId, userId)
     },
+    async recordAssignment(teamId, userId, at) {
+      await run(
+        `INSERT INTO rr_assignments (team_id,user_id,last_assigned_at) VALUES (?,?,?)
+         ON CONFLICT(team_id,user_id) DO UPDATE SET last_assigned_at = excluded.last_assigned_at`,
+        teamId,
+        userId,
+        at,
+      )
+    },
+
     async lastAssignedAt(teamId, userIds) {
       if (userIds.length === 0) return new Map()
       const placeholders = userIds.map(() => '?').join(',')
@@ -690,6 +733,44 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
            response_json = excluded.response_json, status = excluded.status`,
         r.key, r.scope, r.requestHash, r.responseJson, r.status, r.expiresAt,
       )
+    },
+    async reserve(r: StoredIdempotentResponse) {
+      // The WHERE clause on the upsert is the compare-and-swap: it only lets
+      // the insert "win" over an existing row once that row has expired, so a
+      // still-live reservation stays untouched and `changes` comes back 0 —
+      // that is how the loser of the race is told to back off.
+      const res = await q(
+        `INSERT INTO idempotency_keys (key,scope,request_hash,response_json,status,expires_at)
+         VALUES (?,?,?,?,?,?)
+         ON CONFLICT(key,scope) DO UPDATE SET
+           request_hash = excluded.request_hash,
+           response_json = excluded.response_json,
+           status = excluded.status,
+           expires_at = excluded.expires_at
+         WHERE idempotency_keys.expires_at <= ?`,
+        r.key, r.scope, r.requestHash, r.responseJson, r.status, r.expiresAt, Date.now(),
+      ).run()
+      if ((res.meta.changes ?? 0) > 0) return { reserved: true as const }
+
+      const row = await first<Record<string, unknown>>(
+        'SELECT * FROM idempotency_keys WHERE key = ? AND scope = ?',
+        r.key, r.scope,
+      )
+      // A row that raced us out of existence between the failed upsert and
+      // this read is vanishingly unlikely (it would need a delete we never
+      // issue) — reserved is the safe default rather than throwing.
+      if (!row) return { reserved: true as const }
+      return {
+        reserved: false as const,
+        existing: {
+          key: String(row['key']),
+          scope: String(row['scope']),
+          requestHash: String(row['request_hash']),
+          responseJson: String(row['response_json']),
+          status: Number(row['status']),
+          expiresAt: Number(row['expires_at']),
+        },
+      }
     },
   }
 

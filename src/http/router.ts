@@ -111,6 +111,7 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
     const { host, eventType } = ctx
 
     const guestTimezone = resolveGuestTimezone(c.req.query('tz'), c.req.raw, host.tz)
+    const embed = c.req.query('embed') === '1'
     const currentMonth = localDateString(ports.clock.now(), host.tz).slice(0, 7)
     // Clamp to the event type's own horizon. Without this, walking ?month=
     // forever mints a new freeBusy cache key each time and forces one live
@@ -139,6 +140,7 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
       daysWithSlots: new Map(),
       guestTimezone,
       baseUrl: ports.config.baseUrl,
+      embed,
     }
 
     const head =
@@ -152,10 +154,18 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
       const hostUsers = await resolveHosts(repos, eventType, host)
 
       // Month view drives the calendar; a selected day narrows the slot list.
+      // The calendar and the day filter both key on guestTimezone, but slots
+      // are generated for a HOST-local month — so a guest far enough from the
+      // host's offset can have a local month edge that spills a day outside
+      // the host-local month's UTC range. Padding the query window by a day
+      // on each side covers that edge without changing what "month" means for
+      // the host-local scheduling constraints (per-day cap, max horizon).
+      const DAY_MS = 24 * 60 * 60 * 1000
+      const hostMonthRange = monthRange(month, host.tz)
       const monthSlots = await slots.forEventType({
         eventType,
         hostUsers,
-        range: monthRange(month, host.tz),
+        range: { start: hostMonthRange.start - DAY_MS, end: hostMonthRange.end + DAY_MS },
         scope: publicScope,
       })
 
@@ -165,13 +175,16 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
 
       const data: BookingPageData = {
         ...headerData,
-        daysWithSlots: daysWithSlots(monthSlots, host.tz),
+        // Keyed on guestTimezone to match the day filter above — otherwise a
+        // day the calendar marks bookable can filter to zero slots (or vice
+        // versa) once the guest's local date diverges from the host's.
+        daysWithSlots: daysWithSlots(monthSlots, guestTimezone),
         selectedDate,
         slots: daySlots,
       }
 
       return `<div class="pu-grid">${monthGrid(data)}${slotList(data)}</div>`
-    }, shellFoot(ports.config.brandName))
+    }, shellFoot(ports.config.brandName, true, embed))
   })
 
   // -------------------------------------------------------------------------
@@ -185,8 +198,9 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
     const { host, eventType } = ctx
 
     const start = Number(c.req.query('start'))
-    if (!Number.isFinite(start)) return notFound(c, ports)
+    if (!Number.isSafeInteger(start) || Math.abs(start) > 8.64e15) return notFound(c, ports)
     const guestTimezone = resolveGuestTimezone(c.req.query('tz'), c.req.raw, host.tz)
+    const embed = c.req.query('embed') === '1'
 
     const data: BookingPageData = {
       host,
@@ -195,13 +209,14 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
       daysWithSlots: new Map(),
       guestTimezone,
       baseUrl: ports.config.baseUrl,
+      embed,
     }
 
     const html =
       shellHead({ title: `Confirm · ${eventType.title}`, brandName: ports.config.brandName }) +
       eventHeader(data) +
       confirmForm(data, start) +
-      shellFoot(ports.config.brandName)
+      shellFoot(ports.config.brandName, true, embed)
     return c.html(html)
   })
 
@@ -232,13 +247,16 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
 
     const form = await c.req.formData()
     const start = Number(form.get('start'))
-    // The GET guards this; the POST must too, or a malformed value renders an
-    // Invalid Date deep inside the page.
-    if (!Number.isFinite(start)) return notFound(c, ports)
+    // Finite is not enough: 1e20 passes and then throws inside Intl, which
+    // surfaces as a bare 500. 8.64e15 is the JS Date range.
+    if (!Number.isSafeInteger(start) || Math.abs(start) > 8.64e15) return notFound(c, ports)
     const guestTimezone = resolveGuestTimezone(String(form.get('tz') ?? ''), c.req.raw, host.tz)
     const name = String(form.get('name') ?? '').trim()
     const email = String(form.get('email') ?? '').trim()
     const holdId = form.get('hold') ? String(form.get('hold')) : undefined
+    // The form posts to a query-string-free action, so embed state only
+    // survives as the hidden field `confirmForm` renders — see booking.ts.
+    const embed = form.get('embed') === '1'
 
     const answers: Record<string, string> = {}
     for (const [k, v] of form.entries()) {
@@ -252,6 +270,7 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
       daysWithSlots: new Map(),
       guestTimezone,
       baseUrl: ports.config.baseUrl,
+      embed,
     }
 
     const { validateAnswers, isValidEmail, pickDeclaredAnswers } = await import(
@@ -260,6 +279,10 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
     const declared = pickDeclaredAnswers(eventType, answers)
     const errors = validateAnswers(eventType, declared)
     if (name === '') errors['name'] = 'Please tell us your name'
+    // REST and MCP both cap this at 200; the public form did not. An oversized
+    // name pushes the queued email past Cloudflare's 128 KB message limit, and
+    // BOTH confirmations are lost while the slot stays booked.
+    else if (name.length > 200) errors['name'] = 'Please use 200 characters or fewer'
     if (!isValidEmail(email)) errors['email'] = 'Please enter a valid email address'
 
     if (Object.keys(errors).length > 0) {
@@ -267,7 +290,7 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
         shellHead({ title: `Confirm · ${eventType.title}`, brandName: ports.config.brandName }) +
           eventHeader(data) +
           confirmForm(data, start, { errors, values: { name, email, ...answers }, holdId }) +
-          shellFoot(ports.config.brandName),
+          shellFoot(ports.config.brandName, true, embed),
         400,
       )
     }
@@ -297,7 +320,7 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
         shellHead({ title: 'Time unavailable', brandName: ports.config.brandName }) +
           eventHeader(data) +
           body +
-          shellFoot(ports.config.brandName),
+          shellFoot(ports.config.brandName, true, embed),
         409,
       )
     }
@@ -316,7 +339,7 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
           guestTimezone,
           manageUrl,
         }) +
-        shellFoot(ports.config.brandName),
+        shellFoot(ports.config.brandName, true, embed),
     )
   })
 

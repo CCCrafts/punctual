@@ -13,6 +13,7 @@ import { computeSlots, type HostAvailabilityInput } from './core/slots/engine.js
 import type { EventType, Interval, Slot, User } from './core/domain/types.js'
 import { combineBusy, partitionConnections } from './core/domain/booking-service.js'
 import { localDateString, localTimeToInstant } from './core/time/zone.js'
+import { needsReconnect } from './adapters/oauth.js'
 
 export interface Engine {
   fetch(request: Request, env: unknown, ctx: ExecutionContext): Promise<Response>
@@ -127,8 +128,14 @@ async function externalBusyFor(
       // 60 s TTL — the spec's number, and also KV's own minimum.
       await ports.cache.put(key, busy, 60)
       out.push(...busy)
-    } catch {
-      // Degrade to "no known busy time" rather than failing the page.
+    } catch (err) {
+      // Degrade to "no known busy time" rather than failing the page — but a
+      // REVOKED grant must be recorded, or conflict checking silently switches
+      // off and bookings land on top of real meetings with the connections
+      // page still showing a green badge.
+      if (needsReconnect(err)) {
+        await repos.connections.updateSyncStatus(conn.id, 'needs_reconnect').catch(() => {})
+      }
     }
   }
   return out

@@ -28,6 +28,7 @@
  */
 
 import { Hono } from 'hono'
+import { isValidEmail } from '../../core/domain/booking-service.js'
 import { notifyBookingCancelled, notifyBookingRescheduled } from '../../adapters/notify.js'
 import { z } from 'zod'
 import type { EnginePorts, RequestScope } from '../../ports.js'
@@ -255,7 +256,7 @@ const createBookingArgs = z.object({
   eventTypeId: z.string().min(1).max(128),
   start: instantArg,
   guestName: z.string().min(1).max(200),
-  guestEmail: z.string().min(3).max(254),
+  guestEmail: z.string().min(3).max(254).refine(isValidEmail, 'must be a valid email address'),
   guestTimezone: z.string().refine(isValidTimeZone, 'not an IANA timezone name').optional(),
   answers: z.record(z.string(), z.string().max(2000)).default({}),
   idempotencyKey: z.string().min(1).max(200).optional(),
@@ -703,7 +704,18 @@ async function rescheduleBooking(
   })
   if (!outcome.ok) return toolError(failureMessage(outcome.reason, outcome.detail))
 
-  await repos.bookings.markRescheduled(original.id, outcome.booking.id)
+  // Conditional on the current status: a concurrent request against the same
+  // original booking can win between the read above and here. If it did, the
+  // booking `coordinator.book` just created is a real, confirmed, but
+  // orphaned duplicate — release it rather than leave it live.
+  const moved = await repos.bookings.markRescheduled(original.id, outcome.booking.id)
+  if (!moved) {
+    await repos.bookings.cancelWithLockRelease(outcome.booking.id, deps.ports.clock.now())
+    await deps.ports.queue
+      .send({ kind: 'calendar.sync', bookingId: outcome.booking.id, action: 'delete' })
+      .catch(() => {})
+    return toolError('That booking was already updated elsewhere. Fetch it again before retrying.')
+  }
   await deps.ports.queue
     .send({ kind: 'calendar.sync', bookingId: original.id, action: 'delete' })
     .catch(() => {})
@@ -738,7 +750,8 @@ async function cancelBooking(deps: ToolDeps, input: z.infer<typeof cancelArgs>):
     return toolError(`That booking is already ${booking.status}; nothing to cancel.`)
   }
 
-  await repos.bookings.cancelWithLockRelease(booking.id, deps.ports.clock.now())
+  const cancelled = await repos.bookings.cancelWithLockRelease(booking.id, deps.ports.clock.now())
+  if (!cancelled) return toolError('That booking was already updated elsewhere. Fetch it again before retrying.')
   await deps.ports.queue
     .send({ kind: 'calendar.sync', bookingId: booking.id, action: 'delete' })
     .catch(() => {})

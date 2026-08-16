@@ -660,7 +660,14 @@ export function buildApiRoutes(ports: EnginePorts, slots: SlotService): Hono<Api
     }
 
     const now = ports.clock.now()
-    await repos.bookings.cancelWithLockRelease(booking.id, now)
+    // Conditional on the current status: a concurrent request (a racing
+    // reschedule, a retried cancel) can change the booking between the read
+    // above and this write.
+    const cancelled = await repos.bookings.cancelWithLockRelease(booking.id, now)
+    if (!cancelled) {
+      const fresh = await repos.bookings.byId(booking.id)
+      return problem(409, 'Not cancellable', `This booking is already ${fresh?.status ?? 'no longer confirmed'}.`)
+    }
 
     const eventType = await repos.eventTypes.byId(booking.eventTypeId)
     if (eventType) {
@@ -717,7 +724,19 @@ export function buildApiRoutes(ports: EnginePorts, slots: SlotService): Hono<Api
     })
     if (!outcome.ok) return bookingFailure(outcome.reason, outcome.detail)
 
-    await repos.bookings.markRescheduled(original.id, outcome.booking.id)
+    // Conditional on the current status: a concurrent request against the
+    // same original booking can win between the read above and here. If it
+    // did, the booking `coordinator.book` just created is a real, confirmed,
+    // but orphaned duplicate — release it rather than leave it live.
+    const moved = await repos.bookings.markRescheduled(original.id, outcome.booking.id)
+    if (!moved) {
+      await repos.bookings.cancelWithLockRelease(outcome.booking.id, ports.clock.now())
+      await ports.queue
+        .send({ kind: 'calendar.sync', bookingId: outcome.booking.id, action: 'delete' })
+        .catch(() => {})
+      const fresh = await repos.bookings.byId(original.id)
+      return problem(409, 'Not reschedulable', `This booking is already ${fresh?.status ?? 'no longer confirmed'}.`)
+    }
     // The host of the NEW booking, not the API key's owner: round-robin
     // re-picks at commit time, so the two differ for team event types and the
     // mail would name — and reach — the wrong person.
