@@ -50,6 +50,8 @@ ${chrome.description ? `<meta name="description" content="${escapeHtml(chrome.de
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="${chrome.themeColor ?? '#0E7C4C'}">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="preload" href="/fonts/ibmplexmono-600.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/schibstedgrotesk-600.woff2" as="font" type="font/woff2" crossorigin>
 <style>${pageCss()}</style>
 </head>
 <body>

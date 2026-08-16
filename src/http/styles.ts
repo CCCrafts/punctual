@@ -3,12 +3,44 @@
  *
  * Inlined rather than served as a file, deliberately: the §7 budget is a <1 s
  * full load on mobile 4G with the whole page under 80 KB gzip, and a separate
- * stylesheet costs a round trip that a few KB of inline CSS does not.
+ * stylesheet costs a round trip that a few KB of inline CSS does not. That
+ * budget is HTML+CSS+JS only (spec §7); fonts are their own resource class —
+ * fetched async, `font-display: swap` never blocks first paint on them, and a
+ * returning visitor pays the ~120 KB combined cost once, cached long past any
+ * single page's byte budget.
  *
- * Tokens mirror docs/branding/assets/tokens.css. Fonts are system stacks with
- * the brand faces named first — a self-hoster gets a correct-looking page with
- * zero font downloads, which is also what keeps the byte budget.
+ * Tokens mirror docs/branding/assets/tokens.css. The three brand faces are
+ * self-hosted OFL files under assets/fonts/ (see FONT_FACES below) — vendored
+ * at build time from Google Fonts' own CDN rather than called at runtime, so
+ * a visitor's request never leaves punctual's origin. System stacks stay
+ * listed after each brand face as the `font-display: swap` fallback while the
+ * real face loads, and as the total fallback if a self-hoster ever strips
+ * assets/fonts/ from their deploy.
  */
+
+/**
+ * `unicode-range` scoped to Latin (spec: English everywhere) so a browser
+ * never fetches a font file to render a codepoint punctual doesn't ship
+ * copy in. Weights match what BASE_CSS/LANDING_CSS actually set — no spare
+ * weights riding along unused.
+ */
+export const FONT_FACES = `
+@font-face{font-family:"IBM Plex Mono";font-style:normal;font-weight:400;font-display:swap;
+  src:url(/fonts/ibmplexmono-400.woff2) format("woff2");
+  unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+@font-face{font-family:"IBM Plex Mono";font-style:normal;font-weight:600;font-display:swap;
+  src:url(/fonts/ibmplexmono-600.woff2) format("woff2");
+  unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+@font-face{font-family:"IBM Plex Mono";font-style:normal;font-weight:700;font-display:swap;
+  src:url(/fonts/ibmplexmono-700.woff2) format("woff2");
+  unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+@font-face{font-family:"Inter";font-style:normal;font-weight:400 700;font-display:swap;
+  src:url(/fonts/inter-variable.woff2) format("woff2");
+  unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+@font-face{font-family:"Schibsted Grotesk";font-style:normal;font-weight:600;font-display:swap;
+  src:url(/fonts/schibstedgrotesk-600.woff2) format("woff2");
+  unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+`
 
 export const TOKENS = `
 :root{
@@ -191,7 +223,7 @@ input:has(+ .pu-err),select:has(+ .pu-err),textarea:has(+ .pu-err){border-color:
 `
 
 export function pageCss(): string {
-  return TOKENS + BASE_CSS
+  return FONT_FACES + TOKENS + BASE_CSS
 }
 
 /**
