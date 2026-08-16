@@ -99,10 +99,13 @@ screen shows an "unverified app" warning; for an internal team that is fine.
 ## 6. Email (optional, but you want it)
 
 Without an email provider, Punctual logs emails instead of sending them —
-useful for local testing, not for real bookings. To send for real:
+useful for local testing, not for real bookings. To send for real, set
+**either** provider's key (Resend is tried first if both are set):
 
 ```bash
 npx wrangler secret put RESEND_API_KEY
+# or
+npx wrangler secret put BREVO_API_KEY
 ```
 
 Then set `FROM_EMAIL` and `FROM_NAME` in `wrangler.toml` `[vars]` to an address
@@ -150,6 +153,7 @@ Two features need a paid plan, and both degrade gracefully:
 | `GOOGLE_CLIENT_ID` / `_SECRET` | secret | Your Google OAuth app |
 | `MICROSOFT_CLIENT_ID` / `_SECRET` | secret | Your Microsoft app |
 | `RESEND_API_KEY` | secret | Omit to log emails instead of sending |
+| `BREVO_API_KEY` | secret | Alternative to Resend; Resend wins if both are set |
 
 ## Telemetry
 
