@@ -100,7 +100,7 @@ export function landingPage(opts: LandingPageOptions): string {
   </div>
   <div class="pu-feature-grid">
     <div class="pu-card">
-      <h3><span class="pu-stat">~0.14s TTFB, 10.4KB</span>Renders at the edge</h3>
+      <h3><span class="pu-stat">~0.14s TTFB, 3.8KB gzip</span>Renders at the edge</h3>
       <p class="pu-muted">Measured, not estimated. The booking page is a Cloudflare
         Worker answering from whichever edge is closest to your guest — not a
         Next.js app rendering in one region.</p>

@@ -75,4 +75,5 @@ TELEMETRY_ENABLED = "0"
 #   SIGNING_KEY         base64 32 bytes, HMAC for manage links
 #   GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET
 #   MICROSOFT_CLIENT_ID / MICROSOFT_CLIENT_SECRET
-#   RESEND_API_KEY      (or leave unset to log emails to console)
+#   RESEND_API_KEY / BREVO_API_KEY   (either; Resend wins if both are set —
+#                                      leave both unset to log emails to console)
