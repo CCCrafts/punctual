@@ -142,6 +142,25 @@ describe('sign / verify', () => {
   })
 })
 
+describe('construction fails closed on missing key material', () => {
+  it('throws when the current encryption key version is missing', () => {
+    expect(() => createWebCrypto({ keys: {}, currentVersion: 1, signingKey: SIGNING })).toThrow(
+      /no key material/,
+    )
+  })
+
+  it('throws when SIGNING_KEY is an empty string', () => {
+    // Not merely undefined: `env.SIGNING_KEY ?? ''` is exactly what a missing
+    // Workers secret produces, and an empty string base64-decodes to a
+    // zero-length key that WebCrypto would otherwise import without
+    // complaint — silently signing every manage link and OAuth state with a
+    // fixed, publicly computable HMAC key instead of refusing to start.
+    expect(() => createWebCrypto({ keys: { 1: KEY_V1 }, currentVersion: 1, signingKey: '' })).toThrow(
+      /SIGNING_KEY/,
+    )
+  })
+})
+
 describe('randomToken / hash', () => {
   it('produces 256-bit url-safe tokens by default (ADR-0005 §2)', () => {
     const c = subject({ 1: KEY_V1 }, 1)
