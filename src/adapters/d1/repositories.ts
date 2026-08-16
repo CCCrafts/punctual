@@ -726,11 +726,21 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
       }
     },
     async put(r: StoredIdempotentResponse) {
+      // Must also update expires_at (and request_hash, for symmetry with
+      // reserve() below): the coordinator's failure path calls this with
+      // expiresAt = now to make a lost reservation immediately reclaimable.
+      // Without expires_at in the SET list that release is a no-op — the row
+      // keeps whatever TTL `reserve()` originally set, and every retry after
+      // a failed booking attempt reads back the stale placeholder and gets
+      // told to wait out the full 24h TTL instead of being allowed to retry.
       await run(
         `INSERT INTO idempotency_keys (key,scope,request_hash,response_json,status,expires_at)
          VALUES (?,?,?,?,?,?)
          ON CONFLICT(key,scope) DO UPDATE SET
-           response_json = excluded.response_json, status = excluded.status`,
+           request_hash = excluded.request_hash,
+           response_json = excluded.response_json,
+           status = excluded.status,
+           expires_at = excluded.expires_at`,
         r.key, r.scope, r.requestHash, r.responseJson, r.status, r.expiresAt,
       )
     },
