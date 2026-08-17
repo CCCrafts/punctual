@@ -8,6 +8,8 @@ import {
   toGraphEvent,
 } from '../../src/adapters/microsoft/provider.js'
 import { createEnvOAuthCredentials, GOOGLE_CALENDAR_SCOPES, GOOGLE_IDENTITY_SCOPES } from '../../src/adapters/oauth.js'
+import { partitionConnections } from '../../src/core/domain/booking-service.js'
+import type { CalendarConnection } from '../../src/core/domain/types.js'
 
 /**
  * Parsing and mapping only — no network, no Workers runtime. These are the
@@ -359,5 +361,43 @@ describe('createEnvOAuthCredentials', () => {
     for (const scope of GOOGLE_IDENTITY_SCOPES) {
       expect(GOOGLE_CALENDAR_SCOPES).not.toContain(scope)
     }
+  })
+})
+
+describe('partitionConnections', () => {
+  function conn(overrides: Partial<CalendarConnection>): CalendarConnection {
+    return {
+      id: 'cal_1',
+      userId: 'u1',
+      provider: 'google',
+      providerAccountEmail: 'host@example.com',
+      encryptedTokens: 'x',
+      keyVersion: 1,
+      calendarIdsRead: [],
+      calendarIdWrite: null,
+      syncStatus: 'ok',
+      createdAt: 0,
+      ...overrides,
+    }
+  }
+
+  // Microsoft's getBusy reads the whole mailbox (providerAccountEmail) by
+  // default and only narrows to calendarIdsRead when it's non-empty — see
+  // adapters/microsoft/provider.ts. Excluding an empty-calendarIdsRead
+  // Microsoft connection here meant getBusy was never even called for it,
+  // silently disabling conflict checking rather than reading the right thing.
+  it('includes a Microsoft connection for reads even with an empty calendarIdsRead', () => {
+    const { read } = partitionConnections([conn({ provider: 'microsoft', calendarIdsRead: [] })])
+    expect(read).toHaveLength(1)
+  })
+
+  it('excludes a Google connection for reads when calendarIdsRead is empty', () => {
+    const { read } = partitionConnections([conn({ provider: 'google', calendarIdsRead: [] })])
+    expect(read).toHaveLength(0)
+  })
+
+  it('includes a Google connection once a calendar is selected', () => {
+    const { read } = partitionConnections([conn({ provider: 'google', calendarIdsRead: ['primary'] })])
+    expect(read).toHaveLength(1)
   })
 })

@@ -292,7 +292,14 @@ export function partitionConnections(connections: CalendarConnection[]): {
   write: CalendarConnection[]
 } {
   return {
-    read: connections.filter((c) => c.calendarIdsRead.length > 0),
+    // Microsoft's `getBusy` reads the whole mailbox by default
+    // (providerAccountEmail) and only narrows to `calendarIdsRead` when it's
+    // non-empty — see adapters/microsoft/provider.ts. Google has no such
+    // fallback: an empty `calendarIdsRead` there genuinely means nothing was
+    // selected, so excluding it is correct. Filtering Microsoft out here too
+    // meant `getBusy` was never even called for it, silently disabling
+    // conflict checking rather than fixing which identifier it queried.
+    read: connections.filter((c) => c.provider === 'microsoft' || c.calendarIdsRead.length > 0),
     write: connections.filter((c) => c.calendarIdWrite && c.syncStatus === 'ok'),
   }
 }
