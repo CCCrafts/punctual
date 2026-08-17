@@ -85,21 +85,25 @@ export interface RescheduleLink {
  *
  * `rescheduleOf` points at the immediate predecessor only, so for A → B → C
  * resolving one hop from C yields B — and a UID built on B would make every
- * client create a SECOND event instead of moving the first. Callers that can
- * load the chain pass it in; callers that cannot get the one-hop answer, which
- * is correct for the overwhelmingly common single reschedule.
+ * client create a SECOND event instead of moving the first. `chain` is
+ * REQUIRED (not optional): a two-hop reschedule needs the full lineage to
+ * resolve correctly, and an optional parameter let call sites silently fall
+ * back to the one-hop answer by omission — which is exactly wrong on the
+ * second reschedule of a booking. A caller that genuinely has no lineage
+ * (a brand-new booking, known to have no `rescheduleOf`) passes `new Map()`
+ * explicitly, which is a correct and honest answer for a root booking.
  *
  * Cycle-guarded: a corrupt chain must degrade to a duplicate event, never to a
  * hung queue consumer.
  */
 export function icsRootBookingId(
   booking: RescheduleLink,
-  chain?: ReadonlyMap<string, RescheduleLink>,
+  chain: ReadonlyMap<string, RescheduleLink>,
 ): string {
   let current = booking
   const seen = new Set<string>([current.id])
   while (current.rescheduleOf) {
-    const previous = chain?.get(current.rescheduleOf)
+    const previous = chain.get(current.rescheduleOf)
     if (!previous) return current.rescheduleOf
     if (seen.has(previous.id)) return current.id
     seen.add(previous.id)
@@ -116,10 +120,12 @@ export function icsRootBookingId(
  * old date. A reschedule therefore MUST reuse the ORIGINAL booking's id here
  * and MUST bump SEQUENCE; doing either one without the other is what produces
  * the classic "I now have two meetings" support ticket.
+ *
+ * `chain` is required — see `icsRootBookingId`.
  */
 export function icsUidForBooking(
   booking: RescheduleLink,
-  chain?: ReadonlyMap<string, RescheduleLink>,
+  chain: ReadonlyMap<string, RescheduleLink>,
   domain = 'punctual',
 ): string {
   return icsUid(icsRootBookingId(booking, chain), domain)
@@ -136,10 +142,23 @@ export function icsUidForBooking(
  * Cancellations pass `cancelled: true`, which adds one. RFC 5546 §3.2.5 wants
  * the CANCEL to carry a SEQUENCE no lower than the REQUEST it revokes; going
  * strictly higher removes any doubt for clients that compare with `>`.
+ *
+ * `chain` is required for the same reason as in `icsRootBookingId`: without
+ * the full lineage a two-hop booking's depth under-counts by one, which means
+ * its SEQUENCE collides with the hop before it instead of exceeding it.
+ *
+ * IMPORTANT: `cancelled: true` must only ever be passed for a booking's OWN,
+ * terminal cancellation — never to compute a CANCEL for the booking that a
+ * *later* reschedule superseded. Two independent bookings each computing
+ * their own depth-based SEQUENCE have no way to see each other, so a
+ * superseded leg's "CANCEL, +1" and its replacement's "REQUEST" can land on
+ * the same SEQUENCE number for the same UID — see `icsCancelSuppressed`,
+ * which is why a superseded leg must never reach this function with
+ * `cancelled: true` at all.
  */
 export function icsSequenceForBooking(
   booking: RescheduleLink,
-  chain?: ReadonlyMap<string, RescheduleLink>,
+  chain: ReadonlyMap<string, RescheduleLink>,
   cancelled = false,
 ): number {
   let depth = 0
@@ -147,12 +166,32 @@ export function icsSequenceForBooking(
   const seen = new Set<string>([current.id])
   while (current.rescheduleOf) {
     depth += 1
-    const previous = chain?.get(current.rescheduleOf)
+    const previous = chain.get(current.rescheduleOf)
     if (!previous || seen.has(previous.id)) break
     seen.add(previous.id)
     current = previous
   }
   return depth + (cancelled ? 1 : 0)
+}
+
+/**
+ * Whether a CANCEL .ics must be suppressed for this booking.
+ *
+ * True exactly when the booking has itself been superseded by a later
+ * reschedule (`rescheduledTo` set) rather than genuinely, terminally
+ * cancelled. `buildIcs`'s own docstring states the design: a reschedule is a
+ * re-REQUEST of the existing UID, never a CANCEL followed by a fresh invite —
+ * "the CANCEL half tends to arrive first and some clients then drop the
+ * replacement". `icsSequenceForBooking` cannot make that safe on its own: it
+ * only sees ITS OWN booking's chain depth, so a CANCEL computed for the
+ * superseded leg and a REQUEST computed for its replacement can both land on
+ * the same SEQUENCE for the same UID (both being one hop removed from the
+ * same predecessor). Suppressing the CANCEL entirely for a superseded leg —
+ * rather than trying to out-guess its replacement's SEQUENCE — is what keeps
+ * the guest from silently losing the meeting.
+ */
+export function icsCancelSuppressed(booking: { rescheduledTo: string | null }): boolean {
+  return booking.rescheduledTo !== null
 }
 
 // ---------------------------------------------------------------------------

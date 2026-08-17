@@ -5,6 +5,7 @@ import {
   escapeParam,
   escapeText,
   foldLine,
+  icsCancelSuppressed,
   icsDateTimeUtc,
   icsRootBookingId,
   icsSequenceForBooking,
@@ -13,6 +14,8 @@ import {
   type IcsInput,
   type RescheduleLink,
 } from '../../src/core/ics.js'
+
+const NO_CHAIN = new Map<string, RescheduleLink>()
 
 const START = Date.UTC(2026, 7, 14, 9, 0, 0)
 
@@ -290,14 +293,13 @@ describe('UID and SEQUENCE — update vs duplicate', () => {
   ])
 
   it('a reschedule keeps the ORIGINAL UID', () => {
-    expect(icsUidForBooking(original)).toBe('bk_1@punctual')
-    expect(icsUidForBooking(second)).toBe('bk_1@punctual')
-    // Two hops: without the chain we can only see one predecessor.
+    expect(icsUidForBooking(original, NO_CHAIN)).toBe('bk_1@punctual')
+    expect(icsUidForBooking(second, chain)).toBe('bk_1@punctual')
     expect(icsUidForBooking(third, chain)).toBe('bk_1@punctual')
   })
 
   it('SEQUENCE increases with chain depth', () => {
-    expect(icsSequenceForBooking(original)).toBe(0)
+    expect(icsSequenceForBooking(original, NO_CHAIN)).toBe(0)
     expect(icsSequenceForBooking(second, chain)).toBe(1)
     expect(icsSequenceForBooking(third, chain)).toBe(2)
   })
@@ -321,7 +323,7 @@ describe('UID and SEQUENCE — update vs duplicate', () => {
   })
 
   it('the rescheduled .ics is an UPDATE: same UID, higher SEQUENCE, new DTSTART', () => {
-    const first = ics({ booking: booking() }, { uid: icsUidForBooking(original), sequence: 0 })
+    const first = ics({ booking: booking() }, { uid: icsUidForBooking(original, NO_CHAIN), sequence: 0 })
     const moved = booking({
       id: 'bk_2',
       rescheduleOf: 'bk_1',
@@ -330,7 +332,7 @@ describe('UID and SEQUENCE — update vs duplicate', () => {
     })
     const update = ics(
       { booking: moved },
-      { uid: icsUidForBooking(moved), sequence: icsSequenceForBooking(moved) },
+      { uid: icsUidForBooking(moved, chain), sequence: icsSequenceForBooking(moved, chain) },
     )
     expect(propertyValue(update, 'UID')).toBe(propertyValue(first, 'UID'))
     expect(Number(propertyValue(update, 'SEQUENCE'))).toBeGreaterThan(
@@ -338,5 +340,70 @@ describe('UID and SEQUENCE — update vs duplicate', () => {
     )
     expect(propertyValue(update, 'DTSTART')).not.toBe(propertyValue(first, 'DTSTART'))
     expect(propertyValue(update, 'METHOD')).toBe('REQUEST')
+  })
+
+  // ---------------------------------------------------------------------
+  // Regression: a two-hop chain (A → B → C) needs the FULL lineage, or both
+  // the UID and the SEQUENCE come out wrong on the second reschedule.
+  // ---------------------------------------------------------------------
+
+  it('a two-hop chain resolves to the correct root UID at every hop, given the full chain', () => {
+    // A → B → C: whichever hop asks, the UID must point at A.
+    expect(icsUidForBooking(original, chain)).toBe('bk_1@punctual')
+    expect(icsUidForBooking(second, chain)).toBe('bk_1@punctual')
+    expect(icsUidForBooking(third, chain)).toBe('bk_1@punctual')
+  })
+
+  it('a two-hop chain gets a strictly increasing SEQUENCE at every hop, given the full chain', () => {
+    const seqA = icsSequenceForBooking(original, chain)
+    const seqB = icsSequenceForBooking(second, chain)
+    const seqC = icsSequenceForBooking(third, chain)
+    expect(seqA).toBe(0)
+    expect(seqB).toBeGreaterThan(seqA)
+    expect(seqC).toBeGreaterThan(seqB)
+  })
+
+  it('an empty/missing chain silently produces the WRONG UID for the second hop of a two-hop reschedule', () => {
+    // This is exactly what making `chain` a required parameter guards
+    // against: a caller that forgets to load the lineage now has to pass
+    // SOMETHING, and this test documents why that something must be the
+    // full chain rather than an empty map. C's immediate predecessor is B,
+    // not A — so with no chain to look B up in, resolution stops one hop
+    // short and lands on B's id instead of the true root, which makes a
+    // calendar client create a SECOND event instead of moving the first.
+    const wrongUid = icsUidForBooking(third, NO_CHAIN)
+    const correctUid = icsUidForBooking(third, chain)
+    expect(wrongUid).toBe('bk_2@punctual')
+    expect(correctUid).toBe('bk_1@punctual')
+    expect(wrongUid).not.toBe(correctUid)
+  })
+
+  it('an empty/missing chain also under-counts SEQUENCE for the second hop', () => {
+    // With no lineage to walk, C's depth reads as 1 — the same SEQUENCE
+    // already used for B's own REQUEST — instead of 2.
+    expect(icsSequenceForBooking(third, NO_CHAIN)).toBe(1)
+    expect(icsSequenceForBooking(second, chain)).toBe(1)
+    expect(icsSequenceForBooking(third, chain)).toBe(2)
+  })
+
+  // ---------------------------------------------------------------------
+  // Regression: a CANCEL for the leg a reschedule superseded must never be
+  // sent — its SEQUENCE cannot be made to reliably outrank the REQUEST of
+  // the booking that replaced it, because the two are computed from
+  // independent chain walks that cannot see each other.
+  // ---------------------------------------------------------------------
+
+  it('a superseded leg (CANCEL) and its replacement (REQUEST) can collide on the same SEQUENCE for the same UID', () => {
+    // A is rescheduled to B: same UID, and if A were (incorrectly) also sent
+    // as a CANCEL, both computations start from A's own one-hop chain depth.
+    const cancelSequenceForA = icsSequenceForBooking(original, NO_CHAIN, true)
+    const requestSequenceForB = icsSequenceForBooking(second, chain)
+    expect(icsUidForBooking(original, NO_CHAIN)).toBe(icsUidForBooking(second, chain))
+    expect(cancelSequenceForA).toBe(requestSequenceForB)
+  })
+
+  it('icsCancelSuppressed is true for a booking superseded by a reschedule, false for a real cancellation', () => {
+    expect(icsCancelSuppressed({ rescheduledTo: 'bk_2' })).toBe(true)
+    expect(icsCancelSuppressed({ rescheduledTo: null })).toBe(false)
   })
 })

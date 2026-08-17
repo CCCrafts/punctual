@@ -22,9 +22,13 @@ import {
 import {
   ICS_CANCEL_CONTENT_TYPE,
   buildIcs,
+  icsCancelSuppressed,
   icsSequenceForBooking,
   icsUidForBooking,
 } from '../core/ics.js'
+
+/** A booking known to have no predecessor gets an empty chain, not `undefined`. */
+const NO_CHAIN: ReadonlyMap<string, Booking> = new Map()
 
 export interface NotifyContext {
   ports: EnginePorts
@@ -58,9 +62,13 @@ export async function notifyBookingCreated(ctx: NotifyContext): Promise<void> {
 
   let ics: string | undefined
   try {
+    // `booking.rescheduleOf` is guaranteed null by the early return above, so
+    // this booking is always a root and an empty chain is the correct chain
+    // — not a shortcut, since `icsUidForBooking`/`icsSequenceForBooking`
+    // require one explicitly rather than defaulting it away.
     ics = buildIcs({
-      uid: icsUidForBooking(booking),
-      sequence: icsSequenceForBooking(booking),
+      uid: icsUidForBooking(booking, NO_CHAIN),
+      sequence: icsSequenceForBooking(booking, NO_CHAIN),
       method: 'REQUEST',
       booking,
       eventType,
@@ -228,6 +236,19 @@ async function buildAttachment(
   method: 'REQUEST' | 'CANCEL',
   url?: string,
 ): Promise<Array<{ filename: string; content: string; contentType: string }> | undefined> {
+  // A booking that has itself been superseded by a later reschedule
+  // (`rescheduledTo` set) must never get a CANCEL .ics: its replacement's
+  // REQUEST shares the same UID, and a CANCEL computed from this booking's
+  // own chain depth has no way to see the replacement's SEQUENCE — the two
+  // can collide on the same number for the same UID, and a client that
+  // resolves the conflict by DTSTAMP can then drop the replacement, leaving
+  // the guest with nothing on their calendar instead of the moved meeting.
+  // No caller reaches this today with a superseded booking (every cancel
+  // entry point requires status 'confirmed', and a superseded booking is
+  // 'rescheduled'), but per `icsCancelSuppressed`'s docstring this must hold
+  // by construction, not by the accident of every call site remembering the
+  // status check.
+  if (method === 'CANCEL' && icsCancelSuppressed(booking)) return undefined
   try {
     const chain = await loadChain(ports, booking)
     const ics = buildIcs({
