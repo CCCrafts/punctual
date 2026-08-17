@@ -39,7 +39,7 @@ import type { SlotService } from '../../engine.js'
 import { authenticateApiKey } from '../../core/domain/auth-flows.js'
 import { parseApiKey } from '../../core/domain/auth-service.js'
 import { isValidEmail, validateAnswers } from '../../core/domain/booking-service.js'
-import { bookingCancelled, bookingRescheduled } from '../../core/email-templates.js'
+import { notifyBookingCancelled, notifyBookingRescheduled } from '../../adapters/notify.js'
 import { formatInZone, isValidTimeZone, localDateString } from '../../core/time/zone.js'
 
 // ---------------------------------------------------------------------------
@@ -240,6 +240,12 @@ export function toInstant(value: string | number): number | null {
   const trimmed = value.trim()
   if (trimmed === '') return null
   if (/^-?\d{1,15}$/.test(trimmed)) return Number(trimmed)
+  // Every caller's error message promises "ISO-8601 with an offset, or epoch
+  // milliseconds" — but `Date.parse` accepts an offsetless string too,
+  // silently reading it as UTC per spec. A client that sent their own
+  // wall-clock time expecting rejection gets a booking at the wrong instant
+  // instead, hours off from what they meant.
+  if (!/(Z|[+-]\d{2}:?\d{2})$/.test(trimmed)) return null
   const parsed = Date.parse(trimmed)
   return Number.isNaN(parsed) ? null : parsed
 }
@@ -538,6 +544,14 @@ export function buildApiRoutes(ports: EnginePorts, slots: SlotService): Hono<Api
       overrides: parsed.data.overrides,
     }
     await repos.availability.save(user.id, availability)
+    // GET /slots (and the public booking page) default their render
+    // timezone to `users.tz` when the caller doesn't pass one explicitly —
+    // leaving the two to drift means every unqualified request after this
+    // still renders in the OLD timezone. Same fix as the dashboard's
+    // availability route.
+    if (availability.timezone !== user.tz) {
+      await repos.users.update(user.id, { tz: availability.timezone })
+    }
     const stored = await repos.availability.forUser(user.id)
     return c.json({ data: availabilityJson(stored ?? availability) })
   })
@@ -671,7 +685,19 @@ export function buildApiRoutes(ports: EnginePorts, slots: SlotService): Hono<Api
 
     const eventType = await repos.eventTypes.byId(booking.eventTypeId)
     if (eventType) {
-      await notifyCancelled(ports, booking, eventType, user, parsed.data.reason)
+      // Shared with the guest-manage and dashboard cancel paths: sends to
+      // BOTH parties with the .ics METHOD:CANCEL, and fires the
+      // `booking.cancelled` webhook. The REST route used to have its own
+      // guest-only, no-webhook, no-.ics helper — this is the same class of
+      // gap already fixed on the other two paths.
+      await notifyBookingCancelled({
+        ports,
+        booking,
+        eventType,
+        host: user,
+        cancelledBy: 'host',
+        ...(parsed.data.reason ? { reason: parsed.data.reason } : {}),
+      }).catch((err) => console.error('[punctual] rest cancellation notify failed', err))
     }
     // After the commit, deliberately: a calendar API failing must not undo a
     // cancellation the caller has already been told about.
@@ -741,7 +767,18 @@ export function buildApiRoutes(ports: EnginePorts, slots: SlotService): Hono<Api
     // re-picks at commit time, so the two differ for team event types and the
     // mail would name — and reach — the wrong person.
     const newHost = (await repos.users.byId(outcome.booking.hostUserId)) ?? user
-    await notifyRescheduled(ports, outcome.booking, original, eventType, newHost)
+    // Shared with the guest-manage and dashboard reschedule paths: sends to
+    // BOTH parties, attaches the .ics with the chain's UID and a bumped
+    // SEQUENCE, includes the new manage link, and fires `booking.rescheduled`
+    // — none of which the REST route's own guest-only helper did.
+    await notifyBookingRescheduled({
+      ports,
+      booking: outcome.booking,
+      previous: original,
+      eventType,
+      host: newHost,
+      ...(outcome.manageToken ? { manageToken: outcome.manageToken } : {}),
+    }).catch((err) => console.error('[punctual] rest reschedule notify failed', err))
     await ports.queue
       .send({ kind: 'calendar.sync', bookingId: original.id, action: 'delete' })
       .catch(() => {})
@@ -906,67 +943,6 @@ function emptyAvailability(user: User): Availability {
     weekly: [[], [], [], [], [], [], []],
     overrides: [],
   }
-}
-
-async function notifyCancelled(
-  ports: EnginePorts,
-  booking: Booking,
-  eventType: EventType,
-  host: User,
-  reason: string | undefined,
-): Promise<void> {
-  const content = bookingCancelled({
-    booking,
-    eventType,
-    host,
-    audience: 'guest',
-    cancelledBy: 'host',
-    reason,
-    brandName: ports.config.brandName,
-    supportEmail: ports.config.supportEmail,
-  })
-  await ports.queue
-    .send({
-      kind: 'email',
-      message: {
-        to: booking.guestEmail,
-        toName: booking.guestName,
-        subject: content.subject,
-        html: content.html,
-        text: content.text,
-      },
-    })
-    .catch(() => {})
-}
-
-async function notifyRescheduled(
-  ports: EnginePorts,
-  booking: Booking,
-  previous: Booking,
-  eventType: EventType,
-  host: User,
-): Promise<void> {
-  const content = bookingRescheduled({
-    booking,
-    eventType,
-    host,
-    audience: 'guest',
-    previous: { startUtc: previous.startUtc, endUtc: previous.endUtc },
-    brandName: ports.config.brandName,
-    supportEmail: ports.config.supportEmail,
-  })
-  await ports.queue
-    .send({
-      kind: 'email',
-      message: {
-        to: booking.guestEmail,
-        toName: booking.guestName,
-        subject: content.subject,
-        html: content.html,
-        text: content.text,
-      },
-    })
-    .catch(() => {})
 }
 
 // ---------------------------------------------------------------------------

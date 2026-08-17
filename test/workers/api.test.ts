@@ -15,7 +15,7 @@ import { applyD1Migrations, env } from 'cloudflare:test'
 import { Hono } from 'hono'
 import { buildPorts, type Env } from '../../src/index.js'
 import { createSlotService } from '../../src/engine.js'
-import { buildApiRoutes } from '../../src/http/api/rest.js'
+import { buildApiRoutes, toInstant } from '../../src/http/api/rest.js'
 import { buildMcpRoutes } from '../../src/http/mcp/server.js'
 import { buildEmbedRoutes, embedScript } from '../../src/http/embed.js'
 import { createApiKey } from '../../src/core/domain/auth-flows.js'
@@ -748,5 +748,33 @@ describe('embed widget', () => {
     // A relative src would resolve against the CUSTOMER's origin, which is the
     // one failure mode of this widget that looks fine in local development.
     expect(embedScript('https://punctual.test/')).toContain('"https://punctual.test"')
+  })
+})
+
+describe('toInstant', () => {
+  it('accepts epoch milliseconds, as a number or a numeric string', () => {
+    expect(toInstant(1_800_000_000_000)).toBe(1_800_000_000_000)
+    expect(toInstant('1800000000000')).toBe(1_800_000_000_000)
+    expect(toInstant('-5000')).toBe(-5000)
+  })
+
+  it('accepts ISO-8601 with an explicit offset or Z', () => {
+    expect(toInstant('2026-11-03T09:00:00Z')).toBe(Date.parse('2026-11-03T09:00:00Z'))
+    expect(toInstant('2026-11-03T09:00:00+02:00')).toBe(Date.parse('2026-11-03T09:00:00+02:00'))
+    expect(toInstant('2026-11-03T09:00:00-0500')).toBe(Date.parse('2026-11-03T09:00:00-0500'))
+  })
+
+  // Every caller's error message promises "ISO-8601 with an offset, or epoch
+  // milliseconds" — `Date.parse` used to accept an offsetless string anyway,
+  // silently reading it as UTC and booking hours off from what a client that
+  // sent their own wall-clock time meant.
+  it('rejects ISO-8601 without an offset, rather than silently reading it as UTC', () => {
+    expect(toInstant('2026-11-03T09:00:00')).toBeNull()
+    expect(toInstant('2026-11-03')).toBeNull()
+  })
+
+  it('rejects garbage and empty input', () => {
+    expect(toInstant('')).toBeNull()
+    expect(toInstant('not a date')).toBeNull()
   })
 })
