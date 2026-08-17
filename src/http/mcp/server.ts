@@ -665,9 +665,13 @@ async function createBooking(
   })
 
   if (!outcome.ok) return toolError(failureMessage(outcome.reason, outcome.detail))
+  // Resolved from the booking that actually committed, not the caller:
+  // round-robin/collective re-pick the host at commit time, so for a team
+  // event type the two can differ and the summary named the wrong person.
+  const bookedHost = (await repos.users.byId(outcome.booking.hostUserId)) ?? user
   return text({
     booked: true,
-    ...bookingSummary(outcome.booking, eventType, user, input.guestTimezone ?? user.tz),
+    ...bookingSummary(outcome.booking, eventType, bookedHost, input.guestTimezone ?? user.tz),
   })
 }
 
@@ -738,7 +742,8 @@ async function rescheduleBooking(
     previousBookingId: original.id,
     previousStart: new Date(original.startUtc).toISOString(),
     reason: input.reason,
-    ...bookingSummary(outcome.booking, eventType, user, original.guestTimezone),
+    // Same `newHost` used for the notification above, not the caller.
+    ...bookingSummary(outcome.booking, eventType, newHost, original.guestTimezone),
   })
 }
 
@@ -768,6 +773,10 @@ async function cancelBooking(deps: ToolDeps, input: z.infer<typeof cancelArgs>):
       eventType: cancelEt,
       host: cancelHost,
       cancelledBy: 'host',
+      // The tool's own description promises this lands in the guest's
+      // notification; it was being collected and echoed back to the caller
+      // but never actually passed through.
+      ...(input.reason ? { reason: input.reason } : {}),
     }).catch((err) => console.error('[punctual] mcp cancellation emails failed', err))
   }
 
