@@ -755,7 +755,8 @@ async function cancelBooking(deps: ToolDeps, input: z.infer<typeof cancelArgs>):
     return toolError(`That booking is already ${booking.status}; nothing to cancel.`)
   }
 
-  const cancelled = await repos.bookings.cancelWithLockRelease(booking.id, deps.ports.clock.now())
+  const cancelledAt = deps.ports.clock.now()
+  const cancelled = await repos.bookings.cancelWithLockRelease(booking.id, cancelledAt)
   if (!cancelled) return toolError('That booking was already updated elsewhere. Fetch it again before retrying.')
   await deps.ports.queue
     .send({ kind: 'calendar.sync', bookingId: booking.id, action: 'delete' })
@@ -769,7 +770,10 @@ async function cancelBooking(deps: ToolDeps, input: z.infer<typeof cancelArgs>):
   if (cancelEt && cancelHost) {
     await notifyBookingCancelled({
       ports: deps.ports,
-      booking,
+      // Patched, not the pre-write booking: notifyWebhooks serializes
+      // `booking.status` straight into the payload, which would otherwise
+      // report "confirmed" on a `booking.cancelled` event.
+      booking: { ...booking, status: 'cancelled', cancelledAt },
       eventType: cancelEt,
       host: cancelHost,
       cancelledBy: 'host',

@@ -263,11 +263,23 @@ function parseRange(
 ): { ok: true; range: Interval } | { ok: false; response: Response } {
   const from = fromRaw === undefined ? now : toInstant(fromRaw)
   if (from === null) {
-    return { ok: false, response: problem(400, 'Invalid request', '`from` must be ISO-8601 or epoch milliseconds.') }
+    return {
+      ok: false,
+      // `toInstant` requires an offset on any ISO-8601 string it's given —
+      // this message used to promise a weaker contract than the function
+      // actually enforced, so an offsetless `from`/`to` 400ed with a message
+      // that didn't explain why. Same fix as `start`'s message, for the same
+      // reason: an offsetless string is a client's own wall-clock time, and
+      // reading it as UTC silently returns the wrong window.
+      response: problem(400, 'Invalid request', '`from` must be ISO-8601 with an offset, or epoch milliseconds.'),
+    }
   }
   const to = toRaw === undefined ? from + defaultSpanMs : toInstant(toRaw)
   if (to === null) {
-    return { ok: false, response: problem(400, 'Invalid request', '`to` must be ISO-8601 or epoch milliseconds.') }
+    return {
+      ok: false,
+      response: problem(400, 'Invalid request', '`to` must be ISO-8601 with an offset, or epoch milliseconds.'),
+    }
   }
   if (to <= from) {
     return { ok: false, response: problem(400, 'Invalid request', '`to` must be after `from`.') }
@@ -692,7 +704,11 @@ export function buildApiRoutes(ports: EnginePorts, slots: SlotService): Hono<Api
       // gap already fixed on the other two paths.
       await notifyBookingCancelled({
         ports,
-        booking,
+        // Patched, not the pre-write `booking`: notifyWebhooks serializes
+        // `booking.status` straight into the payload, so a `booking.cancelled`
+        // event would otherwise report status "confirmed" — the value it had
+        // before this same request just cancelled it.
+        booking: { ...booking, status: 'cancelled', cancelledAt: now },
         eventType,
         host: user,
         cancelledBy: 'host',

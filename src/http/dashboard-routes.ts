@@ -886,7 +886,8 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     // guard — if it reports no row changed, someone else already moved this
     // booking, so treat it the same as the pre-check above rather than
     // sending a cancellation for a booking that is actually rescheduled.
-    const cancelled = await repos.bookings.cancelWithLockRelease(verified.booking.id, ports.clock.now())
+    const cancelledAt = ports.clock.now()
+    const cancelled = await repos.bookings.cancelWithLockRelease(verified.booking.id, cancelledAt)
     if (!cancelled) return manageError(c, 'This booking is no longer active.')
 
     // Rotate the hash so the link in the guest's inbox stops working. ADR-0005
@@ -905,7 +906,10 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     if (cancelEt && cancelHost) {
       await notifyBookingCancelled({
         ports,
-        booking: verified.booking,
+        // Patched, not the pre-write booking: notifyWebhooks serializes
+        // `booking.status` straight into the payload, which would otherwise
+        // report "confirmed" on a `booking.cancelled` event.
+        booking: { ...verified.booking, status: 'cancelled', cancelledAt },
         eventType: cancelEt,
         host: cancelHost,
         cancelledBy: 'guest',
