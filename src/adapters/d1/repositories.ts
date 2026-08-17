@@ -142,15 +142,35 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
     async bookingPageContext(ownerSlug, eventSlug) {
       // One query instead of two awaits: round-trip count is what the booking
       // page's latency budget is actually spent on (see the port doc).
+      //
+      // `owner_user_id` is only set for personal event types — a team-owned
+      // one (round_robin/collective) has `owner_team_id` instead, and an
+      // INNER JOIN on `users` alone 404s every one of those pages. `ru`
+      // resolves one representative member (admin first, then lowest id, for
+      // a stable pick) so a team-owned row still has someone to serve as the
+      // page's display name/timezone default — `resolveHosts` below pulls
+      // the REAL host list for slot generation; this is display-only.
       const row = await first<Record<string, unknown>>(
         `SELECT
-           u.id AS u_id, u.email AS u_email, u.name AS u_name, u.tz AS u_tz,
-           u.slug AS u_slug, u.created_at AS u_created_at,
+           COALESCE(u.id, ru.id) AS u_id,
+           COALESCE(u.email, ru.email) AS u_email,
+           COALESCE(u.name, ru.name) AS u_name,
+           COALESCE(u.tz, ru.tz) AS u_tz,
+           COALESCE(u.slug, ru.slug) AS u_slug,
+           COALESCE(u.created_at, ru.created_at) AS u_created_at,
            et.*
          FROM event_types et
-         JOIN users u ON u.id = et.owner_user_id
-         WHERE u.slug = ? AND et.slug = ? AND et.active = 1
+         LEFT JOIN users u ON u.id = et.owner_user_id
+         LEFT JOIN teams t ON t.id = et.owner_team_id
+         LEFT JOIN users ru ON ru.id = (
+           SELECT tm.user_id FROM team_members tm
+           WHERE tm.team_id = et.owner_team_id
+           ORDER BY (tm.role = 'admin') DESC, tm.user_id
+           LIMIT 1
+         )
+         WHERE (u.slug = ? OR t.slug = ?) AND et.slug = ? AND et.active = 1
          LIMIT 1`,
+        ownerSlug,
         ownerSlug,
         eventSlug,
       )
@@ -293,9 +313,12 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
       )
       return rows.map((r) => mapBooking(r)!).filter(Boolean)
     },
-    async countForHostOnDate(hostUserId, localDate) {
-      // The caller resolves the local date to a UTC range, because only it
-      // knows the host's timezone. This takes the resolved range.
+    async countForHostOnDate(hostUserId, range) {
+      // Matched against `start_utc` in the caller's resolved range, NOT the
+      // stored `local_date` column. `local_date` is stamped once, in a
+      // collective booking's PRIMARY host's timezone (booking-service.ts) —
+      // string-matching it for a non-primary host silently missed rows near
+      // a timezone boundary and undercounted their cap.
       //
       // Same fix as `listForHost`: without matching `host_user_ids_json`, a
       // collective event type's non-primary hosts never hit their own
@@ -304,10 +327,11 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
       const row = await first<{ n: number }>(
         `SELECT COUNT(*) AS n FROM bookings
          WHERE (host_user_id = ? OR host_user_ids_json LIKE '%"' || ? || '"%')
-           AND status = 'confirmed' AND local_date = ?`,
+           AND status = 'confirmed' AND start_utc >= ? AND start_utc < ?`,
         hostUserId,
         hostUserId,
-        localDate,
+        range.start,
+        range.end,
       )
       return row?.n ?? 0
     },

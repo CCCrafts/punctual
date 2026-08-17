@@ -111,3 +111,78 @@ describe('month resolution follows the selected date', () => {
     expect(res.status).toBe(404)
   })
 })
+
+/**
+ * A team-owned event type's public booking page must resolve.
+ *
+ * The bug: `bookingPageContext` INNER JOINed `event_types` to `users` on
+ * `owner_user_id` alone. A round_robin/collective event type has that column
+ * NULL (it's owned via `owner_team_id` instead), so the join produced no row
+ * and the page 404ed for every team event type — invisible in every other
+ * test because they all call `prepareBooking`/`createWithLocks` directly,
+ * never through this HTTP route.
+ */
+describe('a team-owned event type has a working public booking page', () => {
+  it('resolves by the team slug instead of 404ing', async () => {
+    const now = Date.now()
+    await env.DB.batch([
+      env.DB.prepare('INSERT INTO users (id,email,name,tz,slug,created_at) VALUES (?,?,?,?,?,?)').bind(
+        'u_team_member',
+        'member@example.com',
+        'Team Member',
+        'UTC',
+        'team-member',
+        now,
+      ),
+      env.DB.prepare('INSERT INTO teams (id,name,slug,created_at) VALUES (?,?,?,?)').bind(
+        't_sales',
+        'Sales',
+        'sales-team',
+        now,
+      ),
+      env.DB.prepare('INSERT INTO team_members (team_id,user_id,role,rr_weight) VALUES (?,?,?,?)').bind(
+        't_sales',
+        'u_team_member',
+        'admin',
+        1,
+      ),
+      env.DB.prepare(
+        `INSERT INTO event_types
+         (id,owner_user_id,owner_team_id,scheduling_type,slug,title,description,duration_minutes,
+          slot_interval_minutes,buffer_before_minutes,buffer_after_minutes,min_notice_minutes,
+          max_horizon_days,max_per_day,location_type,location_value,questions_json,active,created_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      ).bind(
+        'et_team_intro',
+        null,
+        't_sales',
+        'round_robin',
+        'team-intro',
+        'Team intro call',
+        '',
+        30,
+        null,
+        0,
+        0,
+        0,
+        60,
+        null,
+        'google_meet',
+        null,
+        '[]',
+        1,
+        now,
+      ),
+    ])
+
+    const { default: worker } = await import('../../src/index.js')
+    const res = await worker.fetch(
+      new Request('https://punctual.sh/sales-team/team-intro'),
+      env,
+      createExecutionContext(),
+    )
+    expect(res.status).toBe(200)
+    const body = await res.text()
+    expect(body).toContain('Team intro call')
+  })
+})
