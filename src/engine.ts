@@ -153,11 +153,12 @@ async function perDayCounts(
   const counts = new Map<string, number>()
   const bookings = await repos.bookings.listForHost(user.id, range)
   for (const b of bookings) {
-    // Keyed on the AVAILABILITY timezone, which is what computeSlots and
-    // prepareBooking both use. `user.tz` is a separate field that can drift
-    // from it, and when it does every cap lookup misses and the cap silently
-    // stops applying.
-    const date = b.localDate || localDateString(b.startUtc, availabilityTz)
+    // Recomputed from `startUtc` in THIS host's own availability timezone —
+    // never `b.localDate`. That column is stamped once, in the PRIMARY
+    // host's timezone (booking-service.ts), so for a collective booking's
+    // non-primary hosts it can name the wrong calendar day near a timezone
+    // boundary and undercount their cap.
+    const date = localDateString(b.startUtc, availabilityTz)
     counts.set(date, (counts.get(date) ?? 0) + 1)
   }
   return counts

@@ -20,6 +20,7 @@ import { intervalToBuckets } from '../core/slots/intervals.js'
 import { issueManageToken } from '../core/domain/auth-flows.js'
 import { notifyBookingCreated } from './notify.js'
 import { localDateString } from '../core/time/zone.js'
+import { dayRange } from '../engine.js'
 import { needsReconnect } from './oauth.js'
 import type { HostAvailabilityInput } from '../core/slots/engine.js'
 
@@ -211,15 +212,25 @@ export function createCoordinator(deps: CoordinatorDeps): HostCoordinator {
         }
 
         if (request.idempotencyKey) {
-          await repos.idempotency.put({
-            key: request.idempotencyKey,
-            scope,
-            requestHash,
-            responseJson: JSON.stringify({ id: written.id }),
-            status: 200,
-            expiresAt: now + 24 * 3_600_000,
-          })
-          idempotencySettled = true
+          // Best-effort, like the calendar-sync send right below: a booking
+          // we already promised the guest on screen must not be lost — or
+          // turned into an uncaught 500 that also skips that calendar sync
+          // and the confirmation email below — just because persisting the
+          // idempotency record hit a transient D1 error. `idempotencySettled`
+          // stays false on failure, so `finally` makes one repair attempt.
+          await repos.idempotency
+            .put({
+              key: request.idempotencyKey,
+              scope,
+              requestHash,
+              responseJson: JSON.stringify({ id: written.id }),
+              status: 200,
+              expiresAt: now + 24 * 3_600_000,
+            })
+            .then(() => {
+              idempotencySettled = true
+            })
+            .catch((err) => console.error('[punctual] idempotency success record not persisted', err))
         }
 
         // Side effects come AFTER the commit, deliberately: a calendar API or
@@ -406,7 +417,9 @@ async function buildHostInputs(
       // buffered footprint, so a leading buffer that crosses local midnight
       // wrote one date and read another, and the cap silently did nothing.
       const localDate = localDateString(capAnchor, availability.timezone)
-      perDay = new Map([[localDate, await repos.bookings.countForHostOnDate(id, localDate)]])
+      perDay = new Map([
+        [localDate, await repos.bookings.countForHostOnDate(id, dayRange(localDate, availability.timezone))],
+      ])
     }
 
     out.push({

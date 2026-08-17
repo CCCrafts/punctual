@@ -106,7 +106,16 @@ export interface BookingRepository {
   byId(id: string): Promise<Booking | null>
   byManageToken(tokenHash: string): Promise<Booking | null>
   listForHost(hostUserId: string, range: Interval): Promise<Booking[]>
-  countForHostOnDate(hostUserId: string, localDate: string): Promise<number>
+  /**
+   * Confirmed bookings whose `start_utc` falls in `range` — the caller
+   * resolves a host-local calendar day to a UTC range (`dayRange`) before
+   * calling this, because only the caller knows which host's timezone that
+   * day is meant in. NOT a match against the stored `local_date` column:
+   * that column is stamped once, in a collective booking's PRIMARY host's
+   * timezone, so string-matching it for a non-primary host can miss rows
+   * near a timezone boundary and undercount their cap.
+   */
+  countForHostOnDate(hostUserId: string, range: Interval): Promise<number>
 
   /**
    * The atomic write (ADR-0002 §1). The booking row and one `slot_locks` row
