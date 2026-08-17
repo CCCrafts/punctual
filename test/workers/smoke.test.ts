@@ -194,3 +194,81 @@ describe('a team-owned event type has a working public booking page', () => {
     expect(body).not.toContain('/team-member/team-intro')
   })
 })
+
+/**
+ * The public booking page is an unauthenticated, D1-reading GET with no
+ * limit at all before this change — month-walking is clamped to the event
+ * type's horizon, but the page render itself is still a free hammer target.
+ * Mirrors the POST confirm route's existing `booking:ip` abuse limit
+ * (ADR-0006 §3), against the real DO-backed token bucket rather than a fake,
+ * because the algorithm (continuous refill, not a fixed window) is the thing
+ * worth trusting here.
+ */
+describe('the public booking page rate-limits by IP', () => {
+  it('allows generous GET traffic, then 429s a hammering IP', async () => {
+    const now = Date.now()
+    await env.DB.batch([
+      env.DB.prepare('INSERT INTO users (id,email,name,tz,slug,created_at) VALUES (?,?,?,?,?,?)').bind(
+        'u_rl_host',
+        'rl-host@example.com',
+        'RL Host',
+        'UTC',
+        'rl-host',
+        now,
+      ),
+      env.DB.prepare(
+        `INSERT INTO event_types
+         (id,owner_user_id,owner_team_id,scheduling_type,slug,title,description,duration_minutes,
+          slot_interval_minutes,buffer_before_minutes,buffer_after_minutes,min_notice_minutes,
+          max_horizon_days,max_per_day,location_type,location_value,questions_json,active,created_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      ).bind(
+        'et_rl_intro',
+        'u_rl_host',
+        null,
+        'personal',
+        'rl-intro',
+        'RL intro call',
+        '',
+        30,
+        null,
+        0,
+        0,
+        0,
+        60,
+        null,
+        'google_meet',
+        null,
+        '[]',
+        1,
+        now,
+      ),
+    ])
+
+    const { default: worker } = await import('../../src/index.js')
+    // A distinct IP per test run so this suite is order-independent and can
+    // never inherit tokens spent by another test hitting the same bucket.
+    const ip = `203.0.113.${1 + Math.floor(Math.random() * 250)}`
+    const fetchPage = () =>
+      worker.fetch(
+        new Request('https://punctual.sh/rl-host/rl-intro', {
+          headers: { 'cf-connecting-ip': ip },
+        }),
+        env,
+        createExecutionContext(),
+      )
+
+    // Spend the full bucket (120 tokens) — every one must succeed.
+    for (let i = 0; i < 120; i++) {
+      const res = await fetchPage()
+      expect(res.status).toBe(200)
+    }
+
+    // The 121st request in the same window is the hammering request.
+    const denied = await fetchPage()
+    expect(denied.status).toBe(429)
+    const retryAfter = Number(denied.headers.get('retry-after'))
+    expect(retryAfter).toBeGreaterThan(0)
+    expect(retryAfter).toBeLessThanOrEqual(60)
+  })
+})

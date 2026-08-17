@@ -102,6 +102,9 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
   // Booking page: /:userSlug/:eventSlug
   // -------------------------------------------------------------------------
   app.get('/:userSlug/:eventSlug', async (c) => {
+    const denied = await bookingPageRateLimited(ports, c)
+    if (denied) return denied
+
     const repos = ports.repositories(publicScope)
     const { userSlug, eventSlug } = c.req.param()
 
@@ -192,6 +195,9 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
   // Confirm form
   // -------------------------------------------------------------------------
   app.get('/:userSlug/:eventSlug/confirm', async (c) => {
+    const denied = await bookingPageRateLimited(ports, c)
+    if (denied) return denied
+
     const repos = ports.repositories(publicScope)
     const { userSlug, eventSlug } = c.req.param()
     const ctx = await repos.eventTypes.bookingPageContext(userSlug, eventSlug)
@@ -407,6 +413,43 @@ function notFound(c: Context<{ Bindings: Env }>, ports: EnginePorts): Response |
       errorPage('Not found', 'That booking page does not exist.') +
       shellFoot(ports.config.brandName),
     404,
+  )
+}
+
+/**
+ * Abuse limit on the public booking-page GETs (ADR-0006 §3 — same philosophy
+ * as the POST confirm route's `booking:ip` check above: uniform per
+ * deployment, generous enough that no real guest ever meets it, tunable
+ * upward by the operator).
+ *
+ * These are unauthenticated, D1-reading endpoints with no limit at all
+ * before this change. Month-walking is already clamped to the event type's
+ * horizon, so this is no longer an amplification vector into freeBusy calls
+ * — but the page render itself still costs a real `bookingPageContext` read
+ * (and, for the calendar view, a month of slot computation) per request, and
+ * an attacker or bot can otherwise hammer it for free.
+ *
+ * 120 requests/minute/IP: a real guest browsing a calendar, flipping months
+ * and reloading does not sustain anywhere near 2 requests/sec for a full
+ * minute, while a script hammering the page hits this quickly. That is
+ * roughly 700x the POST route's 10/hour limit, deliberately — GET traffic
+ * from one guest across an embed, a shared link opened by several tabs, or a
+ * flaky connection retrying is normal in a way that repeated booking
+ * *attempts* are not.
+ */
+async function bookingPageRateLimited(
+  ports: EnginePorts,
+  c: Context<{ Bindings: Env }>,
+): Promise<Response | Promise<Response> | undefined> {
+  const ip = c.req.header('cf-connecting-ip') ?? 'unknown'
+  const limit = await ports.rateLimiter.check('booking_page:ip', ip, 120, 60)
+  if (limit.allowed) return undefined
+  return c.html(
+    shellHead({ title: 'Too many requests', brandName: ports.config.brandName }) +
+      errorPage('Too many requests', 'Please wait a little and try again.') +
+      shellFoot(ports.config.brandName),
+    429,
+    { 'retry-after': String(Math.ceil((limit.resetAt - ports.clock.now()) / 1000)) },
   )
 }
 
