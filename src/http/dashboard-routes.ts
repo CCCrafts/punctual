@@ -445,7 +445,13 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
       const calendars = await ports.calendars.get(provider).listCalendars(connection)
       const primary = calendars.find((cal) => cal.primary) ?? calendars[0]
       if (primary) {
-        connection.calendarIdsRead = [primary.id]
+        // Microsoft's `getBusy` keys on the mailbox SMTP address, not a
+        // calendar id (see adapters/microsoft/provider.ts) — it falls back to
+        // `providerAccountEmail` only when `calendarIdsRead` is empty.
+        // Filling it with a calendar id here defeated that fallback and made
+        // every Microsoft conflict check silently see an empty schedule,
+        // i.e. treat busy time as free.
+        if (provider !== 'microsoft') connection.calendarIdsRead = [primary.id]
         connection.calendarIdWrite = primary.id
       }
     } catch {
@@ -666,11 +672,16 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     const existing = await ownedConnection(c)
     if (!existing) return notFound(c)
 
-    const read = form.getAll('read').map((v) => String(v))
     const writeRaw = String(form.get('write') ?? '')
     const next: CalendarConnection = {
       ...existing,
-      calendarIdsRead: read,
+      // The picker lists calendar ids (from `listCalendars`), but Microsoft's
+      // `getBusy` reads `calendarIdsRead` as mailbox SMTP addresses, not
+      // calendar ids — there is no UI here that produces those, so storing
+      // the picked ids would make every future conflict check silently see
+      // an empty schedule (busy time reads as free). Leaving it empty keeps
+      // `getBusy`'s existing fallback to `providerAccountEmail` in effect.
+      calendarIdsRead: existing.provider === 'microsoft' ? [] : form.getAll('read').map((v) => String(v)),
       calendarIdWrite: writeRaw === '' ? null : writeRaw,
     }
 
@@ -798,7 +809,12 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     const host = await repos.users.byId(booking.hostUserId)
     if (!host) return manageError(c, 'This booking is no longer available.')
 
-    const startParam = Number(c.req.query('start'))
+    const startRaw = Number(c.req.query('start'))
+    // Same guard as the public booking page: `Number.isFinite` alone lets a
+    // huge-but-finite value through, and formatting it later (Intl inside
+    // `formatInZone`) throws an uncaught RangeError instead of a clean
+    // fallback — 8.64e15 is the JS Date range.
+    const startParam = Number.isSafeInteger(startRaw) && Math.abs(startRaw) <= 8.64e15 ? startRaw : NaN
     const dateParam = validDate(c.req.query('date'))
 
     // Slot listing for the reschedule picker is advisory and reads the nearest
@@ -806,7 +822,12 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     // path arbitrates.
     let offered: Awaited<ReturnType<SlotService['forEventType']>> | undefined
     let selectedDate: string | undefined
-    if (purpose === 'reschedule' && eventType && !Number.isFinite(startParam)) {
+    // `rescheduleSection` (dashboard.ts) renders the same picker for BOTH
+    // 'reschedule' and 'manage' — 'manage' is what every real booking's
+    // token actually carries (issueManageToken always mints 'manage'), so
+    // restricting this to 'reschedule' alone meant the picker never had
+    // slots to show on the link every guest actually receives.
+    if ((purpose === 'reschedule' || purpose === 'manage') && eventType && !Number.isFinite(startParam)) {
       selectedDate = dateParam ?? localDateString(booking.startUtc, booking.guestTimezone)
       // `selectedDate` is a GUEST-local date (from the picker, or from the
       // guest's own booking), but `dayRange` resolves a date string in a
@@ -912,7 +933,13 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     if (!verified.ok) return manageError(c, verified.message)
 
     const start = Number(form.get('start'))
-    if (!Number.isFinite(start)) return manageError(c, 'No new time was chosen.')
+    // `isFinite` alone lets a huge-but-finite value through, and it eventually
+    // reaches Date/Intl formatting downstream (confirmation email, .ics),
+    // which throws an uncaught RangeError instead of this clean error page.
+    // 8.64e15 is the JS Date range.
+    if (!Number.isSafeInteger(start) || Math.abs(start) > 8.64e15) {
+      return manageError(c, 'No new time was chosen.')
+    }
 
     const old = verified.booking
 
