@@ -13,6 +13,7 @@ import type {
   HostCoordinator,
   Repositories,
 } from '../ports.js'
+import type { Booking } from '../core/domain/types.js'
 import { combineBusy, partitionConnections, prepareBooking } from '../core/domain/booking-service.js'
 import { bookingFootprint } from '../core/slots/engine.js'
 import { intervalToBuckets } from '../core/slots/intervals.js'
@@ -91,6 +92,12 @@ export function createCoordinator(deps: CoordinatorDeps): HostCoordinator {
       // being able to try again immediately.
       const idempotencyClaimed = Boolean(request.idempotencyKey)
       let idempotencySettled = false
+      // Set once `createWithLocks` actually commits. Distinct from
+      // `idempotencySettled`: a real booking can exist even when persisting
+      // its idempotency response afterward fails. Declared here, not inside
+      // the `try` below, so `finally` can still see it.
+      let committed = false
+      let written: Booking | null = null
       const acquired: string[] = []
       const leaseId = ports.crypto.randomToken(12)
 
@@ -178,8 +185,16 @@ export function createCoordinator(deps: CoordinatorDeps): HostCoordinator {
         }
 
         // ---- The write that actually arbitrates ---------------------------
-        const written = await repos.bookings.createWithLocks(prepared.booking, prepared.buckets)
+        written = await repos.bookings.createWithLocks(prepared.booking, prepared.buckets)
         if (!written) return { ok: false, reason: 'slot_taken' }
+        // From here on a real booking exists. The idempotency release in
+        // `finally` must never fire past this point: if the `idempotency.put`
+        // below throws (a transient D1 error) before setting
+        // `idempotencySettled`, releasing the claim would make this exact
+        // key immediately retryable — and a retry re-runs `coordinator.book`
+        // from scratch, which for round-robin can land a SECOND real booking
+        // on a different host instead of replaying this one.
+        committed = true
 
         // Advance the rotation, and only now — a failed commit must not move
         // it, or a losing race would push the next booking to another host.
@@ -238,12 +253,35 @@ export function createCoordinator(deps: CoordinatorDeps): HostCoordinator {
         for (const id of acquired) {
           await stub(id).releaseLease(leaseId).catch(() => {})
         }
-        if (idempotencyClaimed && !idempotencySettled && request.idempotencyKey) {
+        if (idempotencyClaimed && !idempotencySettled && !committed && request.idempotencyKey) {
           // expiresAt in the past makes the placeholder immediately
           // reclaimable by `reserve`'s WHERE clause, so the next attempt
           // with this key does not have to wait out the full 24h TTL.
+          //
+          // Guarded on `!committed`: once a real booking has been written,
+          // releasing the claim would let a retry create a second one
+          // instead of replaying this one. Leaving the placeholder in place
+          // for the rest of its TTL — a client sees "in progress, retry
+          // shortly" for up to 24h — is the safe failure mode here, not a
+          // fast retry.
           await repos.idempotency
             .put({ key: request.idempotencyKey, scope, requestHash, responseJson: '', status: 0, expiresAt: now })
+            .catch(() => {})
+        }
+        if (committed && written && !idempotencySettled && request.idempotencyKey) {
+          // The booking committed but persisting its idempotency response
+          // failed (e.g. a transient D1 error). Best-effort repair: try once
+          // more to record the real result so a retry within the TTL replays
+          // this booking instead of hitting a stale empty placeholder.
+          await repos.idempotency
+            .put({
+              key: request.idempotencyKey,
+              scope,
+              requestHash,
+              responseJson: JSON.stringify({ id: written.id }),
+              status: 200,
+              expiresAt: now + 24 * 3_600_000,
+            })
             .catch(() => {})
         }
       }
