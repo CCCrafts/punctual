@@ -12,6 +12,7 @@
 import type {
   ApiKey,
   Booking,
+  CalendarConnection,
   MagicLinkToken,
   Session,
   User,
@@ -19,6 +20,7 @@ import type {
 import type {
   ApiKeyRepository,
   BookingRepository,
+  CalendarConnectionRepository,
   EmailMessage,
   EmailSender,
   EngineConfig,
@@ -53,6 +55,7 @@ export interface FakeRepositories extends Repositories {
     magicLinks: Map<string, MagicLinkToken>
     apiKeys: Map<string, ApiKey>
     bookings: Map<string, Booking>
+    connections: Map<string, CalendarConnection>
   }
   seedUser(user: Partial<User> & Pick<User, 'id' | 'email'>): User
   seedBooking(booking: Booking): Booking
@@ -66,6 +69,7 @@ export function createFakeRepositories(): FakeRepositories {
   const magicLinks = new Map<string, MagicLinkToken>()
   const apiKeys = new Map<string, ApiKey>()
   const bookings = new Map<string, Booking>()
+  const connections = new Map<string, CalendarConnection>()
   let touches = 0
   let lastBookmark: string | null = null
 
@@ -163,6 +167,28 @@ export function createFakeRepositories(): FakeRepositories {
     },
   })
 
+  const connectionRepo = unimplemented<CalendarConnectionRepository>('connections', {
+    async byId(id: string) {
+      return connections.get(id) ?? null
+    },
+    async listForUser(userId: string) {
+      return [...connections.values()].filter((c) => c.userId === userId)
+    },
+    async create(conn: CalendarConnection) {
+      connections.set(conn.id, conn)
+      return conn
+    },
+    async updateCalendars(id: string, patch: { read: string[]; write: string | null }) {
+      const existing = connections.get(id)
+      if (existing) {
+        connections.set(id, { ...existing, calendarIdsRead: patch.read, calendarIdWrite: patch.write })
+      }
+    },
+    async delete(id: string) {
+      connections.delete(id)
+    },
+  })
+
   return {
     users: userRepo,
     sessions: sessionRepo,
@@ -175,13 +201,13 @@ export function createFakeRepositories(): FakeRepositories {
     availability: unimplemented('availability'),
     slotLocks: unimplemented('slotLocks'),
     teams: unimplemented('teams'),
-    connections: unimplemented('connections'),
+    connections: connectionRepo,
     webhooks: unimplemented('webhooks'),
     idempotency: unimplemented('idempotency'),
     bookmark() {
       return lastBookmark
     },
-    state: { users, sessions, magicLinks, apiKeys, bookings },
+    state: { users, sessions, magicLinks, apiKeys, bookings, connections },
     seedUser(user) {
       const full: User = {
         name: 'Seed User',

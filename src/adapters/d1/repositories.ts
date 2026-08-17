@@ -616,6 +616,12 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
     async updateSyncStatus(id, status) {
       await run('UPDATE calendar_connections SET sync_status = ? WHERE id = ?', status, id)
     },
+    async updateCalendars(id, patch) {
+      await run(
+        'UPDATE calendar_connections SET calendar_ids_read_json = ?, calendar_id_write = ? WHERE id = ?',
+        JSON.stringify(patch.read), patch.write, id,
+      )
+    },
     async delete(id) {
       await run('DELETE FROM calendar_connections WHERE id = ?', id)
     },

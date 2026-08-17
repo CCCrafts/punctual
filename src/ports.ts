@@ -208,6 +208,14 @@ export interface CalendarConnectionRepository {
   create(conn: CalendarConnection): Promise<CalendarConnection>
   updateTokens(id: string, encryptedTokens: string, keyVersion: number): Promise<void>
   updateSyncStatus(id: string, status: CalendarConnection['syncStatus']): Promise<void>
+  /**
+   * Rewrite only the calendar selection — never tokens, key version, sync
+   * status or provider account email. A single `UPDATE`, not delete+create,
+   * so a failure mid-write cannot destroy the row (which would force a full
+   * OAuth reconnect) or drop key-rotation continuity for the encrypted
+   * tokens.
+   */
+  updateCalendars(id: string, patch: { read: string[]; write: string | null }): Promise<void>
   delete(id: string): Promise<void>
 }
 

@@ -31,6 +31,7 @@ import type {
   EnginePorts,
   HostCoordinator,
   QueuePort,
+  RequestScope,
 } from '../../src/ports.js'
 
 const db = env.DB
@@ -335,5 +336,98 @@ describe('guest manage page', () => {
       .bind(BOOKING_ID)
       .first<{ n: number }>()
     expect(locks?.n).toBe(0)
+  })
+})
+
+describe('connections save', () => {
+  const CONNECTION_ID = 'cal_1'
+
+  /** Every call the connections repo receives, in order — the spy this suite is built around. */
+  const repoCalls: string[] = []
+
+  const spyPorts: EnginePorts = {
+    ...ports,
+    repositories: (scope: RequestScope) => {
+      const repos = createD1Repositories(db, scope)
+      return {
+        ...repos,
+        connections: {
+          ...repos.connections,
+          async delete(id) {
+            repoCalls.push('delete')
+            return repos.connections.delete(id)
+          },
+          async create(conn) {
+            repoCalls.push('create')
+            return repos.connections.create(conn)
+          },
+          async updateCalendars(id, patch) {
+            repoCalls.push('updateCalendars')
+            return repos.connections.updateCalendars(id, patch)
+          },
+        },
+      }
+    },
+  }
+
+  const spyApp = buildDashboardRoutes(spyPorts, slots)
+
+  async function getSpy(path: string, cookie: string): Promise<Response> {
+    return spyApp.fetch(new Request(`${BASE}${path}`, { headers: { cookie } }))
+  }
+
+  async function postSpy(path: string, body: Record<string, string>, cookie: string): Promise<Response> {
+    const form = new FormData()
+    for (const [k, v] of Object.entries(body)) form.append(k, v)
+    return spyApp.fetch(new Request(`${BASE}${path}`, { method: 'POST', body: form, headers: { cookie } }))
+  }
+
+  async function seedConnection(): Promise<void> {
+    await db.prepare('DELETE FROM calendar_connections WHERE id = ?').bind(CONNECTION_ID).run()
+    await db
+      .prepare(
+        `INSERT INTO calendar_connections
+         (id,user_id,provider,provider_account_email,encrypted_tokens,key_version,
+          calendar_ids_read_json,calendar_id_write,sync_status,created_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?)`,
+      )
+      .bind(CONNECTION_ID, HOST_ID, 'google', HOST_EMAIL, 'cipher-original', 3, '[]', null, 'ok', NOW)
+      .run()
+  }
+
+  it('persists a new calendar selection through updateCalendars, never delete+create', async () => {
+    await seedConnection()
+    repoCalls.length = 0
+    const cookie = await seedSession(HOST_ID)
+
+    const page = await getSpy('/dashboard/connections', cookie)
+    const csrf = /name="csrf" value="([^"]+)"/.exec(await page.text())?.[1] ?? ''
+
+    const res = await postSpy(
+      `/dashboard/connections/${CONNECTION_ID}`,
+      { read: 'cal_work', write: 'cal_work', csrf },
+      cookie,
+    )
+    expect(res.status).toBe(302)
+
+    // The save went through `updateCalendars` and nothing else touched the row.
+    expect(repoCalls).toEqual(['updateCalendars'])
+
+    const row = await db
+      .prepare('SELECT * FROM calendar_connections WHERE id = ?')
+      .bind(CONNECTION_ID)
+      .first<Record<string, unknown>>()
+    expect(row).toBeTruthy()
+    expect(JSON.parse(String(row?.['calendar_ids_read_json']))).toEqual(['cal_work'])
+    expect(row?.['calendar_id_write']).toBe('cal_work')
+
+    // Nothing but the calendar selection changed — proof the row was rewritten
+    // in place rather than replaced, so key-rotation continuity survives.
+    expect(row?.['id']).toBe(CONNECTION_ID)
+    expect(row?.['encrypted_tokens']).toBe('cipher-original')
+    expect(row?.['key_version']).toBe(3)
+    expect(row?.['provider_account_email']).toBe(HOST_EMAIL)
+    expect(row?.['sync_status']).toBe('ok')
+    expect(row?.['created_at']).toBe(NOW)
   })
 })

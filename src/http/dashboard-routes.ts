@@ -673,25 +673,16 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     if (!existing) return notFound(c)
 
     const writeRaw = String(form.get('write') ?? '')
-    const next: CalendarConnection = {
-      ...existing,
-      // The picker lists calendar ids (from `listCalendars`), but Microsoft's
-      // `getBusy` reads `calendarIdsRead` as mailbox SMTP addresses, not
-      // calendar ids — there is no UI here that produces those, so storing
-      // the picked ids would make every future conflict check silently see
-      // an empty schedule (busy time reads as free). Leaving it empty keeps
-      // `getBusy`'s existing fallback to `providerAccountEmail` in effect.
-      calendarIdsRead: existing.provider === 'microsoft' ? [] : form.getAll('read').map((v) => String(v)),
-      calendarIdWrite: writeRaw === '' ? null : writeRaw,
-    }
+    // The picker lists calendar ids (from `listCalendars`), but Microsoft's
+    // `getBusy` reads `calendarIdsRead` as mailbox SMTP addresses, not
+    // calendar ids — there is no UI here that produces those, so storing
+    // the picked ids would make every future conflict check silently see
+    // an empty schedule (busy time reads as free). Leaving it empty keeps
+    // `getBusy`'s existing fallback to `providerAccountEmail` in effect.
+    const read = existing.provider === 'microsoft' ? [] : form.getAll('read').map((v) => String(v))
+    const write = writeRaw === '' ? null : writeRaw
 
-    // `CalendarConnectionRepository` exposes no way to update the calendar
-    // selection — only tokens and sync status — so the row is replaced. Tokens
-    // and key version are carried across unchanged; the only exposure is a
-    // failure between the two statements, which costs a reconnect rather than
-    // access to anything.
-    await repos.connections.delete(existing.id)
-    await repos.connections.create(next)
+    await repos.connections.updateCalendars(existing.id, { read, write })
     await advanceBookmark(c)
     return c.redirect('/dashboard/connections', 302)
   })
