@@ -239,6 +239,20 @@ describe('parseGraphSchedule', () => {
     ])
   })
 
+  // Graph's availabilityView digit 4 is "working elsewhere" — the precise
+  // scheduleItems path (isBusyStatus) already treats that status as NOT
+  // busy, same as free. This fallback must agree, or the same mailbox reads
+  // as busy or free purely depending on which shape Graph happened to return.
+  it('treats availabilityView digit 4 (working elsewhere) as free, like scheduleItems does', () => {
+    // '0242220': free, busy, free(4), busy, busy, busy, free.
+    const json = { value: [{ scheduleId: 'a@b.com', availabilityView: '0242220' }] }
+    const start = Date.UTC(2026, 7, 14, 9)
+    expect(parseGraphSchedule(json, { start, intervalMinutes: 5 })).toEqual([
+      { start: start + 5 * MINUTE, end: start + 10 * MINUTE },
+      { start: start + 15 * MINUTE, end: start + 30 * MINUTE },
+    ])
+  })
+
   it('closes an availabilityView run that reaches the end of the window', () => {
     const start = Date.UTC(2026, 7, 14, 9)
     expect(parseGraphSchedule({ value: [{ availabilityView: '022' }] }, { start, intervalMinutes: 15 })).toEqual([

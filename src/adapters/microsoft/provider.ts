@@ -307,7 +307,14 @@ function isBusyStatus(status: unknown): boolean {
   }
 }
 
-/** `"0022000"` — one char per interval from the window start; anything but `0` is busy. */
+/**
+ * `"0022000"` — one char per interval from the window start. Per Graph's
+ * documented encoding: 0 free, 1 tentative, 2 busy, 3 out of office,
+ * 4 working elsewhere. `isBusyStatus` above already treats "workingElsewhere"
+ * as NOT busy on the precise `scheduleItems` path — this fallback must agree,
+ * or the two paths disagree on the exact same mailbox depending on whether
+ * Graph happened to return the coarse view or the precise one.
+ */
 function parseAvailabilityView(view: string, window: GraphScheduleWindow): Interval[] {
   const step = window.intervalMinutes * 60_000
   if (step <= 0) return []
@@ -315,7 +322,7 @@ function parseAvailabilityView(view: string, window: GraphScheduleWindow): Inter
   const out: Interval[] = []
   let runStart: number | null = null
   for (let i = 0; i < view.length; i++) {
-    const busy = view[i] !== '0'
+    const busy = view[i] !== '0' && view[i] !== '4'
     if (busy && runStart === null) runStart = window.start + i * step
     if (!busy && runStart !== null) {
       out.push({ start: runStart, end: window.start + i * step })
