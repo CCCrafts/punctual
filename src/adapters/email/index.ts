@@ -10,6 +10,7 @@
  * permanently missing confirmation.
  */
 
+import { sanitizeHeader } from '../../core/email-templates.js'
 import type { EmailMessage, EmailSender } from '../../ports.js'
 
 export interface ResendOptions {
@@ -32,7 +33,7 @@ export function createResendSender(opts: ResendOptions): EmailSender {
       }
       // Snake case: the REST API's field names differ from the Node SDK's
       // camelCase wrappers.
-      if (message.replyTo) body.reply_to = message.replyTo
+      if (message.replyTo) body.reply_to = sanitizeHeader(message.replyTo)
       if (message.attachments?.length) {
         body.attachments = message.attachments.map((a) => ({
           filename: a.filename,
@@ -83,10 +84,21 @@ export function createConsoleSender(): EmailSender {
   }
 }
 
-/** `Name <addr>` when a display name exists; quoted so commas cannot split the header. */
+/**
+ * `Name <addr>` when a display name exists; quoted so commas cannot split the
+ * header.
+ *
+ * Both parts pass through `sanitizeHeader` first: `email`/`name` here are
+ * frequently a guest-controlled `guestEmail`/`guestName` from an
+ * unauthenticated booking form, and this string lands directly in a
+ * provider-facing `from`/`to` field, so a CR/LF in either would otherwise let
+ * a booking inject an extra header into every email we send.
+ */
 function formatAddress(email: string, name?: string): string {
-  if (!name) return email
-  return `"${name.replace(/"/g, '')}" <${email}>`
+  const safeEmail = sanitizeHeader(email)
+  if (!name) return safeEmail
+  const safeName = sanitizeHeader(name).replace(/"/g, '')
+  return `"${safeName}" <${safeEmail}>`
 }
 
 // ---------------------------------------------------------------------------
@@ -115,14 +127,23 @@ export function createBrevoSender(opts: BrevoOptions): EmailSender {
   const doFetch = opts.fetch ?? globalThis.fetch.bind(globalThis)
   return {
     async send(message) {
+      // sanitizeHeader on every guest-controlled field: Brevo turns
+      // `sender`/`to`/`replyTo` into real SMTP headers on its side, so a
+      // CR/LF smuggled through here becomes a header-injection vector at the
+      // provider even though our own request body is well-formed JSON.
       const body: Record<string, unknown> = {
-        sender: { email: opts.from, name: opts.fromName },
-        to: [{ email: message.to, ...(message.toName ? { name: message.toName } : {}) }],
+        sender: { email: sanitizeHeader(opts.from), name: sanitizeHeader(opts.fromName) },
+        to: [
+          {
+            email: sanitizeHeader(message.to),
+            ...(message.toName ? { name: sanitizeHeader(message.toName) } : {}),
+          },
+        ],
         subject: message.subject,
         htmlContent: message.html,
         textContent: message.text,
       }
-      if (message.replyTo) body['replyTo'] = { email: message.replyTo }
+      if (message.replyTo) body['replyTo'] = { email: sanitizeHeader(message.replyTo) }
       if (message.attachments?.length) {
         body['attachment'] = message.attachments.map((a) => ({
           name: a.filename,

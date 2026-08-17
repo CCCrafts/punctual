@@ -527,6 +527,26 @@ describe('POST /bookings', () => {
     const twice = await app.request(`/api/v1/bookings/${id}/cancel`, { method: 'POST', headers, body: '{}' })
     expect(twice.status).toBe(409)
   })
+
+  it('rejects a malformed guestEmail', async () => {
+    const ports = testPorts()
+    const app = buildApp(ports)
+    const seed = await seedHost(ports)
+    const slot = await firstSlot(app, seed.apiKey, seed.eventType.id)
+
+    const res = await app.request('/api/v1/bookings', {
+      method: 'POST',
+      headers: { ...auth(seed.apiKey), 'content-type': 'application/json' },
+      body: JSON.stringify({
+        eventTypeId: seed.eventType.id,
+        start: slot.start.iso,
+        guestName: 'Ada Lovelace',
+        guestEmail: 'not-an-email',
+      }),
+    })
+
+    expect(res.status).toBe(400)
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -724,6 +744,27 @@ describe('MCP server', () => {
       body: JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }),
     })
     expect(notification.status).toBe(202)
+  })
+
+  it('rejects a malformed guestEmail on create_booking, same as REST', async () => {
+    // The MCP server's stated invariant is that an agent's authority equals
+    // its API key's — it can do exactly what a REST call with that key could
+    // do. REST validates guestEmail's format (see POST /bookings above); MCP
+    // must refuse the same input rather than accept it as a looser path.
+    const ports = testPorts()
+    const app = buildApp(ports)
+    const seed = await seedHost(ports)
+
+    const badEmail = await rpc(app, seed.apiKey, 'tools/call', {
+      name: 'create_booking',
+      arguments: {
+        eventTypeId: seed.eventType.id,
+        start: new Date(Date.now() + DAY_MS).toISOString(),
+        guestName: 'Agent Guest',
+        guestEmail: 'not-an-email',
+      },
+    })
+    expect(badEmail.body.error?.code).toBe(-32602)
   })
 })
 

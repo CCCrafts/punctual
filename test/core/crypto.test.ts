@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createWebCrypto } from '../../src/adapters/crypto/webcrypto.js'
 
 /**
@@ -262,5 +262,81 @@ describe('Brevo sender', () => {
     await expect(
       sender.send({ to: 'a@b.c', subject: 's', html: 'h', text: 't' }),
     ).rejects.toThrow(/Sender domain not verified/)
+  })
+
+  it('sanitizes a guest name/email carrying header-injection characters', async () => {
+    // guestName and guestEmail come straight off the public, unauthenticated
+    // booking form, so a name like `Ada\r\nBcc: victim@evil.com` must not
+    // survive into the `sender`/`to`/`replyTo` fields Brevo turns into real
+    // SMTP headers.
+    const seen = await capture({
+      to: 'ada@example.com',
+      toName: 'Ada\r\nBcc: victim@evil.com',
+      subject: 'Booked',
+      html: '<p>x</p>',
+      text: 'x',
+      replyTo: 'ada@example.com',
+    })
+    const to = (seen.body['to'] as Array<{ email: string; name?: string }>)[0]!
+    expect(to.name).not.toMatch(/[\r\n]/)
+    expect(to.name).toBe('Ada Bcc: victim@evil.com')
+    expect(seen.body['sender']).toEqual({ email: 'hello@punctual.sh', name: 'Punctual' })
+  })
+})
+
+describe('Resend sender', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  async function capture(message: Parameters<import('../../src/ports.js').EmailSender['send']>[0]) {
+    const { createResendSender } = await import('../../src/adapters/email/index.js')
+    let seen: { headers: Record<string, string>; body: Record<string, unknown> } | null = null
+    const fake = (async (_url: RequestInfo | URL, init?: RequestInit) => {
+      seen = {
+        headers: (init?.headers ?? {}) as Record<string, string>,
+        body: JSON.parse(String(init?.body ?? '{}')),
+      }
+      return new Response('{}', { status: 201 })
+    }) as typeof globalThis.fetch
+    vi.stubGlobal('fetch', fake)
+
+    const sender = createResendSender({ apiKey: 'test-key', from: 'hello@punctual.sh', fromName: 'Punctual' })
+    await sender.send(message)
+    return seen!
+  }
+
+  it('quotes the display name into `"Name" <addr>`', async () => {
+    const seen = await capture({ to: 'g@example.com', toName: 'Guest', subject: 'Hi', html: '<p>Hi</p>', text: 'Hi' })
+    expect(seen.body['from']).toBe('"Punctual" <hello@punctual.sh>')
+    expect(seen.body['to']).toEqual(['"Guest" <g@example.com>'])
+  })
+
+  it('strips CR/LF from a guest name before it reaches the From/To header', async () => {
+    // The same class of bug `sanitizeHeader` exists for on the subject line
+    // (test/core/email-templates.test.ts) applies here: an unauthenticated
+    // guest controls `guestName`, and it lands directly in a formatted
+    // `"Name" <addr>` string handed to Resend's API.
+    const seen = await capture({
+      to: 'ada@example.com',
+      toName: 'Ada\r\nBcc: victim@evil.com',
+      subject: 'Booked',
+      html: '<p>x</p>',
+      text: 'x',
+      replyTo: 'ada@example.com\r\nX-Injected: yes',
+    })
+    expect(seen.body['to']).toEqual(['"Ada Bcc: victim@evil.com" <ada@example.com>'])
+    expect(String(seen.body['reply_to'])).not.toMatch(/[\r\n]/)
+  })
+
+  it('drops embedded quotes so they cannot close the quoted name early', async () => {
+    const seen = await capture({
+      to: 'g@example.com',
+      toName: 'Guest" <attacker@evil.com>, "Innocent',
+      subject: 'Hi',
+      html: '<p>Hi</p>',
+      text: 'Hi',
+    })
+    expect(seen.body['to']).toEqual(['"Guest <attacker@evil.com>, Innocent" <g@example.com>'])
   })
 })
