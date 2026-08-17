@@ -81,6 +81,14 @@ export function slotsSkeleton(): string {
 
 export interface BookingPageData {
   host: User
+  /**
+   * The slug this page is actually reachable at — a user's OR a team's.
+   * `host` is a representative user for display/timezone-default purposes
+   * only (team-owned event types have no single "owner" user); using
+   * `host.slug` for URL generation instead of this field routed every link
+   * on a team event's page to a team member's personal page, 404ing there.
+   */
+  ownerSlug: string
   eventType: EventType
   /** The month being displayed, as a host-local `YYYY-MM`. */
   month: string
@@ -362,8 +370,8 @@ export function errorPage(title: string, message: string): string {
 
 // ---------------------------------------------------------------------------
 
-export function bookingPath(d: { host: User; eventType: EventType }): string {
-  return `/${encodeURIComponent(d.host.slug)}/${encodeURIComponent(d.eventType.slug)}`
+export function bookingPath(d: { ownerSlug: string; eventType: EventType }): string {
+  return `/${encodeURIComponent(d.ownerSlug)}/${encodeURIComponent(d.eventType.slug)}`
 }
 
 function humanDate(date: string, _tz: string): string {

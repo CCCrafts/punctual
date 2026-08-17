@@ -184,5 +184,13 @@ describe('a team-owned event type has a working public booking page', () => {
     expect(res.status).toBe(200)
     const body = await res.text()
     expect(body).toContain('Team intro call')
+
+    // The page must link to itself and its own confirm step under the TEAM
+    // slug, not the representative member's personal slug — `bookingPath`
+    // used to derive every link from `host.slug`, which `bookingPageContext`
+    // resolves to a member's slug for display purposes on a team-owned event
+    // type. Every link on the page 404ed the moment a guest clicked it.
+    expect(body).toContain('/sales-team/team-intro')
+    expect(body).not.toContain('/team-member/team-intro')
   })
 })

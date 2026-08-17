@@ -135,6 +135,7 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
     // we already have.
     const headerData: BookingPageData = {
       host,
+      ownerSlug: userSlug,
       eventType,
       month,
       daysWithSlots: new Map(),
@@ -204,6 +205,7 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
 
     const data: BookingPageData = {
       host,
+      ownerSlug: userSlug,
       eventType,
       month: localDateString(start, host.tz).slice(0, 7),
       daysWithSlots: new Map(),
@@ -265,6 +267,7 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
 
     const data: BookingPageData = {
       host,
+      ownerSlug: userSlug,
       eventType,
       month: localDateString(start, host.tz).slice(0, 7),
       daysWithSlots: new Map(),
