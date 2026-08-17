@@ -195,10 +195,17 @@ export function parseLocalDate(date: string): { year: number; month: number; day
   return { year, month, day }
 }
 
+const MAX_LOCAL_DATES = 800
+
 /**
  * Local dates from `from` to `to` inclusive, as seen in `timeZone`.
  * Walks by calendar date rather than by adding 24h, because DST days are not
  * 24 hours long.
+ *
+ * Throws rather than truncating when the span exceeds `MAX_LOCAL_DATES` —
+ * this is a public building block (via `freeIntervalsForHost`) that callers
+ * may invoke directly, without the HTTP layer's `MAX_SLOT_RANGE_MS` cap in
+ * front of it. A silently short list is a wrong answer; a thrown error is not.
  */
 export function localDatesBetween(from: number, to: number, timeZone: string): string[] {
   const out: string[] = []
@@ -209,7 +216,10 @@ export function localDatesBetween(from: number, to: number, timeZone: string): s
   for (;;) {
     const s = `${pad4(cursor.year)}-${pad2(cursor.month)}-${pad2(cursor.day)}`
     out.push(s)
-    if (s >= last || ++guard > 800) break
+    if (s >= last) break
+    if (++guard > MAX_LOCAL_DATES) {
+      throw new Error(`localDatesBetween: range too large (over ${MAX_LOCAL_DATES} days)`)
+    }
     const next = new Date(Date.UTC(cursor.year, cursor.month - 1, cursor.day + 1))
     cursor = {
       year: next.getUTCFullYear(),

@@ -225,6 +225,15 @@ describe('date helpers', () => {
     ])
   })
 
+  it('localDatesBetween throws instead of silently truncating an oversized range', () => {
+    // ~3 years, well past the 800-day guard — must fail loudly, not return a
+    // short list, since this is reachable directly by callers who skip the
+    // HTTP layer's MAX_SLOT_RANGE_MS cap.
+    const from = localTimeToInstant('2026-01-01', 12 * 60, 'UTC')
+    const to = localTimeToInstant('2029-01-01', 12 * 60, 'UTC')
+    expect(() => localDatesBetween(from, to, 'UTC')).toThrow(/range too large/)
+  })
+
   it('dayOfWeek indexes Sunday as 0, matching WeeklySchedule', () => {
     expect(dayOfWeek('2026-08-16')).toBe(0) // Sunday
     expect(dayOfWeek('2026-08-17')).toBe(1) // Monday
