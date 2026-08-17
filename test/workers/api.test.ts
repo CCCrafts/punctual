@@ -398,6 +398,79 @@ describe('GET /slots', () => {
     expect(res.status).toBe(400)
     expect((await res.json() as { title: string }).title).toBe('Range too large')
   })
+
+  /**
+   * Regression: a listing must not offer a start whose BUFFER reaches busy
+   * time sitting just outside the queried `from`/`to`.
+   *
+   * `computeSlots` grids each availability window at its own unclipped
+   * boundary and only filters candidate STARTS to the query range afterward
+   * — so a candidate's buffered footprint can legitimately extend outside
+   * the range while the start itself stays inside it. If busy data were
+   * only loaded for the bare query range, a slot could be advertised as
+   * bookable and then deterministically 409 at commit, because the conflict
+   * sat just before `from` and was never fetched.
+   */
+  it('does not offer a start whose buffer overlaps busy time just before the query range', async () => {
+    const ports = testPorts()
+    const app = buildApp(ports)
+    const seed = await seedHost(ports)
+
+    // 30-minute buffer before every booking.
+    const patchRes = await app.request(`/api/v1/event-types/${seed.eventType.id}`, {
+      method: 'PATCH',
+      headers: { ...auth(seed.apiKey), 'content-type': 'application/json' },
+      body: JSON.stringify({ bufferBeforeMinutes: 30 }),
+    })
+    expect(patchRes.status).toBe(200)
+
+    // An overnight availability window, built the same way as the slot-grid
+    // regression test: two adjacent UTC-date overrides that touch at
+    // midnight and merge into one continuous 22:00->06:00 free window.
+    const midnight = Math.floor((Date.now() + 3 * DAY_MS) / DAY_MS) * DAY_MS
+    const dateStr = (ms: number) => new Date(ms).toISOString().slice(0, 10)
+    const dayBefore = dateStr(midnight - DAY_MS)
+    const dayOf = dateStr(midnight)
+
+    const repos = ports.repositories({ consistency: 'bookmark' })
+    await repos.availability.save(seed.user.id, {
+      userId: seed.user.id,
+      timezone: 'UTC',
+      weekly: [[], [], [], [], [], [], []],
+      overrides: [
+        { date: dayBefore, windows: [{ startMinute: 22 * 60, endMinute: 24 * 60 }] },
+        { date: dayOf, windows: [{ startMinute: 0, endMinute: 6 * 60 }] },
+      ],
+    })
+
+    // A real lock at 23:45-23:50 the day before — inside the 22:00->06:00
+    // window, 15 minutes before the query range's `from`, and inside the
+    // 30-minute buffer reach of a candidate starting exactly at midnight.
+    await env.DB.prepare(
+      'INSERT INTO slot_locks (host_user_id,bucket_start,booking_id) VALUES (?,?,?)',
+    )
+      .bind(seed.user.id, midnight - 15 * 60_000, 'bk_seed_conflict')
+      .run()
+
+    const res = await app.request(
+      `/api/v1/slots?eventTypeId=${seed.eventType.id}&from=${midnight}&to=${midnight + 60 * 60_000}`,
+      { headers: auth(seed.apiKey) },
+    )
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { data: SlotJson[] }
+    const starts = body.data.map((s) => s.start.epochMs)
+
+    // The 00:00 candidate's buffer (23:30->00:00) overlaps the 23:45-23:50
+    // lock — must NOT be offered. (With the lock correctly loaded, busy time
+    // is subtracted from availability BEFORE gridding, splitting the
+    // 22:00->06:00 window at the lock into 22:00->23:45 and 23:50->06:00;
+    // 00:00 is not even a grid point of the second piece, whose candidates
+    // start at 23:50 and step by 30 minutes: 23:50, 00:20, 00:50, ...)
+    expect(starts).not.toContain(midnight)
+    // A candidate from the post-lock window piece — still offered, so this
+    // isn't just the whole window going empty.
+    expect(starts).toContain(midnight + 20 * 60_000)
+  })
 })
 
 // ---------------------------------------------------------------------------

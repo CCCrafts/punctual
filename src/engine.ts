@@ -9,7 +9,7 @@
 
 import type { EnginePorts, RequestScope } from './ports.js'
 import { buildRouter } from './http/router.js'
-import { computeSlots, type HostAvailabilityInput } from './core/slots/engine.js'
+import { bookingFootprint, computeSlots, type HostAvailabilityInput } from './core/slots/engine.js'
 import type { EventType, Interval, Slot, User } from './core/domain/types.js'
 import { combineBusy, partitionConnections } from './core/domain/booking-service.js'
 import { localDateString, localTimeToInstant } from './core/time/zone.js'
@@ -59,9 +59,27 @@ export function createSlotService(ports: EnginePorts): SlotService {
       const hostIds = hostUsers.map((u) => u.id)
       if (hostIds.length === 0) return []
 
+      // computeSlots grids each availability window at its OWN unclipped
+      // boundary and only filters candidate STARTS to `range` afterward (see
+      // core/slots/engine.ts) — so a candidate's buffered footprint (its
+      // start minus bufferBefore, its end plus bufferAfter) can legitimately
+      // land outside `range` while the start itself stays inside it. Busy
+      // data queried only for `range` would then miss real conflicts sitting
+      // just outside it, and a listing could advertise a start that
+      // deterministically 409s at commit. The exact bound: every candidate
+      // start is itself within `range` (computeSlots filters on that), so its
+      // footprint can extend earlier by at most bufferBefore, and later by at
+      // most the event's own duration plus bufferAfter — `bookingFootprint`
+      // applied to `range.start` and `range.end` pushed out by the duration.
+      const busyRange = bookingFootprint(
+        range.start,
+        range.end + eventType.durationMinutes * 60_000,
+        eventType,
+      )
+
       const [busyByHost, holdsByHost] = await Promise.all([
-        repos.slotLocks.busyBuckets(hostIds, range),
-        repos.slotLocks.activeHolds(hostIds, range, ports.clock.now()),
+        repos.slotLocks.busyBuckets(hostIds, busyRange),
+        repos.slotLocks.activeHolds(hostIds, busyRange, ports.clock.now()),
       ])
 
       // Per-host reads run concurrently rather than in an await loop: with N
@@ -72,7 +90,7 @@ export function createSlotService(ports: EnginePorts): SlotService {
         hostUsers.map(async (user) => {
           const [availability, external] = await Promise.all([
             repos.availability.forUser(user.id),
-            externalBusyFor(ports, repos, user.id, range),
+            externalBusyFor(ports, repos, user.id, busyRange),
           ])
           if (!availability) return null
           const perDay = await perDayCounts(repos, user, range, eventType, availability.timezone)
