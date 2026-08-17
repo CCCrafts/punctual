@@ -52,6 +52,17 @@ export interface SlotQuery {
 /**
  * The free time for one host, as UTC intervals, before any slot gridding.
  * Exported because collective needs to intersect these across hosts.
+ *
+ * Windows are returned at their own natural boundaries — NOT clipped to
+ * `range`. Two adjacent per-day windows that touch at midnight (say, one day
+ * ending 24:00 and the next starting 00:00) merge into a single continuous
+ * overnight window, and its natural start (e.g. 22:00 the day before) has to
+ * survive so `candidatesInWindow` anchors the grid there — not at wherever
+ * the caller's `range` happens to begin. Anchoring to a range-clipped start
+ * made the grid depend on which endpoint asked (a single day vs. a month),
+ * so the same underlying availability advertised different slot times
+ * depending on the query. Callers that need the result bounded to `range`
+ * must filter the generated candidates afterward, not clip these windows.
  */
 export function freeIntervalsForHost(
   host: HostAvailabilityInput,
@@ -82,11 +93,7 @@ export function freeIntervalsForHost(
   }
 
   const merged = mergeIntervals(windows)
-  const free = subtractIntervals(merged, host.busy)
-  // Clip to the requested range last, so busy subtraction sees whole windows.
-  return free
-    .map((f) => ({ start: Math.max(f.start, range.start), end: Math.min(f.end, range.end) }))
-    .filter((f) => f.end > f.start)
+  return subtractIntervals(merged, host.busy)
 }
 
 /**
@@ -145,7 +152,7 @@ export function freeByHost(query: SlotQuery): Map<string, Interval[]> {
  * Round-robin — at least one member free; grid per host, then union by start.
  */
 export function computeSlots(query: SlotQuery): Slot[] {
-  const { eventType: et, now } = query
+  const { eventType: et, now, range } = query
   if (!et.active || query.hosts.length === 0) return []
 
   const durationMs = et.durationMinutes * MINUTE
@@ -170,6 +177,10 @@ export function computeSlots(query: SlotQuery): Slot[] {
     const slots: Slot[] = []
     for (const window of common) {
       for (const start of candidatesInWindow(window, durationMs, stepMs, bufferBeforeMs, bufferAfterMs)) {
+        // The grid was walked on the window's own unclipped boundaries
+        // (see freeIntervalsForHost); the caller's range is applied here,
+        // last, as a pure filter — it must never influence the anchor.
+        if (start < range.start || start >= range.end) continue
         const end = start + durationMs
         if (start < earliest || start > latest) continue
         if (exceedsDailyCap(query.hosts, start, et)) continue
@@ -187,6 +198,9 @@ export function computeSlots(query: SlotQuery): Slot[] {
     const tz = host.availability.timezone
     for (const window of windows) {
       for (const start of candidatesInWindow(window, durationMs, stepMs, bufferBeforeMs, bufferAfterMs)) {
+        // Same rule as the collective branch: filter by range after
+        // gridding the natural window, never before.
+        if (start < range.start || start >= range.end) continue
         if (start < earliest || start > latest) continue
         if (et.maxPerDay != null && capMap) {
           const used = capMap.get(localDateString(start, tz)) ?? 0

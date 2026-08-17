@@ -644,6 +644,73 @@ describe('generator/arbiter bucket contract (ADR-0004 §4)', () => {
   })
 })
 
+describe('the grid anchor does not depend on the query range', () => {
+  const tz = 'Europe/Kyiv'
+
+  /**
+   * Regression for the 2026-08 review finding: `freeIntervalsForHost` used
+   * to clip a host's free window to the caller's `range` BEFORE
+   * `candidatesInWindow` anchored the grid within it. An overnight window
+   * (built here from two adjacent date overrides that touch at midnight and
+   * merge into one continuous 22:00→06:00 free interval) straddles a
+   * calendar-day boundary. Querying it with a single-day range used to clip
+   * the window's start forward to that day's midnight, re-anchoring the grid
+   * there instead of at the window's own 22:00 start — so the public booking
+   * page (month view) and `GET /slots` (day-shaped range) could advertise
+   * different times for the exact same availability.
+   */
+  it('a day-shaped range and a month-shaped range grid an overnight window identically', () => {
+    const av: Availability = {
+      userId: 'h1',
+      timezone: tz,
+      weekly: weekly([]),
+      overrides: [
+        // 22:00–24:00 on the 15th and 00:00–06:00 on the 16th touch at
+        // midnight and merge into one continuous free window.
+        { date: '2026-06-15', windows: [{ startMinute: 22 * 60, endMinute: 24 * 60 }] },
+        { date: '2026-06-16', windows: [{ startMinute: 0, endMinute: 6 * 60 }] },
+      ],
+    }
+    const et = eventType({ durationMinutes: 45, slotIntervalMinutes: 45 })
+    const hosts = [{ hostUserId: 'h1', availability: av, busy: [] }]
+    const now = localTimeToInstant('2026-06-14', 0, tz)
+
+    // A day view of the 16th: the range starts strictly inside the window
+    // (at midnight, two hours after the window's own 22:00 start).
+    const dayRange = {
+      start: localTimeToInstant('2026-06-16', 0, tz),
+      end: localTimeToInstant('2026-06-17', 0, tz),
+    }
+    // A month view: comfortably contains the whole window, so it never
+    // clips the window's start at all.
+    const monthRange = {
+      start: localTimeToInstant('2026-06-01', 0, tz),
+      end: localTimeToInstant('2026-07-01', 0, tz),
+    }
+
+    const daySlots = computeSlots({ eventType: et, hosts, range: dayRange, now })
+    const monthSlots = computeSlots({ eventType: et, hosts, range: monthRange, now })
+
+    // The day-range result must be exactly the month-range result sliced
+    // down to the day-range window — same instants, not a differently
+    // anchored grid.
+    const monthSlicedToDay = monthSlots
+      .filter((s) => s.start >= dayRange.start && s.start < dayRange.end)
+      .map((s) => s.start)
+    expect(daySlots.map((s) => s.start)).toEqual(monthSlicedToDay)
+
+    // Pin the actual wall-clock times: the grid is anchored at the window's
+    // own 22:00 start, so the portion landing on the 16th is 00:15, 01:00,
+    // 01:45, ... — never the 00:00, 00:45, 1:30, ... a midnight-anchored
+    // (range-clipped) grid would have produced.
+    const wallClock = daySlots.map((s) => {
+      const wc = toWallClock(s.start, tz)
+      return `${String(wc.hour).padStart(2, '0')}:${String(wc.minute).padStart(2, '0')}`
+    })
+    expect(wallClock).toEqual(['00:15', '01:00', '01:45', '02:30', '03:15', '04:00', '04:45'])
+  })
+})
+
 describe('isSlotStillValid rejects starts that were never offered', () => {
   const tz = 'UTC'
 
