@@ -197,8 +197,13 @@ ${pre(`npm run migrate\nnpm run deploy`)}
     create a project and enable the Google Calendar API.</li>
   <li>Configure the OAuth consent screen. While it is unverified you can add
     up to 100 test users, which is plenty for a team.</li>
-  <li>Create an OAuth client ID of type <em>Web application</em> with the
-    redirect URI <code>https://&lt;your-worker-url&gt;/auth/google/callback</code>.</li>
+  <li>Create an OAuth client ID of type <em>Web application</em> with both
+    redirect URIs below registered &mdash; sign-in and calendar connect are
+    deliberately separate flows, so a leaked code for one can never be
+    exchanged against the other's endpoint:</li>
+</ol>
+${pre(`https://<your-worker-url>/auth/google/callback?purpose=identity\nhttps://<your-worker-url>/auth/google/callback?purpose=calendar`)}
+<ol start="4">
   <li>Set the credentials.</li>
 </ol>
 ${pre(`npx wrangler secret put GOOGLE_CLIENT_ID\nnpx wrangler secret put GOOGLE_CLIENT_SECRET`)}
