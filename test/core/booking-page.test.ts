@@ -72,4 +72,28 @@ describe('eventHeader timezone picker', () => {
     const html = eventHeader(pageData({ guestTimezone: 'America/New_York' }))
     expect(html).toContain('<option value="UTC"')
   })
+
+  /**
+   * Regression: the option list is built once per isolate and patched per
+   * request (see TIMEZONE_OPTIONS_BASE) rather than re-escaped every time —
+   * a real request-rate CI failure traced back to the unoptimized version
+   * being slow enough to let the rate limiter's token bucket refill mid-test.
+   * The patching must still mark exactly one option `selected`, and must not
+   * corrupt a look-alike zone name in the process.
+   */
+  it('marks exactly one option selected, and it is the guest zone', () => {
+    const html = eventHeader(pageData({ guestTimezone: 'America/New_York' }))
+    const selectedCount = (html.match(/ selected>/g) ?? []).length
+    expect(selectedCount).toBe(1)
+    expect(html).toContain('value="America/New_York" selected>')
+  })
+
+  it('prepends an unrecognized guest zone rather than dropping it', () => {
+    // A real zone, but a legacy alias `supportedValuesOf('timeZone')` omits
+    // from its canonical list — still valid input to Intl itself, so this
+    // exercises the "not in TIMEZONES" branch without an invalid-timezone
+    // exception from the unrelated offset-label formatting.
+    const html = eventHeader(pageData({ guestTimezone: 'US/Eastern' }))
+    expect(html).toContain('value="US/Eastern" selected>')
+  })
 })

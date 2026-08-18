@@ -169,6 +169,31 @@ const TIMEZONES: readonly string[] = (() => {
   }
 })()
 
+// Escaping and joining ~400 <option> tags on every single booking-page
+// request (month view, day view, confirm — every one renders this picker)
+// was slow enough to measurably lengthen the request-rate-limiter smoke
+// test's 120-request loop, giving the token bucket real wall-clock time to
+// partially refill before the request meant to be denied. None of this
+// output depends on the request, so it is built once per isolate; the only
+// per-request work is marking one zone `selected`.
+const TIMEZONE_OPTIONS_BASE: string = TIMEZONES.map(
+  (z) => `<option value="${escapeHtml(z)}">${escapeHtml(z.replace(/_/g, ' '))}</option>`,
+).join('')
+
+function timezoneOptionsHtml(selected: string): string {
+  if (!TIMEZONES.includes(selected)) {
+    // Defensive fallback for a zone the runtime doesn't recognise — prepend
+    // it rather than silently dropping the guest's own (mis-detected) zone
+    // from the list.
+    return (
+      `<option value="${escapeHtml(selected)}" selected>${escapeHtml(selected.replace(/_/g, ' '))}</option>` +
+      TIMEZONE_OPTIONS_BASE
+    )
+  }
+  const marker = `value="${escapeHtml(selected)}">`
+  return TIMEZONE_OPTIONS_BASE.replace(marker, `value="${escapeHtml(selected)}" selected>`)
+}
+
 /**
  * A real, submitting `<select>` rather than a static label: the guest's
  * detected zone is only a guess (see `resolveGuestTimezone`), and until this
@@ -177,13 +202,7 @@ const TIMEZONES: readonly string[] = (() => {
  * `onchange` submit is the enhancement, not the only path.
  */
 function timezonePicker(d: BookingPageData): string {
-  const zones = TIMEZONES.includes(d.guestTimezone) ? TIMEZONES : [d.guestTimezone, ...TIMEZONES]
-  const options = zones
-    .map(
-      (z) =>
-        `<option value="${escapeHtml(z)}"${z === d.guestTimezone ? ' selected' : ''}>${escapeHtml(z.replace(/_/g, ' '))}</option>`,
-    )
-    .join('')
+  const options = timezoneOptionsHtml(d.guestTimezone)
   // The confirm page has already committed to one slot, which lives only in
   // `start` — its own URL carries no `date`/`month` to fall back to. Posting
   // to the month/day view like every other page would silently drop that
