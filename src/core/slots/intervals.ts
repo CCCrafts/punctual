@@ -33,6 +33,11 @@ export function overlaps(a: Interval, b: Interval): boolean {
   return a.start < b.end && b.start < a.end
 }
 
+/** True when `interval` shares any instant with any interval in `others`. */
+export function overlapsAny(interval: Interval, others: Interval[]): boolean {
+  return others.some((o) => overlaps(interval, o))
+}
+
 /** True when `inner` lies entirely within `outer`. */
 export function contains(outer: Interval, inner: Interval): boolean {
   return inner.start >= outer.start && inner.end <= outer.end

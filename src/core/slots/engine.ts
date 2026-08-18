@@ -7,9 +7,12 @@
  * The pipeline, in this order and no other:
  *   1. expand the weekly schedule over host-local dates (overrides replace days)
  *   2. resolve local windows to UTC instants, applying the DST rules
- *   3. subtract busy time (own bookings, holds, external calendars)
- *   4. walk a grid anchored at each free window's own start
- *   5. test each candidate against its buffered footprint
+ *   3. walk a grid anchored at each raw availability window's own start
+ *   4. filter each candidate against the caller's query range
+ *   5. filter each candidate whose buffered footprint collides with busy time
+ *      (own bookings, holds, external calendars) — busy time never influences
+ *      which windows exist or where the grid anchors, only which generated
+ *      candidates survive
  *   6. apply min-notice and horizon
  *   7. apply the per-day cap, counted on host-local dates
  */
@@ -27,7 +30,7 @@ import {
   localDatesBetween,
   localTimeToInstant,
 } from '../time/zone.js'
-import { BUCKET_MS, intersectAll, mergeIntervals, subtractIntervals } from './intervals.js'
+import { BUCKET_MS, intersectAll, mergeIntervals, overlapsAny } from './intervals.js'
 
 const MINUTE = 60_000
 const DAY = 86_400_000
@@ -50,8 +53,23 @@ export interface SlotQuery {
 }
 
 /**
- * The free time for one host, as UTC intervals, before any slot gridding.
- * Exported because collective needs to intersect these across hosts.
+ * The free-of-schedule-gaps time for one host, as UTC intervals — the raw
+ * AVAILABILITY windows, busy-agnostic. Exported because collective needs to
+ * intersect these across hosts.
+ *
+ * Deliberately does NOT subtract `host.busy`. Busy time is applied later, per
+ * candidate, as a pure filter (see `overlapsAny` in `computeSlots`) — never as
+ * an input to which windows exist or where they start. Subtracting busy time
+ * here used to split a window into pieces at each busy interval's edges, and
+ * `candidatesInWindow` anchors the grid at each piece's OWN start — so which
+ * pieces existed, and therefore where the grid landed, depended on which busy
+ * intervals a particular query happened to load. A narrow query (which only
+ * loads busy data near its own edges, per the widening below) could miss an
+ * earlier conflict a broader query would see, so the two would split the
+ * window differently and grid later, otherwise-identical candidates at
+ * different offsets. Keeping this function busy-agnostic makes the grid
+ * depend only on the availability schedule — deterministic regardless of
+ * which busy data a given query happened to load.
  *
  * Windows are returned at their own natural boundaries — NOT clipped to
  * `range`. Two adjacent per-day windows that touch at midnight (say, one day
@@ -92,8 +110,7 @@ export function freeIntervalsForHost(
     }
   }
 
-  const merged = mergeIntervals(windows)
-  return subtractIntervals(merged, host.busy)
+  return mergeIntervals(windows)
 }
 
 /**
@@ -177,13 +194,19 @@ export function computeSlots(query: SlotQuery): Slot[] {
     const slots: Slot[] = []
     for (const window of common) {
       for (const start of candidatesInWindow(window, durationMs, stepMs, bufferBeforeMs, bufferAfterMs)) {
-        // The grid was walked on the window's own unclipped boundaries
-        // (see freeIntervalsForHost); the caller's range is applied here,
-        // last, as a pure filter — it must never influence the anchor.
+        // The grid was walked on the window's own unclipped, busy-agnostic
+        // boundaries (see freeIntervalsForHost); the caller's range is
+        // applied here, last, as a pure filter — it must never influence the
+        // anchor.
         if (start < range.start || start >= range.end) continue
         const end = start + durationMs
         if (start < earliest || start > latest) continue
         if (exceedsDailyCap(query.hosts, start, et)) continue
+        // A collective candidate is only valid if EVERY participating host
+        // is free for it — check each host's own busy set against the
+        // candidate's own footprint, not the intersected window.
+        const footprint = bookingFootprint(start, end, et)
+        if (query.hosts.some((h) => overlapsAny(footprint, h.busy))) continue
         slots.push({ start, end, eligibleHostIds: hostIds })
       }
     }
@@ -199,13 +222,19 @@ export function computeSlots(query: SlotQuery): Slot[] {
     for (const window of windows) {
       for (const start of candidatesInWindow(window, durationMs, stepMs, bufferBeforeMs, bufferAfterMs)) {
         // Same rule as the collective branch: filter by range after
-        // gridding the natural window, never before.
+        // gridding the natural, busy-agnostic window, never before.
         if (start < range.start || start >= range.end) continue
         if (start < earliest || start > latest) continue
         if (et.maxPerDay != null && capMap) {
           const used = capMap.get(localDateString(start, tz)) ?? 0
           if (used >= et.maxPerDay) continue
         }
+        const end = start + durationMs
+        // Busy time is a per-candidate filter, checked against this host's
+        // own busy set and this candidate's own buffered footprint — never
+        // an input to how the window was split or where the grid anchored.
+        const footprint = bookingFootprint(start, end, et)
+        if (overlapsAny(footprint, host.busy)) continue
         const existing = byStart.get(start)
         if (existing) {
           if (!existing.eligibleHostIds.includes(host.hostUserId)) {
@@ -214,7 +243,7 @@ export function computeSlots(query: SlotQuery): Slot[] {
         } else {
           byStart.set(start, {
             start,
-            end: start + durationMs,
+            end,
             eligibleHostIds: [host.hostUserId],
           })
         }
@@ -295,9 +324,15 @@ export function isSlotStillValid(
   }
 
   // Widen the probe range so the containing window is fully visible.
+  // `freeIntervalsForHost` is busy-agnostic now (it only returns the raw
+  // availability schedule), so busy time must be checked separately — the
+  // footprint must both fit inside an availability window AND not collide
+  // with anything in the host's busy set.
   const free = freeIntervalsForHost(host, {
     start: footprint.start - DAY,
     end: footprint.end + DAY,
   })
-  return free.some((w) => footprint.start >= w.start && footprint.end <= w.end)
+  const insideAvailability = free.some((w) => footprint.start >= w.start && footprint.end <= w.end)
+  if (!insideAvailability) return false
+  return !overlapsAny(footprint, host.busy)
 }

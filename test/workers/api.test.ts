@@ -461,15 +461,22 @@ describe('GET /slots', () => {
     const starts = body.data.map((s) => s.start.epochMs)
 
     // The 00:00 candidate's buffer (23:30->00:00) overlaps the 23:45-23:50
-    // lock — must NOT be offered. (With the lock correctly loaded, busy time
-    // is subtracted from availability BEFORE gridding, splitting the
-    // 22:00->06:00 window at the lock into 22:00->23:45 and 23:50->06:00;
-    // 00:00 is not even a grid point of the second piece, whose candidates
-    // start at 23:50 and step by 30 minutes: 23:50, 00:20, 00:50, ...)
+    // lock — must NOT be offered, which requires the lock to have been
+    // loaded at all (Fix 2's busyRange widening).
+    //
+    // The grid itself is walked on the window's raw, busy-agnostic 22:00
+    // start regardless of the lock (30-minute steps: 22:00, 22:30, ...,
+    // 23:30, 00:00, 00:30, 01:00, ...) — busy time is applied afterward as a
+    // pure per-candidate footprint filter, never by re-splitting the window
+    // and re-anchoring at the lock's edge. So 00:20 (an anchor that only
+    // exists if the window is re-split at the lock) is never even a
+    // candidate; 00:00 is a candidate but is filtered out for colliding with
+    // the lock, and 00:30 is unaffected (footprint 00:00->01:00 clears the
+    // 23:45-23:50 lock) and stays offered.
     expect(starts).not.toContain(midnight)
-    // A candidate from the post-lock window piece — still offered, so this
+    // A later candidate on the busy-agnostic grid — still offered, so this
     // isn't just the whole window going empty.
-    expect(starts).toContain(midnight + 20 * 60_000)
+    expect(starts).toContain(midnight + 30 * 60_000)
   })
 })
 

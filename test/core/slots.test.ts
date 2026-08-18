@@ -711,6 +711,72 @@ describe('the grid anchor does not depend on the query range', () => {
   })
 })
 
+describe('the grid anchor does not depend on which busy data a query happened to load', () => {
+  const tz = 'UTC'
+
+  /**
+   * Regression for CCC-534: even after both prior fixes, `freeIntervalsForHost`
+   * still subtracted busy time BEFORE gridding, so which pieces a window split
+   * into — and therefore where each piece's grid anchor fell — depended on
+   * which busy intervals a particular query had loaded. A narrow query only
+   * loads busy data within buffer/duration reach of its own range, so it can
+   * miss an earlier, unrelated conflict that a broader query would see, and
+   * the two disagree on where later, otherwise-identical candidates land.
+   *
+   * Host free 09:00-17:00 UTC, 30-minute slots, an existing lock at
+   * 10:00-10:15. A narrow query for 12:00-13:00 never loads the 10:00 lock
+   * (it's well outside that query's own buffer reach), so the window used to
+   * stay whole and grid from 09:00 — offering 12:00/12:30. A whole-day query
+   * loads the lock, used to split the window into [09:00,10:00) and
+   * [10:15,17:00), and grid the second piece from 10:15 — offering
+   * 12:15/12:45 instead. Same underlying availability and bookings, two
+   * different answers depending on which endpoint asked.
+   */
+  it('a narrow query and a whole-day query grid identically around an unrelated earlier lock', () => {
+    const day = localDay('2026-06-15', tz)
+    const lockStart = localTimeToInstant('2026-06-15', 10 * 60, tz)
+    const busy = [{ start: lockStart, end: lockStart + 15 * MINUTE }]
+    const et = eventType({ durationMinutes: 30 })
+    const now = day.start - DAY
+
+    const narrowRange = {
+      start: localTimeToInstant('2026-06-15', 12 * 60, tz),
+      end: localTimeToInstant('2026-06-15', 13 * 60, tz),
+    }
+    const broadRange = day
+
+    const narrowSlots = computeSlots({
+      eventType: et,
+      hosts: [host(tz, busy)],
+      range: narrowRange,
+      now,
+    })
+    const broadSlots = computeSlots({
+      eventType: et,
+      hosts: [host(tz, busy)],
+      range: broadRange,
+      now,
+    })
+
+    const narrowStarts = narrowSlots.map((s) => s.start)
+    const broadStartsInWindow = broadSlots
+      .filter((s) => s.start >= narrowRange.start && s.start < narrowRange.end)
+      .map((s) => s.start)
+
+    expect(narrowStarts).toEqual(broadStartsInWindow)
+    // Pin the actual times: the grid stays anchored at the window's own
+    // 09:00 start regardless of which busy data was loaded, so 12:00-13:00
+    // offers 12:00 and 12:30 — never the 12:15/12:45 a busy-driven re-split
+    // would have produced.
+    expect(
+      narrowStarts.map((s) => {
+        const wc = toWallClock(s, tz)
+        return `${String(wc.hour).padStart(2, '0')}:${String(wc.minute).padStart(2, '0')}`
+      }),
+    ).toEqual(['12:00', '12:30'])
+  })
+})
+
 describe('isSlotStillValid rejects starts that were never offered', () => {
   const tz = 'UTC'
 
