@@ -367,7 +367,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     if (!tokens) return oauthError(c, 'The provider rejected the sign-in. Please try again.')
 
     return purpose === 'identity'
-      ? completeIdentity(c, tokens)
+      ? completeIdentity(c, provider, tokens)
       : completeCalendarConnect(c, provider, tokens)
   }
   app.get('/auth/:provider/callback', oauthCallback)
@@ -382,8 +382,12 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
    * explicitly exempts. A token forwarded by a third party would need
    * verification; one we fetched ourselves does not.
    */
-  async function completeIdentity(c: Ctx, tokens: TokenResponse): Promise<Response> {
-    const email = emailFromIdToken(tokens.idToken)
+  async function completeIdentity(
+    c: Ctx,
+    provider: CalendarProviderName,
+    tokens: TokenResponse,
+  ): Promise<Response> {
+    const email = emailFromIdToken(tokens.idToken, provider)
     if (!email) return oauthError(c, 'The provider did not share an email address.')
 
     const now = ports.clock.now()
@@ -442,7 +446,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
       id,
       userId: auth.user.id,
       provider,
-      providerAccountEmail: emailFromIdToken(tokens.idToken) ?? '',
+      providerAccountEmail: emailFromIdToken(tokens.idToken, provider) ?? '',
       encryptedTokens: ciphertext,
       keyVersion,
       calendarIdsRead: [],
@@ -1378,7 +1382,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * that is sound here, and why it would not be if the token arrived any other
  * way.
  */
-function emailFromIdToken(idToken: string): string | null {
+function emailFromIdToken(idToken: string, provider: CalendarProviderName): string | null {
   const parts = idToken.split('.')
   if (parts.length !== 3) return null
   try {
@@ -1386,9 +1390,15 @@ function emailFromIdToken(idToken: string): string | null {
     if (!isRecord(payload)) return null
     const email = payload['email']
     if (typeof email !== 'string' || email.trim() === '') return null
-    // `email_verified` absent is treated as unverified: Microsoft omits it for
-    // some account types, and an unverified address is an account takeover.
-    if (payload['email_verified'] !== true && payload['email_verified'] !== 'true') return null
+    // Google puts `email_verified` on every id_token and we require it there.
+    // Microsoft's v2.0 id_tokens never carry this claim at all — for any
+    // account type — so requiring it made every Microsoft sign-in fail
+    // regardless of the `email` claim's presence. Microsoft only populates
+    // `email` when the directory/account has a validated addressable mailbox,
+    // so for Microsoft the claim's presence is itself the verification.
+    if (provider === 'google') {
+      if (payload['email_verified'] !== true && payload['email_verified'] !== 'true') return null
+    }
     return email.trim().toLowerCase()
   } catch {
     return null
