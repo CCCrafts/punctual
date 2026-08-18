@@ -171,6 +171,7 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
       eventType,
       month,
       daysWithSlots: new Map(),
+      selectedDate,
       guestTimezone,
       baseUrl: ports.config.baseUrl,
       embed,
@@ -255,6 +256,7 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
       guestTimezone,
       baseUrl: ports.config.baseUrl,
       embed,
+      confirmStart: start,
     }
 
     const html =
@@ -317,6 +319,7 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
       guestTimezone,
       baseUrl: ports.config.baseUrl,
       embed,
+      confirmStart: start,
     }
 
     const { validateAnswers, isValidEmail, pickDeclaredAnswers } = await import(

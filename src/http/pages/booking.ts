@@ -125,6 +125,14 @@ export interface BookingPageData {
   slots?: Slot[]
   guestTimezone: string
   baseUrl: string
+  /**
+   * Set only on the confirm page, where the timezone picker must post back
+   * to `/confirm` with the chosen slot's `start` rather than to the
+   * month/day view — the confirm page has no `date`/`month` in its own URL
+   * to fall back to, and the day-view form action would otherwise silently
+   * discard the guest's already-chosen slot.
+   */
+  confirmStart?: number
   /** True when served inside the embed iframe (`?embed=1`) — propagated through every internal link so the resize snippet keeps firing past the first navigation. */
   embed?: boolean
 }
@@ -149,9 +157,15 @@ export function eventHeader(d: BookingPageData): string {
 // requests.
 const TIMEZONES: readonly string[] = (() => {
   try {
-    return Intl.supportedValuesOf('timeZone').sort()
+    // `supportedValuesOf('timeZone')` does not include `UTC` itself in this
+    // runtime — without adding it back, a guest already on UTC can see it
+    // (their own zone is always prepended, see `timezonePicker`), but no one
+    // else can ever pick it.
+    const zones = new Set(Intl.supportedValuesOf('timeZone'))
+    zones.add('UTC')
+    return [...zones].sort()
   } catch {
-    return []
+    return ['UTC']
   }
 })()
 
@@ -170,9 +184,18 @@ function timezonePicker(d: BookingPageData): string {
         `<option value="${escapeHtml(z)}"${z === d.guestTimezone ? ' selected' : ''}>${escapeHtml(z.replace(/_/g, ' '))}</option>`,
     )
     .join('')
-  return `<form class="pu-tz-form" method="get" action="${escapeHtml(bookingPath(d))}">
-    ${d.selectedDate ? `<input type="hidden" name="date" value="${escapeHtml(d.selectedDate)}">` : ''}
-    <input type="hidden" name="month" value="${escapeHtml(d.month)}">
+  // The confirm page has already committed to one slot, which lives only in
+  // `start` — its own URL carries no `date`/`month` to fall back to. Posting
+  // to the month/day view like every other page would silently drop that
+  // slot, so this page's picker instead posts back to `/confirm` itself.
+  const action = d.confirmStart !== undefined ? `${bookingPath(d)}/confirm` : bookingPath(d)
+  const hiddenFields =
+    d.confirmStart !== undefined
+      ? `<input type="hidden" name="start" value="${d.confirmStart}">`
+      : `${d.selectedDate ? `<input type="hidden" name="date" value="${escapeHtml(d.selectedDate)}">` : ''}
+    <input type="hidden" name="month" value="${escapeHtml(d.month)}">`
+  return `<form class="pu-tz-form" method="get" action="${escapeHtml(action)}">
+    ${hiddenFields}
     ${d.embed ? '<input type="hidden" name="embed" value="1">' : ''}
     <label class="pu-sr" for="pu-tz">Timezone</label>
     <select id="pu-tz" name="tz" class="pu-tz-select" onchange="this.form.submit()">${options}</select>
