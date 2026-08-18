@@ -182,6 +182,11 @@ input:has(+ .pu-err),select:has(+ .pu-err),textarea:has(+ .pu-err){border-color:
   background:var(--pu-signal);vertical-align:middle}
 .pu-meta{display:flex;flex-wrap:wrap;gap:.5rem 1rem;font-size:.875rem;color:var(--pu-ink-500);
   list-style:none;padding:0;margin:.5rem 0 0}
+.pu-tz-form{display:inline-flex;align-items:center;gap:.35rem}
+.pu-tz-select{width:auto;padding:.15rem 1.5rem .15rem .1rem;border:none;border-radius:0;
+  background:transparent;color:inherit;font:inherit;font-size:.875rem;
+  text-decoration:underline;text-decoration-style:dotted;text-underline-offset:.2rem;cursor:pointer}
+.pu-tz-select:focus-visible{outline:2px solid var(--pu-green-700);outline-offset:2px;border-radius:4px}
 
 .pu-confirm{text-align:center;padding:2rem 1.5rem}
 .pu-confirm-icon{display:block;margin:0 auto .75rem}
@@ -271,6 +276,14 @@ export const LANDING_CSS = `
 .pu-compare h3{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap}
 .pu-compare ul{padding-left:1.1rem;margin:.5rem 0}
 .pu-compare li{margin-bottom:.4rem}
+
+.pu-compare-table-wrap{overflow-x:auto}
+.pu-compare-table{width:100%;border-collapse:collapse;min-width:32rem}
+.pu-compare-table th,.pu-compare-table td{text-align:left;padding:.65rem .9rem;
+  border-bottom:1px solid var(--pu-line);vertical-align:top}
+.pu-compare-table th{font-family:var(--pu-font-display);font-weight:600;font-size:.9375rem}
+.pu-compare-table td:not(:first-child),.pu-compare-table th:not(:first-child){text-align:center}
+.pu-compare-table td:first-child{color:var(--pu-ink-500);font-size:.9375rem}
 
 .pu-landing-footer{border-top:1px solid var(--pu-line);margin-top:3rem;padding-top:1.5rem}
 .pu-landing-footer nav{display:flex;gap:1.25rem;justify-content:center;flex-wrap:wrap;

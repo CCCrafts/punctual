@@ -39,6 +39,13 @@ export interface DocsIndexPageOptions {
   operator?: string
 }
 
+export interface CalendlyAlternativePageOptions {
+  brandName: string
+  baseUrl: string
+  githubUrl?: string
+  operator?: string
+}
+
 const DEFAULT_GITHUB_URL = 'https://github.com/CCCrafts/punctual'
 
 function shell(opts: { title: string; description: string; baseUrl: string; path?: string }, body: string): string {
@@ -86,6 +93,7 @@ function footer(githubUrl: string, operator?: string): string {
   <nav aria-label="Footer">
     <a href="${escapeHtml(githubUrl)}">GitHub</a>
     <a href="/docs">Docs</a>
+    <a href="/calendly-alternative">vs. Calendly</a>
     <a href="/privacy">Privacy</a>
     <a href="/terms">Terms</a>
   </nav>
@@ -311,6 +319,97 @@ ${footer(githubUrl, opts.operator)}
       description: 'Self-hosting guide, REST API and MCP server overview for Punctual.',
       baseUrl: opts.baseUrl,
       path: '/docs',
+    },
+    body,
+  )
+}
+
+/**
+ * A comparison page has one honesty rule the rest of the marketing site
+ * doesn't: every row must be checkable by the reader, not just by us. So
+ * this deliberately avoids specific competitor pricing figures, which drift
+ * and would be the first thing a skeptical reader tries to catch us being
+ * wrong about — the qualitative claims (closed-source, no self-host option,
+ * seat-based pricing) are the ones that don't go stale.
+ */
+export function calendlyAlternativePage(opts: CalendlyAlternativePageOptions): string {
+  const githubUrl = opts.githubUrl ?? DEFAULT_GITHUB_URL
+
+  const rows: Array<[string, string, string]> = [
+    ['License', 'MIT, open source', 'Proprietary, closed source'],
+    ['Self-hosting', 'Yes — your own Cloudflare account', 'Not available'],
+    ['Pricing model', 'Free, forever, for one team', 'Seat-based subscription'],
+    ['Your calendar data', 'Stays in your own Google/Microsoft account', "Stored on the vendor's infrastructure"],
+    ['Rendering', 'Server-rendered at the edge, no client framework', 'Client-rendered SPA'],
+    ['AI agent access', 'Built-in MCP server', 'Not available'],
+  ]
+
+  const body = `<div class="pu-landing">
+<header class="pu-hero">
+  <p class="pu-mark"><a href="/" style="color:inherit;text-decoration:none">punctual<span>:</span></a></p>
+  <h1>The open-source Calendly alternative</h1>
+  <p class="pu-hero-lede">A full single-team scheduler you can self-host for $0 — not a trial,
+    not a seat-limited tier, the whole product, MIT licensed.</p>
+  <div class="pu-hero-cta">
+    <a class="pu-btn" href="${escapeHtml(githubUrl)}">Star on GitHub</a>
+    <a class="pu-btn pu-btn-ghost" href="/">See how it works</a>
+  </div>
+</header>
+
+<main>
+
+<section aria-label="Comparison">
+  <div class="pu-section-head">
+    <h2>How they compare</h2>
+    <p class="pu-muted">Punctual is not a Calendly clone — it's an answer to a narrower
+      question: what does a scheduler look like with no seat limits, no vendor
+      lock-in on your calendar data, and a license that can't be revoked?</p>
+  </div>
+  <div class="pu-card pu-compare-table-wrap">
+    <table class="pu-compare-table">
+      <thead><tr><th scope="col"></th><th scope="col">Punctual</th><th scope="col">Calendly</th></tr></thead>
+      <tbody>
+        ${rows
+          .map(
+            ([label, punctual, calendly]) =>
+              `<tr><th scope="row">${escapeHtml(label)}</th><td>${escapeHtml(punctual)}</td><td>${escapeHtml(calendly)}</td></tr>`,
+          )
+          .join('')}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section aria-label="Open source Calendly">
+  <div class="pu-section-head">
+    <h2>Looking for &ldquo;open source Calendly&rdquo;?</h2>
+    <p class="pu-muted">Several projects have carried that label over the years, and more than
+      one has since moved toward a closed-core or hosted-first model as it grew. Punctual's
+      MIT license is not a marketing position that can quietly change later — the pledge
+      above is the whole single-team product, and it stays that way by construction, not
+      by promise.</p>
+  </div>
+</section>
+
+<section class="pu-card pu-pledge" aria-label="The pledge">
+  <h2>The pledge</h2>
+  <p>The open-source version is complete for a single team — forever. No seat
+  limits, no gated scheduling features, no &ldquo;non-production use&rdquo; clauses.
+  MIT makes this promise irrevocable: what we ship can never be taken back.</p>
+</section>
+
+</main>
+
+${footer(githubUrl, opts.operator)}
+</div>`
+
+  return shell(
+    {
+      title: `Open-source Calendly alternative · ${opts.brandName}`,
+      description:
+        'Punctual is a self-hosted, MIT-licensed alternative to Calendly — no seat limits, your calendar data stays yours, deployed on your own Cloudflare account for $0.',
+      baseUrl: opts.baseUrl,
+      path: '/calendly-alternative',
     },
     body,
   )

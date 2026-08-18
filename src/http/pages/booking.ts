@@ -139,9 +139,45 @@ export function eventHeader(d: BookingPageData): string {
   <ul class="pu-meta">
     <li><span class="pu-dot"></span> ${escapeHtml(durationLabel)}</li>
     ${location ? `<li>${escapeHtml(location)}</li>` : ''}
-    <li>${escapeHtml(d.guestTimezone)} (${escapeHtml(offsetLabel(Date.now(), d.guestTimezone))})</li>
+    <li>${timezonePicker(d)} (${escapeHtml(offsetLabel(Date.now(), d.guestTimezone))})</li>
   </ul>
 </header>`
+}
+
+// Populated once per isolate, not per request — `Intl.supportedValuesOf`
+// enumerates the runtime's whole tzdata, which doesn't change between
+// requests.
+const TIMEZONES: readonly string[] = (() => {
+  try {
+    return Intl.supportedValuesOf('timeZone').sort()
+  } catch {
+    return []
+  }
+})()
+
+/**
+ * A real, submitting `<select>` rather than a static label: the guest's
+ * detected zone is only a guess (see `resolveGuestTimezone`), and until this
+ * existed the only way to correct it was editing `?tz=` in the URL by hand.
+ * A GET form degrades to a plain submit button with no JS (`<noscript>`);
+ * `onchange` submit is the enhancement, not the only path.
+ */
+function timezonePicker(d: BookingPageData): string {
+  const zones = TIMEZONES.includes(d.guestTimezone) ? TIMEZONES : [d.guestTimezone, ...TIMEZONES]
+  const options = zones
+    .map(
+      (z) =>
+        `<option value="${escapeHtml(z)}"${z === d.guestTimezone ? ' selected' : ''}>${escapeHtml(z.replace(/_/g, ' '))}</option>`,
+    )
+    .join('')
+  return `<form class="pu-tz-form" method="get" action="${escapeHtml(bookingPath(d))}">
+    ${d.selectedDate ? `<input type="hidden" name="date" value="${escapeHtml(d.selectedDate)}">` : ''}
+    <input type="hidden" name="month" value="${escapeHtml(d.month)}">
+    ${d.embed ? '<input type="hidden" name="embed" value="1">' : ''}
+    <label class="pu-sr" for="pu-tz">Timezone</label>
+    <select id="pu-tz" name="tz" class="pu-tz-select" onchange="this.form.submit()">${options}</select>
+    <noscript><button type="submit" class="pu-btn pu-btn-ghost" style="padding:.15rem .5rem">Set</button></noscript>
+  </form>`
 }
 
 function locationLabel(et: EventType): string {

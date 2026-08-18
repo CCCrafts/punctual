@@ -18,7 +18,7 @@ import { buildMcpRoutes } from './mcp/server.js'
 import { buildEmbedRoutes } from './embed.js'
 import { buildDashboardRoutes } from './dashboard-routes.js'
 import { privacyPage, termsPage } from './pages/legal.js'
-import { docsIndexPage, landingPage } from './pages/landing.js'
+import { calendlyAlternativePage, docsIndexPage, landingPage } from './pages/landing.js'
 import type { EnginePorts, RequestScope } from '../ports.js'
 import type { SlotService } from '../engine.js'
 import { daysWithSlots, monthRange } from '../engine.js'
@@ -61,6 +61,15 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
   app.get('/docs', (c) =>
     c.html(
       docsIndexPage({
+        brandName: ports.config.brandName,
+        baseUrl: ports.config.baseUrl,
+        ...(ports.config.legalOperator ? { operator: ports.config.legalOperator } : {}),
+      }),
+    ),
+  )
+  app.get('/calendly-alternative', (c) =>
+    c.html(
+      calendlyAlternativePage({
         brandName: ports.config.brandName,
         baseUrl: ports.config.baseUrl,
         ...(ports.config.legalOperator ? { operator: ports.config.legalOperator } : {}),

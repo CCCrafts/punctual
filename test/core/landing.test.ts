@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { docsIndexPage, landingPage } from '../../src/http/pages/landing.js'
+import { calendlyAlternativePage, docsIndexPage, landingPage } from '../../src/http/pages/landing.js'
 
 /**
  * Regression: a fresh or self-hosted deployment has no host/event type
@@ -59,5 +59,28 @@ describe('footer operator line', () => {
     const opts = { ...base, operator: 'Creative Content Crafts (CCCrafts)' }
     expect(landingPage(opts)).toContain('Creative Content Crafts (CCCrafts)')
     expect(docsIndexPage(opts)).toContain('Creative Content Crafts (CCCrafts)')
+  })
+})
+
+describe('calendlyAlternativePage', () => {
+  const opts = { brandName: 'Punctual', baseUrl: 'https://example.test' }
+
+  it('renders a comparison table covering license and self-hosting', () => {
+    const html = calendlyAlternativePage(opts)
+    expect(html).toContain('MIT, open source')
+    expect(html).toContain('Self-hosting')
+    expect(html).toContain('Calendly')
+  })
+
+  it('is linked from the landing page footer', () => {
+    expect(landingPage(opts)).toContain('href="/calendly-alternative"')
+  })
+
+  it('describes Calendly pricing qualitatively, not with a specific figure', () => {
+    // The whole point of a comparison page is that every claim is checkable
+    // by the reader — a specific dollar figure for a competitor is the one
+    // claim that goes stale and gets caught, so the page must stick to
+    // qualitative, durable claims (see calendlyAlternativePage's doc comment).
+    expect(calendlyAlternativePage(opts)).toContain('Seat-based subscription')
   })
 })
