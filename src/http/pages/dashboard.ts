@@ -355,7 +355,7 @@ export function eventTypeForm(d: EventTypeFormData): string {
     ${fieldError('title', errors)}
 
     <label for="slug">URL slug</label>
-    <input id="slug" name="slug" required aria-required="true" maxlength="60" pattern="[a-z0-9-]+"
+    <input id="slug" name="slug" required aria-required="true" maxlength="60" pattern="[a-z0-9\-]+"
            value="${escapeHtml(et?.slug ?? '')}"${describedBy('slug', errors)}>
     <p class="pu-muted" style="font-size:.8125rem;margin:.25rem 0 0">
       Lowercase letters, numbers and hyphens. It becomes /${escapeHtml(d.user.slug)}/&lt;slug&gt;.</p>
@@ -797,8 +797,8 @@ export function settingsPage(d: SettingsPageData): string {
   <p class="pu-muted">Every one of your event types is published at
     <code>/${escapeHtml(d.user.slug)}/&lt;event&gt;</code>. Changing your slug moves the address of
     <strong>every</strong> event type at once.</p>
-  <div role="alert" style="margin:.75rem 0">
-    <p class="pu-err" style="font-size:.9375rem">
+  <div role="alert" class="pu-callout" style="margin:.75rem 0">
+    <p style="margin:0">
       Any link or QR code you have already shared &mdash; in an email signature, on a website, on a printed
       flyer &mdash; will stop working the moment you save. There is no redirect from
       <code>${escapeHtml(d.user.slug)}</code> to the new slug: a guest who kept the old link lands on a
@@ -808,7 +808,7 @@ export function settingsPage(d: SettingsPageData): string {
   <form method="post" action="/dashboard/settings">
     ${csrfField(d.csrf)}
     <label for="slug">Slug</label>
-    <input id="slug" name="slug" required aria-required="true" maxlength="40" pattern="[a-z0-9-]+"
+    <input id="slug" name="slug" required aria-required="true" maxlength="40" pattern="[a-z0-9\-]+"
            value="${escapeHtml(slugValue)}"${describedBy('slug', errors)}>
     <p class="pu-muted" style="font-size:.8125rem;margin:.25rem 0 0">
       Lowercase letters, numbers and hyphens only, 2&ndash;40 characters. It becomes the first part of

@@ -172,6 +172,11 @@ input:has(+ .pu-err),select:has(+ .pu-err),textarea:has(+ .pu-err){border-color:
 .pu-err::before{content:"!";flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;
   width:1rem;height:1rem;margin-top:.0625rem;border-radius:99px;background:var(--pu-danger);
   color:#fff;font-size:.6875rem;font-weight:700;line-height:1}
+/* A standing caution, not a one-line field error — normal block text flow
+   (not .pu-err's flex layout, which mangles a multi-sentence paragraph with
+   inline <code> into separate flex items) with its own visual weight. */
+.pu-callout{background:var(--pu-danger-tint);border:1px solid var(--pu-danger);
+  border-radius:var(--pu-radius);padding:.75rem 1rem;font-size:.875rem;color:var(--pu-ink-950)}
 .pu-badge{display:inline-block;padding:.15rem .5rem;border-radius:99px;font-size:.75rem;
   background:var(--pu-green-tint);color:var(--pu-green-700);font-weight:600}
 .pu-dot{display:inline-block;width:.5rem;height:.5rem;border-radius:99px;
@@ -203,6 +208,14 @@ input:has(+ .pu-err),select:has(+ .pu-err),textarea:has(+ .pu-err){border-color:
 .pu-nav-link[aria-current="page"]{color:var(--pu-ink-950);font-weight:600;
   border-bottom-color:var(--pu-green-700)}
 .pu-dash-header{border-bottom:1px solid var(--pu-line);padding-bottom:1rem}
+/* Narrow enough that the nav's own wrapping (5 links) collides with the
+   header's justify-content:space-between — one link stranded on its own row
+   with the sign-out button, uneven gaps either side. Stacking the three
+   header children instead of trying to keep them in one wrapping row reads
+   as intentional rather than as an overflow accident. */
+@media(max-width:480px){
+  .pu-dash-header{flex-direction:column;align-items:flex-start}
+}
 
 .pu-url{display:flex;align-items:center;gap:.5rem;background:var(--pu-paper-dim);
   border:1px solid var(--pu-line);border-radius:var(--pu-radius);padding:.15rem .15rem .15rem .8rem}
