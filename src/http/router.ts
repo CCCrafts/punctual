@@ -75,6 +75,10 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
     brandName: ports.config.brandName,
     supportEmail: ports.config.supportEmail,
     baseUrl: ports.config.baseUrl,
+    // The actual data controller for the hosted service — Google's OAuth
+    // verification checks this against the legal entity behind the app, and
+    // "Punctual" (the brand name) alone is not one.
+    operator: 'Creative Content Crafts (CCCrafts)',
   })
   app.get('/privacy', (c) =>
     c.html(
