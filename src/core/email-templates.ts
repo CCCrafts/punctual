@@ -204,6 +204,20 @@ function shell(input: ShellInput): string {
     .join('')
 
   return (
+    // A full document, not a bare fragment: without an explicit charset, a
+    // client that ignores (or overrides) the transport's Content-Type header
+    // falls back to sniffing, and every en dash and curly quote in this file
+    // turns to mojibake (`–` becomes `â€"`). `color-scheme`/`supported-color-
+    // schemes` are the one dark-mode hook that survives clients stripping
+    // `<style>` blocks — they ask Apple Mail/Outlook.com to leave this light
+    // design alone instead of auto-inverting it into unreadable pairings.
+    `<!doctype html><html lang="en"><head>` +
+    `<meta charset="utf-8">` +
+    `<meta name="viewport" content="width=device-width,initial-scale=1">` +
+    `<meta http-equiv="X-UA-Compatible" content="IE=edge">` +
+    `<meta name="color-scheme" content="light">` +
+    `<meta name="supported-color-schemes" content="light">` +
+    `</head><body style="margin:0;padding:0;background-color:${PAPER};" bgcolor="${PAPER}">` +
     // Hidden preheader: what the inbox shows next to the subject. Without it,
     // clients scrape the first visible text, which here is the wordmark.
     `<div style="display:none;max-height:0;overflow:hidden;opacity:0;">${escapeHtml(input.preheader)}</div>` +
@@ -229,7 +243,8 @@ function shell(input: ShellInput): string {
       : `<tr><td style="padding:24px;"></td></tr>`) +
     `</table>` +
     `<div style="font-family:${FONT};font-size:11px;line-height:18px;color:${MUTED};padding:14px 8px 0 8px;">Sent by ${escapeHtml(input.brandName)}</div>` +
-    `</td></tr></table>`
+    `</td></tr></table>` +
+    `</body></html>`
   )
 }
 
@@ -351,7 +366,10 @@ export function bookingConfirmationForHost(ctx: BookingEmailContext): EmailConte
     brandName,
     preheader: `${ctx.booking.guestName} — ${formatWhenShort(ctx.booking.startUtc, tz)}`,
     heading: 'New booking',
-    intro: `${ctx.booking.guestName} booked ${ctx.eventType.title}. It is already on your calendar.`,
+    // The same .ics that lands the guest's copy is attached here too — worth
+    // saying, since not every calendar is connected for auto-sync and a host
+    // whose client doesn't auto-detect the attachment needs to know it's there.
+    intro: `${ctx.booking.guestName} booked ${ctx.eventType.title}. It is already on your calendar — the invite is attached too, in case you need it elsewhere.`,
     rows: baseRows(ctx, 'host', tz),
     ctas: manageCtas(ctx, 'host'),
     notes: [tzNote(tz, ctx.booking.startUtc)],
@@ -393,7 +411,7 @@ export function bookingRescheduled(ctx: RescheduleEmailContext): EmailContent {
     intro:
       ctx.audience === 'guest'
         ? `Your meeting with ${who} has a new time. The updated invite is attached and replaces the old one — no need to delete anything.`
-        : `${who} rescheduled. Your calendar has been updated automatically.`,
+        : `${who} rescheduled. Your calendar has been updated automatically, and the updated invite is attached too.`,
     rows,
     ctas: manageCtas(ctx, ctx.audience),
     notes: [

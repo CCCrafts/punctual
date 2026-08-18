@@ -198,6 +198,22 @@ describe('email-client safety', () => {
     expect(html).toContain('#FAFAF7') // paper
     expect(html).toContain('#0F1512') // ink
   })
+
+  it('declares an explicit charset, so an en dash never turns to mojibake', () => {
+    // Without <meta charset="utf-8">, a client that ignores or overrides the
+    // transport's Content-Type header falls back to sniffing, and every en
+    // dash and curly quote in this file (formatWhen's "9:00 AM – 9:30 AM")
+    // renders as "â€"" instead. The meta tag must come before any non-ASCII
+    // byte can be read, so it belongs at the very top of <head>.
+    const html = bookingConfirmationForGuest(ctx()).html
+    expect(html).toMatch(/^<!doctype html><html lang="en"><head><meta charset="utf-8">/)
+  })
+
+  it('opts out of forced dark-mode inversion via meta, not a stripped <style> block', () => {
+    const html = bookingConfirmationForGuest(ctx()).html
+    expect(html).toContain('<meta name="color-scheme" content="light">')
+    expect(html).toContain('<meta name="supported-color-schemes" content="light">')
+  })
 })
 
 describe('the text alternative is genuinely readable', () => {
@@ -213,6 +229,23 @@ describe('the text alternative is genuinely readable', () => {
 })
 
 describe('lifecycle templates', () => {
+  it('confirmation and reschedule mail to the host mentions the attached invite', () => {
+    // notify.ts attaches the same .ics to the host's copy as the guest's, but
+    // the host intro only ever talked about the calendar being "already"
+    // updated — silent about the attachment for the host without a connected
+    // calendar, or whose client doesn't auto-detect it.
+    const confirmed = bookingConfirmationForHost(ctx())
+    expect(confirmed.text).toContain('invite is attached')
+
+    const moved = booking({ startUtc: START + 86_400_000, endUtc: START + 86_400_000 + 30 * 60_000 })
+    const rescheduled = bookingRescheduled({
+      ...ctx({ booking: moved }),
+      audience: 'host',
+      previous: { startUtc: START, endUtc: START + 30 * 60_000 },
+    })
+    expect(rescheduled.text).toContain('invite is attached')
+  })
+
   it('a reschedule shows both the new and the old time, in the reader zone', () => {
     const moved = booking({ startUtc: START + 86_400_000, endUtc: START + 86_400_000 + 30 * 60_000 })
     const mail = bookingRescheduled({
