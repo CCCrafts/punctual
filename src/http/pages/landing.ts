@@ -1,5 +1,8 @@
 /**
- * The marketing landing page and docs index, served at `/` and `/docs`.
+ * The marketing landing page and the "vs. Calendly" comparison page, served
+ * at `/` and `/calendly-alternative`. The docs section itself (`/docs` and
+ * its sub-pages) lives in pages/docs.ts, which reuses `shell()`/`footer()`
+ * exported from here so both halves of the site share one page frame.
  *
  * Same rendering approach as the booking page (server-rendered template
  * strings, no client framework, no external assets) but with its own page
@@ -32,13 +35,6 @@ export interface LandingPageOptions {
   operator?: string
 }
 
-export interface DocsIndexPageOptions {
-  brandName: string
-  baseUrl: string
-  githubUrl?: string
-  operator?: string
-}
-
 export interface CalendlyAlternativePageOptions {
   brandName: string
   baseUrl: string
@@ -46,9 +42,14 @@ export interface CalendlyAlternativePageOptions {
   operator?: string
 }
 
-const DEFAULT_GITHUB_URL = 'https://github.com/CCCrafts/punctual'
+/**
+ * Shared with pages/docs.ts, which owns the docs shell — one repo map (this
+ * file) rather than two copies drifting.
+ */
+export const DEFAULT_GITHUB_URL = 'https://github.com/CCCrafts/punctual'
 
-function shell(opts: { title: string; description: string; baseUrl: string; path?: string }, body: string): string {
+/** Exported for pages/docs.ts: the docs pages want the exact same page frame. */
+export function shell(opts: { title: string; description: string; baseUrl: string; path?: string }, body: string): string {
   const origin = opts.baseUrl.replace(/\/$/, '')
   const url = `${origin}${opts.path ?? ''}`
   const image = `${origin}/og/default.png`
@@ -88,7 +89,8 @@ ${body}
 </body></html>`
 }
 
-function footer(githubUrl: string, operator?: string): string {
+/** Exported for pages/docs.ts: the docs footer must match the marketing footer exactly. */
+export function footer(githubUrl: string, operator?: string): string {
   return `<footer class="pu-landing-footer">
   <nav aria-label="Footer">
     <a href="${escapeHtml(githubUrl)}">GitHub</a>
@@ -260,81 +262,6 @@ ${footer(githubUrl, opts.operator)}
         'Open, edge-native scheduling on Cloudflare Workers. Self-host for $0, MIT licensed, with a built-in MCP server for AI agents.',
       baseUrl: opts.baseUrl,
       path: '/',
-    },
-    body,
-  )
-}
-
-export function docsIndexPage(opts: DocsIndexPageOptions): string {
-  const githubUrl = opts.githubUrl ?? DEFAULT_GITHUB_URL
-  const repoBlob = `${githubUrl}/blob/main`
-
-  const body = `<div class="pu-landing">
-<header class="pu-hero" style="padding-top:2.5rem;padding-bottom:1.5rem">
-  <p class="pu-mark"><a href="/" style="color:inherit;text-decoration:none">punctual<span>:</span></a></p>
-  <h1>Documentation</h1>
-  <p class="pu-hero-lede">Everything needed to run ${escapeHtml(opts.brandName)} yourself
-    or build against it.</p>
-</header>
-
-<main>
-
-<section aria-label="Self-hosting">
-  <div class="pu-card">
-    <h2>Self-hosting</h2>
-    <p class="pu-muted">Zero to a working booking link in about 15 minutes on
-      Cloudflare's free tier, for $0. You need a Cloudflare account and Node 20+
-      — no database server, no Docker, no credit card.</p>
-    <p><a href="${escapeHtml(repoBlob)}/docs/self-hosting.md">Read the self-hosting guide</a></p>
-  </div>
-</section>
-
-<section aria-label="REST API">
-  <div class="pu-card">
-    <h2>REST API</h2>
-    <p class="pu-muted">A REST API mounted at <span class="pu-time">/api/v1</span>,
-      authenticated with an API key scoped to <span class="pu-time">read</span> or
-      <span class="pu-time">write</span>. Errors are RFC 7807 problem documents
-      (<span class="pu-time">application/problem+json</span>). Endpoints cover
-      event types, availability, slots, bookings and HMAC-signed webhooks.</p>
-    <p><a href="${escapeHtml(repoBlob)}/src/http/api/rest.ts">Browse the API implementation</a></p>
-  </div>
-</section>
-
-<section aria-label="MCP server">
-  <div class="pu-card">
-    <h2>MCP server</h2>
-    <p class="pu-muted">A Model Context Protocol server at
-      <span class="pu-time">/mcp</span> (JSON-RPC 2.0 over a single HTTP POST)
-      exposes five tools — <span class="pu-time">list_event_types</span>,
-      <span class="pu-time">get_available_slots</span>,
-      <span class="pu-time">create_booking</span>,
-      <span class="pu-time">reschedule_booking</span>,
-      <span class="pu-time">cancel_booking</span> — scoped to exactly the calling
-      API key's authority. An agent can do nothing your key couldn't do itself.</p>
-    <p><a href="${escapeHtml(repoBlob)}/src/http/mcp/server.ts">Browse the MCP server implementation</a></p>
-  </div>
-</section>
-
-<section aria-label="More">
-  <div class="pu-card">
-    <h2>More</h2>
-    <p class="pu-muted">Full source, issue tracker and the rest of the codebase
-      live on <a href="${escapeHtml(githubUrl)}">GitHub</a>.</p>
-  </div>
-</section>
-
-</main>
-
-${footer(githubUrl, opts.operator)}
-</div>`
-
-  return shell(
-    {
-      title: `Documentation · ${opts.brandName}`,
-      description: 'Self-hosting guide, REST API and MCP server overview for Punctual.',
-      baseUrl: opts.baseUrl,
-      path: '/docs',
     },
     body,
   )

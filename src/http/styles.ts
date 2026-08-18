@@ -55,6 +55,12 @@ export const TOKENS = `
   --pu-radius:10px; --pu-radius-lg:16px;
   --pu-shadow-sm:0 1px 2px rgba(15,21,18,.06);
   --pu-ring:0 0 0 3px color-mix(in srgb,var(--pu-green-700) 25%,transparent);
+  /* Code blocks (docs pages): deliberately NOT redefined under the dark-mode
+     media query or [data-theme=dark] below — a code panel that's always a
+     dark "terminal" surface reads clearly against either a light or dark
+     page background, which is simpler and more reliable than trying to keep
+     a code block's syntax contrast correct across two flipped palettes. */
+  --pu-code-bg:#0F1512; --pu-code-fg:#E7F2EA; --pu-code-line:#2E3B34;
 }
 @media (prefers-color-scheme:dark){
   :root:not([data-theme=light]){
@@ -300,6 +306,50 @@ export const LANDING_CSS = `
 .pu-landing-footer{border-top:1px solid var(--pu-line);margin-top:3rem;padding-top:1.5rem}
 .pu-landing-footer nav{display:flex;gap:1.25rem;justify-content:center;flex-wrap:wrap;
   font-size:.875rem;margin-bottom:.75rem}
+
+/*
+ * Docs section (pages/docs.ts): a nav rail + reading column, built on the
+ * existing .pu-grid two-column layout (300px sidebar / 1fr content — see
+ * BASE_CSS) rather than a new grid, so the docs section costs nothing extra
+ * for a self-hoster who never visits /docs. Sidebar-first in source order so
+ * it stays usable with CSS disabled and reads sensibly to a screen reader.
+ */
+.pu-docs-hero{padding:2.5rem 0 1.5rem}
+.pu-docs-nav{position:sticky;top:1.25rem}
+.pu-docs-nav h2{font-size:.75rem;font-weight:600;letter-spacing:.03em;text-transform:uppercase;
+  color:var(--pu-ink-500);margin:0 0 .6rem}
+.pu-docs-nav ul{list-style:none;margin:0;padding:0;display:grid;gap:.15rem}
+.pu-docs-nav .pu-nav-link{display:block;border-bottom:2px solid transparent;border-left:2px solid transparent;
+  padding:.4rem .1rem .4rem .75rem}
+.pu-docs-nav .pu-nav-link[aria-current="page"]{border-left-color:var(--pu-green-700);border-bottom-color:transparent;
+  background:var(--pu-green-tint);border-radius:0 var(--pu-radius) var(--pu-radius) 0}
+.pu-docs-content{min-width:0}
+.pu-docs-content h2{font-size:1.25rem;margin:2.25rem 0 .75rem}
+.pu-docs-content section:first-child h2,.pu-docs-content>h2:first-child{margin-top:0}
+.pu-docs-content h3{font-size:1rem;margin:1.5rem 0 .5rem}
+.pu-docs-content table{width:100%;border-collapse:collapse;margin:0 0 1.25rem;font-size:.875rem}
+.pu-docs-content th,.pu-docs-content td{text-align:left;padding:.55rem .75rem;
+  border-bottom:1px solid var(--pu-line);vertical-align:top}
+.pu-docs-content th{font-family:var(--pu-font-display);font-weight:600;font-size:.8125rem}
+.pu-docs-content table .pu-time{font-size:.8125rem}
+.pu-docs-content ul,.pu-docs-content ol{padding-left:1.25rem;margin:0 0 1rem}
+.pu-docs-content li{margin-bottom:.4rem}
+.pu-docs-content code{font-family:var(--pu-font-mono);font-size:.875em;background:var(--pu-paper-dim);
+  border:1px solid var(--pu-line);border-radius:4px;padding:.05rem .35rem}
+
+/* Code blocks: an always-dark terminal surface (see --pu-code-* in TOKENS'
+   :root, deliberately not redefined for dark mode) so a multi-line snippet
+   reads with the same contrast whichever theme the page is in. */
+.pu-pre{background:var(--pu-code-bg);color:var(--pu-code-fg);border:1px solid var(--pu-code-line);
+  border-radius:var(--pu-radius);padding:1rem 1.1rem;overflow-x:auto;margin:0 0 1.25rem}
+.pu-pre code{display:block;font-family:var(--pu-font-mono);font-size:.8125rem;line-height:1.7;
+  color:inherit;background:none;border:0;padding:0;white-space:pre}
+
+.pu-docs-callout{background:var(--pu-paper-dim);border:1px solid var(--pu-line);border-radius:var(--pu-radius);
+  padding:.85rem 1rem;margin:0 0 1.25rem;font-size:.9375rem}
+.pu-docs-callout p:last-child{margin-bottom:0}
+
+@media(max-width:779px){.pu-docs-nav{position:static}}
 
 /* Long unbroken tokens (URLs, API paths) must not force horizontal scroll
    on narrow viewports — see design requirement: no horizontal scroll at 360px. */
