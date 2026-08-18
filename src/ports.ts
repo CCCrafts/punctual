@@ -484,6 +484,22 @@ export interface EngineConfig {
   /** Public origin, e.g. https://punctual.io — used in links and .ics URLs. */
   baseUrl: string
   brandName: string
+  /**
+   * The legal entity operating this deployment, named on /privacy and /terms
+   * as the data controller. Defaults to `brandName` when unset — correct for
+   * nobody in particular, which is the point: a self-hoster who deploys the
+   * public engine without setting this gets an honest "we didn't ask you who
+   * you are" default instead of another operator's company name.
+   */
+  legalOperator?: string
+  /**
+   * A real, live booking page on THIS deployment, e.g. `/serge/30min` —
+   * shown on the landing page as "see a booking page" and embedded live in
+   * the hero. Unset by default: a fresh deployment (self-hosted or a first
+   * boot) has no host/event type seeded yet, and a hardcoded path here would
+   * make every such deployment's own homepage embed a 404ing iframe.
+   */
+  demoBookingPath?: string
   supportEmail: string
   fromEmail: string
   fromName: string

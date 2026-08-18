@@ -164,6 +164,7 @@ Two features need a paid plan, and both degrade gracefully:
 |---|---|---|
 | `BASE_URL` | `[vars]` | Public origin; used in links and emails |
 | `BRAND_NAME` | `[vars]` | Shown in the footer and emails |
+| `LEGAL_OPERATOR` | `[vars]` | Data controller named on `/privacy` and `/terms`. Defaults to `BRAND_NAME` — set this to your actual legal entity if you're taking this past internal/team use |
 | `FROM_EMAIL` / `FROM_NAME` | `[vars]` | Sender identity |
 | `SUPPORT_EMAIL` | `[vars]` | Reply-to on outbound mail |
 | `TELEMETRY_ENABLED` | `[vars]` | `0` by default. See below |

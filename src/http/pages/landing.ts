@@ -32,7 +32,6 @@ export interface DocsIndexPageOptions {
 }
 
 const DEFAULT_GITHUB_URL = 'https://github.com/CCCrafts/punctual'
-const DEFAULT_DEMO_PATH = '/serge/30min'
 
 function shell(opts: { title: string; description: string; baseUrl: string; path?: string }, body: string): string {
   const origin = opts.baseUrl.replace(/\/$/, '')
@@ -90,11 +89,14 @@ function footer(githubUrl: string): string {
 
 export function landingPage(opts: LandingPageOptions): string {
   const githubUrl = opts.githubUrl ?? DEFAULT_GITHUB_URL
-  const demoPath = opts.demoPath ?? DEFAULT_DEMO_PATH
   const example = `${opts.baseUrl.replace(/\/$/, '')}/you/intro`
-  // `demoPath` is always "/{userSlug}/{eventSlug}" — split once rather than
-  // hardcoding the demo identity twice (here and in DEFAULT_DEMO_PATH).
-  const [, demoUser = '', demoEvent = ''] = demoPath.split('/')
+  // No fallback: a fresh or self-hosted deployment has no host/event type
+  // seeded yet, and a hardcoded demo identity here would make every such
+  // deployment's own homepage embed a 404ing iframe on first boot. The demo
+  // CTA and the live embed both simply don't render without a real one.
+  const demoPath = opts.demoPath
+  // `demoPath` is always "/{userSlug}/{eventSlug}".
+  const [, demoUser = '', demoEvent = ''] = demoPath?.split('/') ?? []
 
   const body = `<div class="pu-landing">
 <header class="pu-hero">
@@ -104,13 +106,15 @@ export function landingPage(opts: LandingPageOptions): string {
     Calendly, teams and round-robin included, that runs entirely on Cloudflare Workers.</p>
   <div class="pu-hero-cta">
     <a class="pu-btn" href="${escapeHtml(githubUrl)}">Star on GitHub</a>
-    <a class="pu-btn pu-btn-ghost" href="${escapeHtml(demoPath)}">See a booking page</a>
+    ${demoPath ? `<a class="pu-btn pu-btn-ghost" href="${escapeHtml(demoPath)}">See a booking page</a>` : ''}
   </div>
 </header>
 
 <main>
 
-<section aria-label="Live demo" class="pu-live-demo">
+${
+  demoPath
+    ? `<section aria-label="Live demo" class="pu-live-demo">
   <div class="pu-section-head">
     <h2>This is the actual product</h2>
     <p class="pu-muted">Not a screenshot — a real booking page, embedded with the same
@@ -120,7 +124,9 @@ export function landingPage(opts: LandingPageOptions): string {
   <div class="pu-card pu-embed-frame">
     <script src="/embed.js" data-user="${escapeHtml(demoUser)}" data-event="${escapeHtml(demoEvent)}" data-height="560"></script>
   </div>
-</section>
+</section>`
+    : ''
+}
 
 <section class="pu-card pu-pledge" aria-label="The pledge">
   <h2>The pledge</h2>

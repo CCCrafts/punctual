@@ -64,6 +64,8 @@ crons = ["*/5 * * * *"]
 [vars]
 BASE_URL = "https://punctual.sh"
 BRAND_NAME = "Punctual"
+LEGAL_OPERATOR = "Creative Content Crafts (CCCrafts)"
+DEMO_BOOKING_PATH = "/serge/30min"
 FROM_EMAIL = "hello@punctual.sh"
 FROM_NAME = "Punctual"
 SUPPORT_EMAIL = "hello@punctual.sh"

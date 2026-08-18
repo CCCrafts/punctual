@@ -34,6 +34,8 @@ export interface Env {
   TASKS?: Queue
   BASE_URL: string
   BRAND_NAME?: string
+  LEGAL_OPERATOR?: string
+  DEMO_BOOKING_PATH?: string
   FROM_EMAIL?: string
   FROM_NAME?: string
   SUPPORT_EMAIL?: string
@@ -127,6 +129,8 @@ export function buildPorts(env: Env): EnginePorts {
     config: {
       baseUrl,
       brandName: env.BRAND_NAME ?? 'Punctual',
+      ...(env.LEGAL_OPERATOR ? { legalOperator: env.LEGAL_OPERATOR } : {}),
+      ...(env.DEMO_BOOKING_PATH ? { demoBookingPath: env.DEMO_BOOKING_PATH } : {}),
       supportEmail: env.SUPPORT_EMAIL ?? 'hello@example.com',
       fromEmail: env.FROM_EMAIL ?? 'hello@example.com',
       fromName: env.FROM_NAME ?? 'Punctual',

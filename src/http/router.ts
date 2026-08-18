@@ -49,7 +49,13 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
   // route so they win regardless of what else claims '/' — same reasoning as
   // the /privacy and /terms mounts below.
   app.get('/', (c) =>
-    c.html(landingPage({ brandName: ports.config.brandName, baseUrl: ports.config.baseUrl })),
+    c.html(
+      landingPage({
+        brandName: ports.config.brandName,
+        baseUrl: ports.config.baseUrl,
+        ...(ports.config.demoBookingPath ? { demoPath: ports.config.demoBookingPath } : {}),
+      }),
+    ),
   )
   app.get('/docs', (c) =>
     c.html(docsIndexPage({ brandName: ports.config.brandName, baseUrl: ports.config.baseUrl })),
@@ -75,10 +81,13 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
     brandName: ports.config.brandName,
     supportEmail: ports.config.supportEmail,
     baseUrl: ports.config.baseUrl,
-    // The actual data controller for the hosted service — Google's OAuth
-    // verification checks this against the legal entity behind the app, and
-    // "Punctual" (the brand name) alone is not one.
-    operator: 'Creative Content Crafts (CCCrafts)',
+    // The actual data controller — Google's OAuth verification checks this
+    // against the real legal entity behind the app, and "Punctual" (the
+    // brand name) alone is not one. Deployment-configured (LEGAL_OPERATOR),
+    // not hardcoded: this file ships to every self-hoster, and hardcoding
+    // one company's name here would put it on every deployment's own
+    // privacy policy regardless of who actually operates it.
+    ...(ports.config.legalOperator ? { operator: ports.config.legalOperator } : {}),
   })
   app.get('/privacy', (c) =>
     c.html(
