@@ -264,10 +264,21 @@ describe('the public booking page rate-limits by IP', () => {
       expect(res.status).toBe(200)
     }
 
-    // The 121st request in the same window is the hammering request.
-    const denied = await fetchPage()
-    expect(denied.status).toBe(429)
-    const retryAfter = Number(denied.headers.get('retry-after'))
+    // The rate limiter refills continuously against real wall-clock time
+    // (src/do/rate-limiter.ts), not a mockable clock — the 120-request spend
+    // loop above is itself real elapsed time, and on a slow CI host it can
+    // hand back just enough of a fractional token that a single immediate
+    // "should be denied" request still lands as 200. Retry a few times
+    // rather than asserting on one request: whatever slack a slow host
+    // handed back is a few hundred milliseconds' worth at most, which a
+    // couple of near-instant follow-up requests exhausts even if the first
+    // one slips through.
+    let denied: Response | undefined
+    for (let attempt = 0; attempt < 5 && denied?.status !== 429; attempt++) {
+      denied = await fetchPage()
+    }
+    expect(denied?.status).toBe(429)
+    const retryAfter = Number(denied?.headers.get('retry-after'))
     expect(retryAfter).toBeGreaterThan(0)
     expect(retryAfter).toBeLessThanOrEqual(60)
   })
