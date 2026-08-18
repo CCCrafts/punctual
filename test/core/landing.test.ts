@@ -62,6 +62,28 @@ describe('footer operator line', () => {
   })
 })
 
+/**
+ * The hero clock is decorative and JS-only (a live tick can't be
+ * server-rendered) — it must never gate on `prefers-reduced-motion` in the
+ * script itself, only in CSS. Gating in JS would leave the element at its
+ * pre-animation `opacity:0` forever for exactly the users who need it to
+ * just appear (see styles.ts's `.pu-hero-clock` / `.pu-in` rules).
+ */
+describe('landingPage hero clock', () => {
+  const opts = { brandName: 'Punctual', baseUrl: 'https://example.test' }
+
+  it('renders the clock element and always applies the entrance class', () => {
+    const html = landingPage(opts)
+    expect(html).toContain('id="pu-hero-clock"')
+    const script = html.slice(html.indexOf('<script>'), html.indexOf('</script>'))
+    expect(script).toContain("classList.add('pu-in')")
+    // The gate belongs in CSS (styles.ts), not here — a `matchMedia` check
+    // guarding `classList.add` would leave the clock at its pre-animation
+    // opacity:0 forever under reduced motion instead of just appearing.
+    expect(script).not.toContain('matchMedia')
+  })
+})
+
 describe('calendlyAlternativePage', () => {
   const opts = { brandName: 'Punctual', baseUrl: 'https://example.test' }
 

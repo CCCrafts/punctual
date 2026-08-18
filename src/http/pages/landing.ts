@@ -117,7 +117,7 @@ export function landingPage(opts: LandingPageOptions): string {
 
   const body = `<div class="pu-landing">
 <header class="pu-hero">
-  <p class="pu-mark">punctual<span>:</span></p>
+  <p class="pu-mark">punctual<span>:</span><span class="pu-hero-clock" id="pu-hero-clock" aria-hidden="true"></span></p>
   <h1>Scheduling that shows up on time</h1>
   <p class="pu-hero-lede">An open, edge-native scheduler — a full single-team alternative to
     Calendly, teams and round-robin included, that runs entirely on Cloudflare Workers.</p>
@@ -126,6 +126,22 @@ export function landingPage(opts: LandingPageOptions): string {
     ${demoPath ? `<a class="pu-btn pu-btn-ghost" href="${escapeHtml(demoPath)}">See a booking page</a>` : ''}
   </div>
 </header>
+<script>(function(){
+  var el = document.getElementById('pu-hero-clock');
+  if (!el) return;
+  function tick(){
+    var d = new Date();
+    el.textContent = ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  }
+  tick();
+  // Always add the class — the fade-in it triggers is downgraded to an
+  // immediate, static opacity:1 under prefers-reduced-motion (see styles.ts),
+  // so gating this on the media query here would leave the clock at its
+  // pre-animation opacity:0 forever for exactly the users who most need it
+  // to just appear.
+  el.classList.add('pu-in');
+  setInterval(tick, 15000);
+})();</script>
 
 <main>
 

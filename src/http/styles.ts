@@ -240,6 +240,22 @@ export const LANDING_CSS = `
 .pu-landing{max-width:1120px;margin:0 auto;padding:0 1.25rem 4rem}
 .pu-hero{padding:3.5rem 0 3rem;text-align:center}
 .pu-hero .pu-mark{font-size:1.125rem}
+.pu-hero .pu-mark span{display:inline-block;animation:pu-colon-land .5s cubic-bezier(.34,1.56,.64,1) both}
+.pu-hero-clock{color:var(--pu-ink-500);opacity:0}
+.pu-hero-clock.pu-in{animation:pu-clock-in .4s ease-out .5s forwards}
+@keyframes pu-colon-land{
+  0%{transform:translateY(-10px) scale(.6);opacity:0}
+  55%{transform:translateY(2px) scale(1.15);opacity:1}
+  100%{transform:translateY(0) scale(1);opacity:1}
+}
+@keyframes pu-clock-in{
+  0%{opacity:0;transform:translateY(-4px)}
+  100%{opacity:1;transform:translateY(0)}
+}
+@media(prefers-reduced-motion:reduce){
+  .pu-hero .pu-mark span{animation:none}
+  .pu-hero-clock.pu-in{animation:none;opacity:1}
+}
 .pu-hero h1{font-family:var(--pu-font-display);font-size:clamp(1.75rem,4vw + 1rem,2.75rem);
   margin:1.25rem 0 1rem}
 .pu-hero-lede{font-size:1.125rem;color:var(--pu-ink-500);max-width:34rem;margin:0 auto 2rem}
