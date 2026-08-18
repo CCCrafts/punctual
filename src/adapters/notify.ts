@@ -105,6 +105,7 @@ export async function notifyBookingCreated(ctx: NotifyContext): Promise<void> {
     brandName: ports.config.brandName,
     supportEmail: ports.config.supportEmail,
     ...(manageUrl ? { rescheduleUrl: manageUrl, cancelUrl: manageUrl } : {}),
+    hasAttachment: Boolean(attachments),
   }
 
   const guest = bookingConfirmationForGuest(shared)
@@ -385,6 +386,17 @@ export async function notifyBookingRescheduled(ctx: {
     ? `${ports.config.baseUrl}/booking/${booking.id}?token=${encodeURIComponent(ctx.manageToken)}`
     : undefined
 
+  // Computed before `shared`, not after: the copy claims an invite is
+  // attached, and that claim has to be true. A .ics that exceeded the size
+  // cap or failed to generate is dropped before the email is (buildAttachment
+  // itself), so the templates need to know which happened rather than assume.
+  //
+  // Same UID as the original, higher SEQUENCE: the client moves the existing
+  // event instead of leaving the old time and adding a second one.
+  const attachments = await buildAttachment(
+    ports, booking, eventType, host, ctx.hosts, 'REQUEST', manageUrl,
+  )
+
   const shared = {
     booking,
     eventType,
@@ -394,16 +406,11 @@ export async function notifyBookingRescheduled(ctx: {
     brandName: ports.config.brandName,
     supportEmail: ports.config.supportEmail,
     ...(manageUrl ? { rescheduleUrl: manageUrl, cancelUrl: manageUrl } : {}),
+    hasAttachment: Boolean(attachments),
   }
 
   const guest = bookingRescheduled({ ...shared, audience: 'guest' })
   const hostMail = bookingRescheduled({ ...shared, audience: 'host' })
-
-  // Same UID as the original, higher SEQUENCE: the client moves the existing
-  // event instead of leaving the old time and adding a second one.
-  const attachments = await buildAttachment(
-    ports, booking, eventType, host, ctx.hosts, 'REQUEST', manageUrl,
-  )
 
   await Promise.all([
     ports.queue

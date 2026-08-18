@@ -49,6 +49,14 @@ export interface BookingEmailContext {
   /** Host-facing deep link into the dashboard. */
   bookingUrl?: string
   supportEmail?: string
+  /**
+   * Whether the .ics is actually attached to THIS send. Defaults to true —
+   * every real call site passes it explicitly (notify.ts knows whether
+   * `buildAttachment` produced one) — because a booking whose generated .ics
+   * exceeded the 40 KB attachment cap, or whose generation failed outright,
+   * still gets sent without one, and the copy must not claim otherwise.
+   */
+  hasAttachment?: boolean
 }
 
 // Brand palette. Inline hex rather than tokens: email has no cascade and no
@@ -348,7 +356,10 @@ export function bookingConfirmationForGuest(ctx: BookingEmailContext): EmailCont
     brandName,
     preheader: `${ctx.eventType.title} — ${formatWhenShort(ctx.booking.startUtc, tz)}`,
     heading: 'Your meeting is confirmed',
-    intro: `${ctx.booking.guestName}, you are booked with ${hostNames(ctx)}. The invite is attached, so it lands in your calendar with one tap.`,
+    intro:
+      ctx.hasAttachment === false
+        ? `${ctx.booking.guestName}, you are booked with ${hostNames(ctx)}.`
+        : `${ctx.booking.guestName}, you are booked with ${hostNames(ctx)}. The invite is attached, so it lands in your calendar with one tap.`,
     rows: baseRows(ctx, 'guest', tz),
     ctas: manageCtas(ctx, 'guest'),
     notes: [tzNote(tz, ctx.booking.startUtc), ...supportNote(ctx)],
@@ -369,7 +380,13 @@ export function bookingConfirmationForHost(ctx: BookingEmailContext): EmailConte
     // The same .ics that lands the guest's copy is attached here too — worth
     // saying, since not every calendar is connected for auto-sync and a host
     // whose client doesn't auto-detect the attachment needs to know it's there.
-    intro: `${ctx.booking.guestName} booked ${ctx.eventType.title}. It is already on your calendar — the invite is attached too, in case you need it elsewhere.`,
+    // Conditional on `hasAttachment`: a .ics that exceeded the size cap, or
+    // failed to generate, is dropped before the email is (notify.ts) — this
+    // copy must not claim an attachment that was never actually sent.
+    intro:
+      ctx.hasAttachment === false
+        ? `${ctx.booking.guestName} booked ${ctx.eventType.title}. It is already on your calendar.`
+        : `${ctx.booking.guestName} booked ${ctx.eventType.title}. It is already on your calendar — the invite is attached too, in case you need it elsewhere.`,
     rows: baseRows(ctx, 'host', tz),
     ctas: manageCtas(ctx, 'host'),
     notes: [tzNote(tz, ctx.booking.startUtc)],
@@ -410,8 +427,12 @@ export function bookingRescheduled(ctx: RescheduleEmailContext): EmailContent {
     heading: 'Your meeting moved',
     intro:
       ctx.audience === 'guest'
-        ? `Your meeting with ${who} has a new time. The updated invite is attached and replaces the old one — no need to delete anything.`
-        : `${who} rescheduled. Your calendar has been updated automatically, and the updated invite is attached too.`,
+        ? ctx.hasAttachment === false
+          ? `Your meeting with ${who} has a new time.`
+          : `Your meeting with ${who} has a new time. The updated invite is attached and replaces the old one — no need to delete anything.`
+        : ctx.hasAttachment === false
+          ? `${who} rescheduled. Your calendar has been updated automatically.`
+          : `${who} rescheduled. Your calendar has been updated automatically, and the updated invite is attached too.`,
     rows,
     ctas: manageCtas(ctx, ctx.audience),
     notes: [
