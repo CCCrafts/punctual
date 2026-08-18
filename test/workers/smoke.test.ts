@@ -281,5 +281,9 @@ describe('the public booking page rate-limits by IP', () => {
     const retryAfter = Number(denied?.headers.get('retry-after'))
     expect(retryAfter).toBeGreaterThan(0)
     expect(retryAfter).toBeLessThanOrEqual(60)
-  })
+    // 120+ sequential real fetches (D1 + a DO-backed rate limiter + full
+    // page render each) blew the default 5s test timeout on GitHub's shared
+    // CI runners, well before the retry loop even mattered — this machine
+    // runs the whole file in ~250ms, but that is not a bound CI honors.
+  }, 20_000)
 })
