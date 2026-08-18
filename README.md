@@ -1,5 +1,8 @@
 # Punctual
 
+[![CI](https://github.com/CCCrafts/punctual/actions/workflows/ci.yml/badge.svg)](https://github.com/CCCrafts/punctual/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 **Scheduling that shows up on time.**
 
 Punctual is an open, edge-native scheduler — a full single-team alternative to
@@ -79,7 +82,7 @@ repository — see the pledge.
 ## Development
 
 ```bash
-npm test              # 301 tests
+npm test              # 340 tests
 npm run test:core     # pure domain only — no Workers runtime, runs in ~150ms
 npm run typecheck
 npm run dev
