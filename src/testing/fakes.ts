@@ -94,7 +94,14 @@ export function createFakeRepositories(): FakeRepositories {
     },
     async update(id, patch) {
       const existing = users.get(id)
-      if (existing) users.set(id, { ...existing, ...patch })
+      if (!existing) return true
+      if (patch.slug !== undefined) {
+        for (const u of users.values()) {
+          if (u.id !== id && u.slug === patch.slug) return false
+        }
+      }
+      users.set(id, { ...existing, ...patch })
+      return true
     },
   }
 

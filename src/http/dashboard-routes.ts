@@ -820,8 +820,19 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
         // auth-flows.ts) — checked against the live table, not cached, since a
         // stale check here would surface as a UNIQUE constraint violation
         // instead of a form message.
-        const existing = await repos.users.bySlug(raw)
-        if (existing && existing.id !== user.id) errors['slug'] = 'That slug is already taken'
+        //
+        // Both users AND teams, not just users: `bookingPageContext` resolves
+        // a public booking page by matching the owner slug against EITHER
+        // table (`WHERE u.slug = ? OR t.slug = ?`), so a user slug colliding
+        // with an existing team's slug would make `/that-slug/<event>`
+        // ambiguous between the two — which row a `LIMIT 1` returns is
+        // undefined.
+        const [existingUser, existingTeam] = await Promise.all([
+          repos.users.bySlug(raw),
+          repos.teams.bySlug(raw),
+        ])
+        if (existingUser && existingUser.id !== user.id) errors['slug'] = 'That slug is already taken'
+        else if (existingTeam) errors['slug'] = 'That slug is already taken'
       }
     }
 
@@ -838,7 +849,24 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     // the old slug: the booking-page route resolves purely off the current
     // `users.slug` column.
     if (raw !== user.slug) {
-      await repos.users.update(user.id, { slug: raw })
+      // The check above is read-then-write: two concurrent saves of the same
+      // slug can both pass it before either commits. `update`'s own return
+      // value is the real guard — it reports false if the write lost that
+      // race against the `users_slug_idx` UNIQUE constraint — so that lands
+      // as the same clean form error, never an uncaught 500.
+      const ok = await repos.users.update(user.id, { slug: raw })
+      if (!ok) {
+        return c.html(
+          settingsPage({
+            brandName,
+            user,
+            csrf: c.get('csrf'),
+            slugValue: raw,
+            errors: { slug: 'That slug is already taken' },
+          }),
+          400,
+        )
+      }
       await advanceBookmark(c)
     }
 

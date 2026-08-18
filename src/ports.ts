@@ -71,7 +71,13 @@ export interface UserRepository {
   byEmail(email: string): Promise<User | null>
   bySlug(slug: string): Promise<User | null>
   create(user: Omit<User, 'createdAt'>): Promise<User>
-  update(id: string, patch: Partial<Pick<User, 'name' | 'tz' | 'slug'>>): Promise<void>
+  /**
+   * @returns false if `patch.slug` collided with another row's unique slug —
+   * the caller's own read-then-write check (against users AND teams) closes
+   * most of that window, but not a concurrent write racing the same check.
+   * True for any other patch, including one that changes nothing.
+   */
+  update(id: string, patch: Partial<Pick<User, 'name' | 'tz' | 'slug'>>): Promise<boolean>
 }
 
 export interface EventTypeRepository {

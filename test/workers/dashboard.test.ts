@@ -439,6 +439,8 @@ describe('settings — change slug', () => {
   const TAKEN_HOST_ID = 'usr_taken_slug'
   const OLD_SLUG = 'sluggy-old'
   const TAKEN_SLUG = 'already-taken'
+  const TAKEN_TEAM_ID = 'team_taken_slug'
+  const TAKEN_TEAM_SLUG = 'taken-by-team'
 
   // The public booking page lives in the top-level router, not the dashboard
   // sub-app — proving a slug change actually moves the live page (not just the
@@ -469,6 +471,10 @@ describe('settings — change slug', () => {
     await db
       .prepare('INSERT INTO users (id,email,name,tz,slug,created_at) VALUES (?,?,?,?,?,?)')
       .bind(TAKEN_HOST_ID, 'taken@example.test', 'Taken Host', 'UTC', TAKEN_SLUG, NOW)
+      .run()
+    await db
+      .prepare('INSERT INTO teams (id,name,slug,created_at) VALUES (?,?,?,?)')
+      .bind(TAKEN_TEAM_ID, 'Taken Team', TAKEN_TEAM_SLUG, NOW)
       .run()
   })
 
@@ -514,6 +520,45 @@ describe('settings — change slug', () => {
     const res = await post('/dashboard/settings', { slug: TAKEN_SLUG, csrf }, cookie)
     expect(res.status).toBe(400)
     expect(await res.text()).toContain('already taken')
+
+    const row = await db
+      .prepare('SELECT slug FROM users WHERE id = ?')
+      .bind(SLUG_HOST_ID)
+      .first<{ slug: string }>()
+    expect(row?.slug).toBe(OLD_SLUG)
+  })
+
+  // `bookingPageContext` resolves a public booking page by matching the
+  // owner slug against EITHER users OR teams (`u.slug = ? OR t.slug = ?`), so
+  // a user slug colliding with an existing TEAM's slug would make
+  // `/that-slug/<event>` ambiguous between the two.
+  it('rejects a slug already taken by a team', async () => {
+    await resetSlugHost()
+    const cookie = await seedSession(SLUG_HOST_ID)
+    const csrf = await settingsCsrf(cookie)
+
+    const res = await post('/dashboard/settings', { slug: TAKEN_TEAM_SLUG, csrf }, cookie)
+    expect(res.status).toBe(400)
+    expect(await res.text()).toContain('already taken')
+
+    const row = await db
+      .prepare('SELECT slug FROM users WHERE id = ?')
+      .bind(SLUG_HOST_ID)
+      .first<{ slug: string }>()
+    expect(row?.slug).toBe(OLD_SLUG)
+  })
+
+  // The form's read-then-write check (bySlug) cannot close a race between two
+  // concurrent saves of the same new slug — `UserRepository.update`'s own
+  // return value is the real guard. Exercised directly at the repository
+  // layer, where the race is deterministic to set up: seed a second row
+  // already sitting on the slug the "concurrent" write targets, so the
+  // second `update` call hits the same UNIQUE constraint a true race would.
+  it('UserRepository.update reports false on a slug collision, rather than throwing', async () => {
+    await resetSlugHost()
+    const repos = ports.repositories({ consistency: 'bookmark' })
+    const ok = await repos.users.update(SLUG_HOST_ID, { slug: TAKEN_SLUG })
+    expect(ok).toBe(false)
 
     const row = await db
       .prepare('SELECT slug FROM users WHERE id = ?')

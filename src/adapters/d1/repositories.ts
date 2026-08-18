@@ -112,9 +112,18 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
       if (patch.name !== undefined) (sets.push('name = ?'), binds.push(patch.name))
       if (patch.tz !== undefined) (sets.push('tz = ?'), binds.push(patch.tz))
       if (patch.slug !== undefined) (sets.push('slug = ?'), binds.push(patch.slug))
-      if (sets.length === 0) return
+      if (sets.length === 0) return true
       binds.push(id)
-      await run(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`, ...binds)
+      try {
+        await run(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`, ...binds)
+        return true
+      } catch (err) {
+        // A slug collision losing a race against the caller's own
+        // read-then-write uniqueness check hits `users_slug_idx` here — the
+        // caller turns that into a form error, never an uncaught 500.
+        if (isConstraintViolation(err)) return false
+        throw err
+      }
     },
   }
 
