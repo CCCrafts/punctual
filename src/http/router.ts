@@ -54,11 +54,18 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
         brandName: ports.config.brandName,
         baseUrl: ports.config.baseUrl,
         ...(ports.config.demoBookingPath ? { demoPath: ports.config.demoBookingPath } : {}),
+        ...(ports.config.legalOperator ? { operator: ports.config.legalOperator } : {}),
       }),
     ),
   )
   app.get('/docs', (c) =>
-    c.html(docsIndexPage({ brandName: ports.config.brandName, baseUrl: ports.config.baseUrl })),
+    c.html(
+      docsIndexPage({
+        brandName: ports.config.brandName,
+        baseUrl: ports.config.baseUrl,
+        ...(ports.config.legalOperator ? { operator: ports.config.legalOperator } : {}),
+      }),
+    ),
   )
 
   // Programmatic surfaces. Mounted before the /:userSlug/:eventSlug catch-all

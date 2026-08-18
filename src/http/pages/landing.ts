@@ -23,12 +23,20 @@ export interface LandingPageOptions {
   githubUrl?: string
   /** Path to a real, live booking page used for the "see a booking page" CTA. */
   demoPath?: string
+  /**
+   * The legal entity operating this deployment — same source as /privacy and
+   * /terms (EngineConfig.legalOperator). Unset by default: a self-hosted
+   * deployment run by nobody-in-particular has nothing honest to put here,
+   * so the footer just omits the line rather than naming this repo's owner.
+   */
+  operator?: string
 }
 
 export interface DocsIndexPageOptions {
   brandName: string
   baseUrl: string
   githubUrl?: string
+  operator?: string
 }
 
 const DEFAULT_GITHUB_URL = 'https://github.com/CCCrafts/punctual'
@@ -73,7 +81,7 @@ ${body}
 </body></html>`
 }
 
-function footer(githubUrl: string): string {
+function footer(githubUrl: string, operator?: string): string {
   return `<footer class="pu-landing-footer">
   <nav aria-label="Footer">
     <a href="${escapeHtml(githubUrl)}">GitHub</a>
@@ -84,6 +92,7 @@ function footer(githubUrl: string): string {
   <p class="pu-muted" style="text-align:center;margin:0">
     <a class="pu-mark" href="/">punctual<span>:</span></a> — scheduling that shows up on time
   </p>
+  ${operator ? `<p class="pu-muted" style="text-align:center;margin:.35rem 0 0;font-size:.8125rem">${escapeHtml(operator)}</p>` : ''}
 </footer>`
 }
 
@@ -217,7 +226,7 @@ ${
 
 </main>
 
-${footer(githubUrl)}
+${footer(githubUrl, opts.operator)}
 </div>`
 
   return shell(
@@ -293,7 +302,7 @@ export function docsIndexPage(opts: DocsIndexPageOptions): string {
 
 </main>
 
-${footer(githubUrl)}
+${footer(githubUrl, opts.operator)}
 </div>`
 
   return shell(
