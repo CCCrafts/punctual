@@ -11,6 +11,7 @@ import { env } from 'cloudflare:test'
 import { beforeAll, describe, expect, it } from 'vitest'
 
 import { buildDashboardRoutes } from '../../src/http/dashboard-routes.js'
+import { buildRouter } from '../../src/http/router.js'
 import { createD1Repositories } from '../../src/adapters/d1/repositories.js'
 import { createWebCrypto } from '../../src/adapters/crypto/webcrypto.js'
 import { issueManageToken } from '../../src/core/domain/auth-flows.js'
@@ -429,5 +430,150 @@ describe('connections save', () => {
     expect(row?.['provider_account_email']).toBe(HOST_EMAIL)
     expect(row?.['sync_status']).toBe('ok')
     expect(row?.['created_at']).toBe(NOW)
+  })
+})
+
+describe('settings — change slug', () => {
+  const SLUG_HOST_ID = 'usr_slug_host'
+  const SLUG_EVENT_ID = 'evt_slug_host'
+  const TAKEN_HOST_ID = 'usr_taken_slug'
+  const OLD_SLUG = 'sluggy-old'
+  const TAKEN_SLUG = 'already-taken'
+
+  // The public booking page lives in the top-level router, not the dashboard
+  // sub-app — proving a slug change actually moves the live page (not just the
+  // DB row) needs the real `/:userSlug/:eventSlug` route, which only
+  // `buildRouter` mounts. Same `ports`/`slots` as every other test in this
+  // file, so it shares the fake rate limiter and the real D1 behind them.
+  const publicApp = buildRouter(ports, slots)
+  async function getPublic(path: string): Promise<Response> {
+    return publicApp.fetch(new Request(`${BASE}${path}`))
+  }
+
+  beforeAll(async () => {
+    await db
+      .prepare('INSERT INTO users (id,email,name,tz,slug,created_at) VALUES (?,?,?,?,?,?)')
+      .bind(SLUG_HOST_ID, 'sluggy@example.test', 'Sluggy Host', 'UTC', OLD_SLUG, NOW)
+      .run()
+    await db
+      .prepare(
+        `INSERT INTO event_types
+         (id,owner_user_id,owner_team_id,scheduling_type,slug,title,description,duration_minutes,
+          slot_interval_minutes,buffer_before_minutes,buffer_after_minutes,min_notice_minutes,
+          max_horizon_days,max_per_day,location_type,location_value,questions_json,active,created_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      )
+      .bind(SLUG_EVENT_ID, SLUG_HOST_ID, null, 'personal', 'chat', 'Chat with Sluggy', '', 30, null, 0, 0, 0,
+        60, null, 'google_meet', null, '[]', 1, NOW)
+      .run()
+    await db
+      .prepare('INSERT INTO users (id,email,name,tz,slug,created_at) VALUES (?,?,?,?,?,?)')
+      .bind(TAKEN_HOST_ID, 'taken@example.test', 'Taken Host', 'UTC', TAKEN_SLUG, NOW)
+      .run()
+  })
+
+  /** Every test starts from the same known row, so order never matters. */
+  async function resetSlugHost(): Promise<void> {
+    await db.prepare('UPDATE users SET slug = ? WHERE id = ?').bind(OLD_SLUG, SLUG_HOST_ID).run()
+  }
+
+  async function settingsCsrf(cookie: string): Promise<string> {
+    const page = await get('/dashboard/settings', cookie)
+    return /name="csrf" value="([^"]+)"/.exec(await page.text())?.[1] ?? ''
+  }
+
+  it('shows the current slug', async () => {
+    await resetSlugHost()
+    const cookie = await seedSession(SLUG_HOST_ID)
+    const res = await get('/dashboard/settings', cookie)
+    expect(res.status).toBe(200)
+    expect(await res.text()).toContain(OLD_SLUG)
+  })
+
+  it('changes to a valid new slug and persists it', async () => {
+    await resetSlugHost()
+    const cookie = await seedSession(SLUG_HOST_ID)
+    const csrf = await settingsCsrf(cookie)
+
+    const res = await post('/dashboard/settings', { slug: 'sluggy-new', csrf }, cookie)
+    expect(res.status).toBe(200)
+    expect(await res.text()).toContain('Slug updated')
+
+    const row = await db
+      .prepare('SELECT slug FROM users WHERE id = ?')
+      .bind(SLUG_HOST_ID)
+      .first<{ slug: string }>()
+    expect(row?.slug).toBe('sluggy-new')
+  })
+
+  it('rejects a slug already taken by another user, leaving the row unchanged', async () => {
+    await resetSlugHost()
+    const cookie = await seedSession(SLUG_HOST_ID)
+    const csrf = await settingsCsrf(cookie)
+
+    const res = await post('/dashboard/settings', { slug: TAKEN_SLUG, csrf }, cookie)
+    expect(res.status).toBe(400)
+    expect(await res.text()).toContain('already taken')
+
+    const row = await db
+      .prepare('SELECT slug FROM users WHERE id = ?')
+      .bind(SLUG_HOST_ID)
+      .first<{ slug: string }>()
+    expect(row?.slug).toBe(OLD_SLUG)
+  })
+
+  it('rejects a reserved word', async () => {
+    await resetSlugHost()
+    const cookie = await seedSession(SLUG_HOST_ID)
+    const csrf = await settingsCsrf(cookie)
+
+    const res = await post('/dashboard/settings', { slug: 'dashboard', csrf }, cookie)
+    expect(res.status).toBe(400)
+    expect(await res.text()).toContain('reserved')
+
+    const row = await db
+      .prepare('SELECT slug FROM users WHERE id = ?')
+      .bind(SLUG_HOST_ID)
+      .first<{ slug: string }>()
+    expect(row?.slug).toBe(OLD_SLUG)
+  })
+
+  it.each([
+    ['uppercase', 'SluggyNew'],
+    ['spaces', 'sluggy new'],
+    ['symbols', 'sluggy_new!'],
+  ])('rejects a malformed slug (%s)', async (_label, bad) => {
+    await resetSlugHost()
+    const cookie = await seedSession(SLUG_HOST_ID)
+    const csrf = await settingsCsrf(cookie)
+
+    const res = await post('/dashboard/settings', { slug: bad, csrf }, cookie)
+    expect(res.status).toBe(400)
+
+    const row = await db
+      .prepare('SELECT slug FROM users WHERE id = ?')
+      .bind(SLUG_HOST_ID)
+      .first<{ slug: string }>()
+    expect(row?.slug).toBe(OLD_SLUG)
+  })
+
+  it('moves the live booking page: the old slug 404s, the new one resolves', async () => {
+    await resetSlugHost()
+    const cookie = await seedSession(SLUG_HOST_ID)
+    const csrf = await settingsCsrf(cookie)
+
+    const before = await getPublic(`/${OLD_SLUG}/chat`)
+    expect(before.status).toBe(200)
+    expect(await before.text()).toContain('Chat with Sluggy')
+
+    const res = await post('/dashboard/settings', { slug: 'sluggy-new', csrf }, cookie)
+    expect(res.status).toBe(200)
+
+    const stale = await getPublic(`/${OLD_SLUG}/chat`)
+    expect(stale.status).toBe(404)
+
+    const fresh = await getPublic('/sluggy-new/chat')
+    expect(fresh.status).toBe(200)
+    expect(await fresh.text()).toContain('Chat with Sluggy')
   })
 })

@@ -48,13 +48,14 @@ import { escapeHtml, shellFoot, shellHead } from './booking.js'
 /** Form field carrying the double-submit token. Routes read the same name. */
 export const CSRF_FIELD = 'csrf'
 
-export type NavKey = 'events' | 'availability' | 'connections' | 'keys'
+export type NavKey = 'events' | 'availability' | 'connections' | 'keys' | 'settings'
 
 const NAV: ReadonlyArray<{ key: NavKey; href: string; label: string }> = [
   { key: 'events', href: '/dashboard', label: 'Event types' },
   { key: 'availability', href: '/dashboard/availability', label: 'Availability' },
   { key: 'connections', href: '/dashboard/connections', label: 'Calendars' },
   { key: 'keys', href: '/dashboard/api-keys', label: 'API keys' },
+  { key: 'settings', href: '/dashboard/settings', label: 'Settings' },
 ]
 
 /** Common shape of every authenticated page. */
@@ -765,6 +766,59 @@ function apiKeyRow(d: ApiKeysPageData, k: ApiKey): string {
                   style="padding:.4rem .8rem;font-size:.875rem">Revoke</button>
         </form>
       </li>`
+}
+
+// ---------------------------------------------------------------------------
+// Settings — the host's own slug
+// ---------------------------------------------------------------------------
+
+export interface SettingsPageData extends DashboardChrome {
+  /**
+   * What the slug field shows. Defaults to the current slug. Set to the raw
+   * typed value on a failed submit, same reasoning as `readEventTypeForm`:
+   * discarding a bad value here would silently clear the field the host needs
+   * to fix.
+   */
+  slugValue?: string
+  errors?: Record<string, string>
+  notice?: string
+}
+
+export function settingsPage(d: SettingsPageData): string {
+  const errors = d.errors ?? {}
+  const slugValue = d.slugValue ?? d.user.slug
+
+  return (
+    shellTop(d, 'Settings', 'settings') +
+    (d.notice ? notice(d.notice) : '') +
+    `<section class="pu-card" aria-label="Account settings">
+  <h1>Settings</h1>
+  <h2>Your booking page slug</h2>
+  <p class="pu-muted">Every one of your event types is published at
+    <code>/${escapeHtml(d.user.slug)}/&lt;event&gt;</code>. Changing your slug moves the address of
+    <strong>every</strong> event type at once.</p>
+  <div role="alert" style="margin:.75rem 0">
+    <p class="pu-err" style="font-size:.9375rem">
+      Any link or QR code you have already shared &mdash; in an email signature, on a website, on a printed
+      flyer &mdash; will stop working the moment you save. There is no redirect from
+      <code>${escapeHtml(d.user.slug)}</code> to the new slug: a guest who kept the old link lands on a
+      &ldquo;not found&rdquo; page. Update every place you have posted your link, before or right after you
+      change it.</p>
+  </div>
+  <form method="post" action="/dashboard/settings">
+    ${csrfField(d.csrf)}
+    <label for="slug">Slug</label>
+    <input id="slug" name="slug" required aria-required="true" maxlength="40" pattern="[a-z0-9-]+"
+           value="${escapeHtml(slugValue)}"${describedBy('slug', errors)}>
+    <p class="pu-muted" style="font-size:.8125rem;margin:.25rem 0 0">
+      Lowercase letters, numbers and hyphens only, 2&ndash;40 characters. It becomes the first part of
+      every one of your booking links: /&lt;slug&gt;/&lt;event&gt;.</p>
+    ${fieldError('slug', errors)}
+    <div style="margin-top:1.25rem"><button class="pu-btn" type="submit">Save slug</button></div>
+  </form>
+</section>` +
+    shellBottom(d.brandName)
+  )
 }
 
 // ---------------------------------------------------------------------------

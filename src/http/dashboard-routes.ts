@@ -68,6 +68,7 @@ import {
 import { OAUTH_ENDPOINTS, scopesFor, type OAuthPurpose } from '../adapters/oauth.js'
 import { dayRange } from '../engine.js'
 import { isValidTimeZone, localDateString } from '../core/time/zone.js'
+import { validateSlug } from '../core/domain/slugs.js'
 import { errorPage, shellFoot, shellHead } from './pages/booking.js'
 import {
   CSRF_FIELD,
@@ -82,6 +83,7 @@ import {
   parseOverrides,
   parseQuestions,
   parseWindows,
+  settingsPage,
   slugify,
   type ConnectionView,
   type UpcomingBooking,
@@ -783,6 +785,71 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     await repos.apiKeys.delete(id)
     await advanceBookmark(c)
     return c.redirect('/dashboard/api-keys', 302)
+  })
+
+  // ===========================================================================
+  // Dashboard — settings (the host's own slug)
+  // ===========================================================================
+
+  app.get('/dashboard/settings', requireSession, (c) =>
+    c.html(settingsPage({ brandName, user: c.get('user'), csrf: c.get('csrf') })),
+  )
+
+  app.post('/dashboard/settings', requireSession, async (c) => {
+    const form = await c.req.formData()
+    if (!(await csrfOk(c, form))) return csrfRejected(c)
+
+    const user = c.get('user')
+    const repos = c.get('repos')
+    const raw = String(form.get('slug') ?? '').trim()
+    const errors: Record<string, string> = {}
+
+    // `validateSlug` lowercases before checking format, so on its own it would
+    // silently accept "Mixed-Case" as if it were "mixed-case". A slug is a URL
+    // segment a host reads aloud and types from memory (same reasoning as
+    // `validateSlug`'s own docstring), so a case difference must be refused,
+    // not folded away — hence the equality check ahead of it.
+    if (raw !== raw.toLowerCase()) {
+      errors['slug'] = 'Lowercase letters, numbers and hyphens only'
+    } else {
+      const validation = validateSlug(raw)
+      if (!validation.ok) {
+        errors['slug'] = validation.message ?? 'Not a valid slug'
+      } else {
+        // The same namespace signup allocation checks (uniqueSlug in
+        // auth-flows.ts) — checked against the live table, not cached, since a
+        // stale check here would surface as a UNIQUE constraint violation
+        // instead of a form message.
+        const existing = await repos.users.bySlug(raw)
+        if (existing && existing.id !== user.id) errors['slug'] = 'That slug is already taken'
+      }
+    }
+
+    if (Object.keys(errors).length > 0) {
+      return c.html(
+        settingsPage({ brandName, user, csrf: c.get('csrf'), slugValue: raw, errors }),
+        400,
+      )
+    }
+
+    // A user's slug is the FIRST path segment of every one of their booking
+    // pages, so changing it moves every existing link and QR code at once —
+    // the warning on the form says so. There is deliberately no redirect from
+    // the old slug: the booking-page route resolves purely off the current
+    // `users.slug` column.
+    if (raw !== user.slug) {
+      await repos.users.update(user.id, { slug: raw })
+      await advanceBookmark(c)
+    }
+
+    return c.html(
+      settingsPage({
+        brandName,
+        user: { ...user, slug: raw },
+        csrf: c.get('csrf'),
+        notice: 'Slug updated. Links using the old address now show "not found".',
+      }),
+    )
   })
 
   // ===========================================================================
