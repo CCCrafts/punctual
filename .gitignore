@@ -12,5 +12,8 @@ node_modules/
 dist/
 .wrangler/
 
+# Agent worktrees (local orchestration scratch, not project content)
+.claude/worktrees/
+
 # OS / editor
 .DS_Store
