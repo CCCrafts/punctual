@@ -90,10 +90,29 @@ screen shows an "unverified app" warning; for an internal team that is fine.
 ### Microsoft
 
 1. In [Entra ID → App registrations](https://entra.microsoft.com/), register an
-   application.
-2. Add the redirect URI `https://<your-worker-url>/auth/microsoft/callback`.
-3. Grant delegated Graph permissions: `Calendars.ReadWrite`,
-   `offline_access`, `User.Read`.
+   application. Under **Supported account types**, pick "Accounts in any
+   organizational directory and personal Microsoft accounts" — the narrower
+   single-tenant option only lets people inside your own 365 tenant connect,
+   which locks out any guest or teammate on a different tenant or a personal
+   Outlook.com account.
+2. Entra's registration screen only accepts one redirect URI, and rejects one
+   with a query string ("URL may not contain a query string") — a limit that
+   also applies later, on the **Authentication** blade, unlike Google. So:
+   register with a bare URI first, `https://<your-worker-url>/auth/microsoft/callback`,
+   then go to **Authentication** → **Add URI** and add both real ones (path
+   segments, not query params — this is the one place Microsoft's redirect
+   URI shape differs from Google's):
+   ```
+   https://<your-worker-url>/auth/microsoft/callback/identity
+   https://<your-worker-url>/auth/microsoft/callback/calendar
+   ```
+   Remove the bare placeholder once both are in. Also on this blade: enable
+   **ID tokens** under "Implicit grant and hybrid flows" — the identity flow
+   needs it.
+3. Grant delegated Graph permissions (**API permissions** → Add a permission
+   → Microsoft Graph → Delegated): `openid`, `email`, `profile` (usually
+   already present), `offline_access`, `Calendars.ReadWrite`. No admin
+   consent needed — these are all per-user delegated grants.
 4. Set `MICROSOFT_CLIENT_ID` and `MICROSOFT_CLIENT_SECRET` the same way.
 
 ## 6. Email (optional, but you want it)

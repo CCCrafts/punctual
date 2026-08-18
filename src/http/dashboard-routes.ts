@@ -337,9 +337,15 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     return c.redirect(url.toString(), 302)
   })
 
-  app.get('/auth/:provider/callback', async (c) => {
+  // Two registrations, one handler: Google's redirect URI carries `purpose`
+  // as a query string; Microsoft's Entra app registration rejects a query
+  // string on any redirect URI, so Microsoft's carries it as a path segment
+  // instead (see `redirectUri` in oauth.ts). Whichever one is present wins —
+  // a request only ever has one, since a provider echoes back exactly the
+  // redirect_uri we registered and sent.
+  const oauthCallback = async (c: Ctx): Promise<Response> => {
     const provider = validProvider(c.req.param('provider'))
-    const purpose = validPurpose(c.req.query('purpose'))
+    const purpose = validPurpose(c.req.param('purpose') ?? c.req.query('purpose'))
     if (!provider || !purpose) return oauthError(c, 'Unknown sign-in method.')
 
     // The provider reports a refused consent screen here; it is a normal
@@ -363,7 +369,9 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     return purpose === 'identity'
       ? completeIdentity(c, tokens)
       : completeCalendarConnect(c, provider, tokens)
-  })
+  }
+  app.get('/auth/:provider/callback', oauthCallback)
+  app.get('/auth/:provider/callback/:purpose', oauthCallback)
 
   /**
    * Finish an identity sign-in.

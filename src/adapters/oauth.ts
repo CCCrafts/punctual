@@ -124,7 +124,18 @@ export function createEnvOAuthCredentials(env: OAuthEnv, baseUrl: string): OAuth
       // `purpose` is part of the registered URI, not just state: the two flows
       // land on different handlers (session vs. connection) and must not be
       // interchangeable even if an authorization code leaks between them.
-      return `${origin}/auth/${name}/callback?purpose=${purpose}`
+      //
+      // Google accepts a query string on a registered Web redirect URI.
+      // Microsoft's Entra app registration rejects ANY redirect URI carrying
+      // one — "URL may not contain a query string" — both at initial
+      // registration and when adding one afterward from the Authentication
+      // blade. So Microsoft gets `purpose` as a path segment instead. Both
+      // shapes keep the same security property: each purpose is still its
+      // own distinct, exactly-registered URI, so a code obtained for one
+      // purpose can never be exchanged against the other's endpoint.
+      return name === 'microsoft'
+        ? `${origin}/auth/${name}/callback/${purpose}`
+        : `${origin}/auth/${name}/callback?purpose=${purpose}`
     },
   }
 }

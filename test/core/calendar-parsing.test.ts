@@ -348,7 +348,12 @@ describe('createEnvOAuthCredentials', () => {
   it('separates identity and calendar redirect URIs (ADR-0005 §1)', () => {
     const creds = createEnvOAuthCredentials({}, 'https://book.example')
     expect(creds.redirectUri('google', 'identity')).toBe('https://book.example/auth/google/callback?purpose=identity')
-    expect(creds.redirectUri('microsoft', 'calendar')).toBe('https://book.example/auth/microsoft/callback?purpose=calendar')
+    expect(creds.redirectUri('google', 'calendar')).toBe('https://book.example/auth/google/callback?purpose=calendar')
+    // Microsoft's Entra app registration rejects a query string on any
+    // registered redirect URI — purpose is a path segment there instead,
+    // but still its own distinct, exactly-registered URI per purpose.
+    expect(creds.redirectUri('microsoft', 'identity')).toBe('https://book.example/auth/microsoft/callback/identity')
+    expect(creds.redirectUri('microsoft', 'calendar')).toBe('https://book.example/auth/microsoft/callback/calendar')
   })
 
   it('tolerates a trailing slash on baseUrl', () => {
