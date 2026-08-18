@@ -126,12 +126,8 @@ time,.pu-time{font-family:var(--pu-font-mono);font-variant-numeric:tabular-nums}
   font:inherit;font-family:var(--pu-font-mono);font-size:.9375rem;cursor:pointer;
   color:var(--pu-ink-950);text-decoration:none;transition:all .12s ease}
 .pu-day[data-has-slots="1"]{background:var(--pu-green-tint);color:var(--pu-green-700);font-weight:700}
-.pu-day[data-has-slots="1"]::after{content:"";position:absolute;bottom:6px;left:50%;
-  width:4px;height:4px;border-radius:99px;background:currentColor;transform:translateX(-50%)}
 .pu-day[aria-disabled="true"]{color:var(--pu-ink-500);opacity:.45;cursor:default}
 .pu-day[aria-current="date"]{box-shadow:inset 0 0 0 2px var(--pu-green-700);font-weight:700}
-.pu-day[aria-current="date"]::before{content:"";position:absolute;top:5px;left:50%;
-  width:12px;height:2px;border-radius:1px;background:currentColor;opacity:.9;transform:translateX(-50%)}
 .pu-day:hover[data-has-slots="1"]{background:var(--pu-green-700);color:var(--pu-paper);transform:translateY(-1px)}
 .pu-day:focus-visible,.pu-slot:focus-visible,.pu-btn:focus-visible{
   outline:2px solid var(--pu-green-700);outline-offset:2px}
