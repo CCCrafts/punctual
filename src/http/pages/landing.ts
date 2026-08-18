@@ -34,7 +34,10 @@ export interface DocsIndexPageOptions {
 const DEFAULT_GITHUB_URL = 'https://github.com/CCCrafts/punctual'
 const DEFAULT_DEMO_PATH = '/serge/30min'
 
-function shell(opts: { title: string; description: string }, body: string): string {
+function shell(opts: { title: string; description: string; baseUrl: string; path?: string }, body: string): string {
+  const origin = opts.baseUrl.replace(/\/$/, '')
+  const url = `${origin}${opts.path ?? ''}`
+  const image = `${origin}/og/default.png`
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -45,6 +48,23 @@ function shell(opts: { title: string; description: string }, body: string): stri
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#0E7C4C">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="canonical" href="${escapeHtml(url)}">
+<!-- Open Graph / Twitter: one shared brand card for now — a booking page's
+     own title/description still varies per host and event type (see
+     pages/booking.ts), only the image is shared until per-page OG images
+     exist. -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Punctual">
+<meta property="og:url" content="${escapeHtml(url)}">
+<meta property="og:title" content="${escapeHtml(opts.title)}">
+<meta property="og:description" content="${escapeHtml(opts.description)}">
+<meta property="og:image" content="${escapeHtml(image)}">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="${escapeHtml(opts.title)}">
+<meta name="twitter:description" content="${escapeHtml(opts.description)}">
+<meta name="twitter:image" content="${escapeHtml(image)}">
 <link rel="preload" href="/fonts/ibmplexmono-600.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/schibstedgrotesk-600.woff2" as="font" type="font/woff2" crossorigin>
 <style>${pageCss()}${LANDING_CSS}</style>
@@ -72,13 +92,16 @@ export function landingPage(opts: LandingPageOptions): string {
   const githubUrl = opts.githubUrl ?? DEFAULT_GITHUB_URL
   const demoPath = opts.demoPath ?? DEFAULT_DEMO_PATH
   const example = `${opts.baseUrl.replace(/\/$/, '')}/you/intro`
+  // `demoPath` is always "/{userSlug}/{eventSlug}" — split once rather than
+  // hardcoding the demo identity twice (here and in DEFAULT_DEMO_PATH).
+  const [, demoUser = '', demoEvent = ''] = demoPath.split('/')
 
   const body = `<div class="pu-landing">
 <header class="pu-hero">
   <p class="pu-mark">punctual<span>:</span></p>
   <h1>Scheduling that shows up on time</h1>
   <p class="pu-hero-lede">An open, edge-native scheduler — a full single-team alternative to
-    Calendly that runs entirely on Cloudflare Workers.</p>
+    Calendly, teams and round-robin included, that runs entirely on Cloudflare Workers.</p>
   <div class="pu-hero-cta">
     <a class="pu-btn" href="${escapeHtml(githubUrl)}">Star on GitHub</a>
     <a class="pu-btn pu-btn-ghost" href="${escapeHtml(demoPath)}">See a booking page</a>
@@ -86,6 +109,18 @@ export function landingPage(opts: LandingPageOptions): string {
 </header>
 
 <main>
+
+<section aria-label="Live demo" class="pu-live-demo">
+  <div class="pu-section-head">
+    <h2>This is the actual product</h2>
+    <p class="pu-muted">Not a screenshot — a real booking page, embedded with the same
+      <code class="pu-time">&lt;script&gt;</code> tag anyone can drop into their own site.
+      Pick a time; nothing about this demo is staged.</p>
+  </div>
+  <div class="pu-card pu-embed-frame">
+    <script src="/embed.js" data-user="${escapeHtml(demoUser)}" data-event="${escapeHtml(demoEvent)}" data-height="560"></script>
+  </div>
+</section>
 
 <section class="pu-card pu-pledge" aria-label="The pledge">
   <h2>The pledge</h2>
@@ -184,6 +219,8 @@ ${footer(githubUrl)}
       title: `${opts.brandName} — scheduling that shows up on time`,
       description:
         'Open, edge-native scheduling on Cloudflare Workers. Self-host for $0, MIT licensed, with a built-in MCP server for AI agents.',
+      baseUrl: opts.baseUrl,
+      path: '/',
     },
     body,
   )
@@ -257,6 +294,8 @@ ${footer(githubUrl)}
     {
       title: `Documentation · ${opts.brandName}`,
       description: 'Self-hosting guide, REST API and MCP server overview for Punctual.',
+      baseUrl: opts.baseUrl,
+      path: '/docs',
     },
     body,
   )

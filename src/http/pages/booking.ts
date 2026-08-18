@@ -34,6 +34,17 @@ export interface PageChrome {
   description?: string
   brandName: string
   themeColor?: string
+  /**
+   * Open Graph / Twitter card. Deliberately opt-in, not automatic: a
+   * dashboard or guest-manage page carries a session or a guest's own manage
+   * token in its URL, and neither should ever be the thing a chat app
+   * unfurls a preview for. Only the public booking page passes this.
+   *
+   * `image` is required, not defaulted, because OG crawlers need an absolute
+   * URL and this module has no `baseUrl` of its own to build one from — the
+   * caller already has it.
+   */
+  og?: { url: string; image: string }
 }
 
 /**
@@ -50,6 +61,22 @@ ${chrome.description ? `<meta name="description" content="${escapeHtml(chrome.de
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="${chrome.themeColor ?? '#0E7C4C'}">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+${
+  chrome.og
+    ? `<meta property="og:type" content="website">
+<meta property="og:site_name" content="${escapeHtml(chrome.brandName)}">
+<meta property="og:url" content="${escapeHtml(chrome.og.url)}">
+<meta property="og:title" content="${escapeHtml(chrome.title)}">
+${chrome.description ? `<meta property="og:description" content="${escapeHtml(chrome.description)}">` : ''}
+<meta property="og:image" content="${escapeHtml(chrome.og.image)}">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="${escapeHtml(chrome.title)}">
+${chrome.description ? `<meta name="twitter:description" content="${escapeHtml(chrome.description)}">` : ''}
+<meta name="twitter:image" content="${escapeHtml(chrome.og.image)}">`
+    : ''
+}
 <link rel="preload" href="/fonts/ibmplexmono-600.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/schibstedgrotesk-600.woff2" as="font" type="font/woff2" crossorigin>
 <style>${pageCss()}</style>

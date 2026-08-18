@@ -249,6 +249,10 @@ export const LANDING_CSS = `
 .pu-pledge h2{color:var(--pu-green-800)}
 .pu-pledge p{font-size:1.125rem;max-width:40rem;margin:0 auto;color:var(--pu-ink-950)}
 
+.pu-live-demo{margin-top:2.5rem}
+.pu-embed-frame{max-width:560px;margin:0 auto;padding:.75rem}
+.pu-embed-frame iframe{border-radius:calc(var(--pu-radius-lg) - .5rem)}
+
 .pu-feature-grid{display:grid;gap:1rem;grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
 .pu-feature-grid .pu-stat{display:block;font-family:var(--pu-font-mono);font-weight:700;
   color:var(--pu-green-700);font-size:1.125rem;margin-bottom:.35rem}

@@ -152,6 +152,14 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
         title: `${eventType.title} · ${host.name || host.slug}`,
         description: eventType.description || undefined,
         brandName: ports.config.brandName,
+        // The one link that's actually meant to be shared — a host posts it
+        // in an email signature or a chat app, so it's the one page in the
+        // whole engine worth unfurling. The image is the shared brand card
+        // for now; a per-host/event image is real future work, not this pass.
+        og: {
+          url: `${ports.config.baseUrl.replace(/\/$/, '')}/${userSlug}/${eventSlug}`,
+          image: `${ports.config.baseUrl.replace(/\/$/, '')}/og/default.png`,
+        },
       }) + eventHeader(headerData)
 
     return streamPage(head, async () => {
