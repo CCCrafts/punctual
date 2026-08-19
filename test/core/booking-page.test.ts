@@ -71,6 +71,19 @@ describe('eventHeader host identity', () => {
     expect(html).not.toContain('<script>')
     expect(html).toContain('&lt;script&gt;')
   })
+
+  it('never shows a company on a team-owned event — "host" there is one representative member, not the team', () => {
+    const kicker = kickerText(
+      eventHeader(
+        pageData({
+          host: { ...host, company: 'Acme Inc' },
+          eventType: { ...eventType, ownerUserId: null, ownerTeamId: 'team_1', schedulingType: 'round_robin' },
+        }),
+      ),
+    )
+    expect(kicker.endsWith('Grace Hopper')).toBe(true)
+    expect(kicker).not.toContain('Acme Inc')
+  })
 })
 
 /**

@@ -157,10 +157,16 @@ export function avatarHtml(opts: { key: string | null; name: string; size?: numb
 export function eventHeader(d: BookingPageData): string {
   const durationLabel = `${d.eventType.durationMinutes} min`
   const location = locationLabel(d.eventType)
+  // A team-owned event's `host` is one representative member picked by
+  // `bookingPageContext` for display purposes (see that function's own
+  // comment) — real, but not "the" host of a round-robin/collective event.
+  // Their company is personal to them, not the team, so it only ever
+  // renders for a personal event type, where `host` really is the host.
+  const company = d.eventType.ownerTeamId === null ? d.host.company : null
   return `<header class="pu-event-header">
   <p class="pu-kicker" style="display:flex;align-items:center;gap:.5rem">
     ${avatarHtml({ key: d.host.avatarKey, name: d.host.name || d.host.slug, size: 28 })}
-    ${escapeHtml(d.host.name || d.host.slug)}${d.host.company ? `, ${escapeHtml(d.host.company)}` : ''}
+    ${escapeHtml(d.host.name || d.host.slug)}${company ? `, ${escapeHtml(company)}` : ''}
   </p>
   <h1>${escapeHtml(d.eventType.title)}</h1>
   ${d.eventType.description ? `<p class="pu-muted">${escapeHtml(d.eventType.description)}</p>` : ''}
