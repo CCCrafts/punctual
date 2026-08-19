@@ -13,6 +13,7 @@ import { createEngine } from './engine.js'
 import { createD1Repositories } from './adapters/d1/repositories.js'
 import { createWebCrypto } from './adapters/crypto/webcrypto.js'
 import { createKvCache } from './adapters/cache/kv.js'
+import { createKvBlobCache } from './adapters/cache/kv-blob.js'
 import { createBrevoSender, createConsoleSender, createResendSender } from './adapters/email/index.js'
 import { createEnvOAuthCredentials } from './adapters/oauth.js'
 import { createCalendarProviders } from './adapters/providers.js'
@@ -70,6 +71,7 @@ export function buildPorts(env: Env): EnginePorts {
 
   const oauth = createEnvOAuthCredentials(env, baseUrl)
   const cache = createKvCache(env.CACHE)
+  const blobCache = createKvBlobCache(env.CACHE)
   const clock = { now: () => Date.now() }
 
   const repositories = (scope: RequestScope) => createD1Repositories(env.DB, scope)
@@ -123,6 +125,7 @@ export function buildPorts(env: Env): EnginePorts {
     email,
     crypto: crypto_,
     cache,
+    blobCache,
     clock,
     queue,
     rateLimiter,

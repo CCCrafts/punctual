@@ -27,6 +27,7 @@ import {
 } from '../../src/testing/fakes.js'
 import type { SlotService } from '../../src/engine.js'
 import type {
+  BlobCache,
   Cache as CachePort,
   CalendarProviders,
   EnginePorts,
@@ -82,6 +83,13 @@ const cache: CachePort = {
   async delete() {},
 }
 
+const blobCache: BlobCache = {
+  async get() {
+    return null
+  },
+  async put() {},
+}
+
 const queue: QueuePort = {
   async send() {},
   async sendBatch() {},
@@ -105,6 +113,7 @@ const ports: EnginePorts = {
   email,
   crypto: crypto_,
   cache,
+  blobCache,
   clock: { now: () => Date.now() },
   queue,
   coordinator,

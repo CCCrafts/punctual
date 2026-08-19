@@ -377,6 +377,24 @@ export interface Cache {
   delete(key: string): Promise<void>
 }
 
+/**
+ * Non-authoritative BINARY derived content — currently only rendered OG card
+ * PNGs (CCC-496). Same trust category as `Cache` above (advisory, staleness
+ * of an hour is fine, never a source of truth) and the same physical KV
+ * namespace in the default adapter, but a separate port because the values
+ * are raw bytes, not JSON: round-tripping a PNG through `Cache.put` would
+ * JSON-encode it byte-by-byte, several times the size for no reason.
+ *
+ * Still bound by ADR-0006 §1's actual rule: bookings and holds never go
+ * through KV in any form. This port cannot be given booking data, but it
+ * exists precisely because "freeBusy only" was never about banning KV from
+ * holding a SECOND kind of disposable, re-derivable content.
+ */
+export interface BlobCache {
+  get(key: string): Promise<Uint8Array | null>
+  put(key: string, value: Uint8Array, ttlSeconds: number): Promise<void>
+}
+
 // ---------------------------------------------------------------------------
 // Clock
 // ---------------------------------------------------------------------------
@@ -521,6 +539,7 @@ export interface EnginePorts {
   email: EmailSender
   crypto: Crypto
   cache: Cache
+  blobCache: BlobCache
   clock: Clock
   queue: QueuePort
   coordinator: HostCoordinator

@@ -25,9 +25,11 @@ database_name = "punctual"
 database_id = "0e4a644c-0d59-42a2-b438-e83aa85b2996"
 migrations_dir = "migrations"
 
-# freeBusy cache ONLY (ADR-0006 §1). Own bookings and holds are always read
-# from D1 — KV propagates in "up to 60 seconds or more", which is unacceptable
-# for the writes users check immediately.
+# freeBusy cache (ADR-0006 §1) AND rendered OG card PNGs (CCC-496) — two key
+# prefixes (`fb:`, `og:`) on one namespace, both non-authoritative and
+# re-derivable. Own bookings and holds are never stored here in either form —
+# KV propagates in "up to 60 seconds or more", which is unacceptable for the
+# writes users check immediately.
 [[kv_namespaces]]
 binding = "CACHE"
 id = "fd1bb2cb37b942b480a8e80dc169a8df"

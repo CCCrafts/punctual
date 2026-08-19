@@ -17,6 +17,7 @@ import { buildApiRoutes } from './api/rest.js'
 import { buildMcpRoutes } from './mcp/server.js'
 import { buildEmbedRoutes } from './embed.js'
 import { buildDashboardRoutes } from './dashboard-routes.js'
+import { buildOgRoutes } from './og/route.js'
 import { privacyPage, termsPage } from './pages/legal.js'
 import { calendlyAlternativePage, landingPage } from './pages/landing.js'
 import { docsApiPage, docsIndexPage, docsMcpPage, docsSelfHostingPage } from './pages/docs.js'
@@ -155,6 +156,11 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
     }),
   )
 
+  // /og/:userSlug/:eventSlug.png (CCC-496). Three path segments, so it never
+  // collides with the two-segment catch-all below regardless of mount order —
+  // registered here anyway for the same reason as everything else above it.
+  app.route('/', buildOgRoutes(ports))
+
   // -------------------------------------------------------------------------
   // Booking page: /:userSlug/:eventSlug
   // -------------------------------------------------------------------------
@@ -212,11 +218,12 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
         brandName: ports.config.brandName,
         // The one link that's actually meant to be shared — a host posts it
         // in an email signature or a chat app, so it's the one page in the
-        // whole engine worth unfurling. The image is the shared brand card
-        // for now; a per-host/event image is real future work, not this pass.
+        // whole engine worth unfurling. /og/:userSlug/:eventSlug.png (CCC-496)
+        // renders "Book N min with {host}" on first hit and falls back to the
+        // static default card on any failure — see src/http/og/route.ts.
         og: {
           url: `${ports.config.baseUrl.replace(/\/$/, '')}/${userSlug}/${eventSlug}`,
-          image: `${ports.config.baseUrl.replace(/\/$/, '')}/og/default.png`,
+          image: `${ports.config.baseUrl.replace(/\/$/, '')}/og/${userSlug}/${eventSlug}.png`,
         },
       }) + eventHeader(headerData)
 
