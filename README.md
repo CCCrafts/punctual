@@ -16,8 +16,8 @@ Calendly that runs entirely on Cloudflare Workers. Booking pages render at the
 edge; self-hosting is one `wrangler deploy` into your own Cloudflare account,
 $0 on the free tier.
 
-> **Status:** pre-release, under active development. The engine deploys and
-> takes bookings; interfaces may still change before 1.0.
+> **Status:** [v0.1.1](https://github.com/CCCrafts/punctual/releases/tag/v0.1.1)
+> released and live. Pre-1.0, so interfaces may still change.
 
 ## What it looks like
 
