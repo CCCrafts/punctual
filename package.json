@@ -1,7 +1,7 @@
 {
   "name": "@punctual/engine",
   "version": "0.1.0",
-  "description": "Edge-native scheduling engine — the complete single-team product, on Cloudflare Workers",
+  "description": "Edge-native scheduling engine \u2014 the complete single-team product, on Cloudflare Workers",
   "license": "MIT",
   "type": "module",
   "exports": {
@@ -15,7 +15,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "dev": "wrangler dev",
+    "dev": "node -e \"const f=require('fs');f.existsSync('.dev.vars')||f.copyFileSync('.dev.vars.example','.dev.vars')\" && wrangler dev",
     "deploy": "wrangler deploy",
     "migrate": "wrangler d1 migrations apply punctual",
     "migrate:local": "wrangler d1 migrations apply punctual --local",

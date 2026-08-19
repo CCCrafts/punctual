@@ -15,10 +15,11 @@ npm run test:core     # domain only, plain Node, no Workers runtime — fast
 npm run test:watch    # vitest in watch mode
 ```
 
-`npm run dev` starts `wrangler dev`. It needs the same D1 database, KV
-namespace and secrets as a real deploy — see
-[docs/self-hosting.md](docs/self-hosting.md) for how to create them on a free
-Cloudflare account.
+`npm run dev` starts `wrangler dev` against local simulations of D1, KV and
+R2 — no Cloudflare account needed. On first run it copies
+`.dev.vars.example` to `.dev.vars`, which carries a local `BASE_URL` and two
+fixed dev-only keys; real deployments set their own as secrets (see
+[docs/self-hosting.md](docs/self-hosting.md)).
 
 CI (`.github/workflows/ci.yml`) runs `npm run typecheck` and `npm test` on
 every push and pull request. Both must pass before a PR merges.
