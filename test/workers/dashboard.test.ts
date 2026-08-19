@@ -932,6 +932,22 @@ describe('admin — instance administration', () => {
     expect(demoted.status).toBe(200)
   })
 
+  it('demoteAdmin is a single guarded statement: refuses the last admin, demotes one of two', async () => {
+    // The guard and the write are one SQL statement — the property that makes
+    // two concurrent demotions unable to race past a separate count and
+    // leave zero admins. Exercised at the repository, where the atomicity
+    // actually lives.
+    const repos = createD1Repositories(db, { consistency: 'bookmark' })
+
+    expect(await repos.users.demoteAdmin(ADMIN_ID)).toBe(false) // sole admin
+    expect(await repos.users.demoteAdmin(HOST_ID)).toBe(false) // not an admin at all
+
+    await db.prepare("UPDATE users SET role='admin' WHERE id = ?").bind(HOST_ID).run()
+    expect(await repos.users.demoteAdmin(HOST_ID)).toBe(true) // one of two
+    const row = await db.prepare('SELECT role FROM users WHERE id = ?').bind(HOST_ID).first<{ role: string }>()
+    expect(row?.role).toBe('member')
+  })
+
   it('an env-pinned policy renders read-only and ignores the form', async () => {
     const pinnedPorts: EnginePorts = {
       ...ports,

@@ -77,6 +77,15 @@ export interface UserRepository {
   /** How many users exist at all — the first-user-becomes-admin bootstrap check. */
   count(): Promise<number>
   /**
+   * Atomically demote an admin to member, refusing when they are the LAST
+   * admin. The guard and the write are ONE statement — a separate
+   * count-then-update lets two concurrent demotions both pass the count and
+   * leave the instance with zero admins, a lockout only recoverable by
+   * hand-editing the database.
+   * @returns false when refused: the target is not an admin, or is the last one.
+   */
+  demoteAdmin(id: string): Promise<boolean>
+  /**
    * @returns false if `patch.slug` collided with another row's unique slug —
    * the caller's own read-then-write check (against users AND teams) closes
    * most of that window, but not a concurrent write racing the same check.

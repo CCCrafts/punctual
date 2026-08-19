@@ -100,6 +100,14 @@ export function createFakeRepositories(): FakeRepositories {
     async count() {
       return users.size
     },
+    async demoteAdmin(id) {
+      const target = users.get(id)
+      if (!target || target.role !== 'admin') return false
+      const admins = [...users.values()].filter((u) => u.role === 'admin').length
+      if (admins <= 1) return false
+      users.set(id, { ...target, role: 'member' })
+      return true
+    },
     async update(id, patch) {
       const existing = users.get(id)
       if (!existing) return true

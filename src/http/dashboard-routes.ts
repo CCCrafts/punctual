@@ -1149,17 +1149,20 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     if (!target) return c.redirect('/dashboard/admin', 302)
 
     const role = String(form.get('role') ?? '') === 'admin' ? 'admin' : 'member'
-    if (role === 'member' && target.role === 'admin') {
-      // Never demote the last admin — an instance with no admin can only be
-      // recovered by hand-editing the database. The page hides the button in
-      // this state, so reaching here is a stale page or a crafted request.
-      const admins = (await repos.users.listAll()).filter((u) => u.role === 'admin').length
-      if (admins <= 1) {
-        return renderAdmin(c, { errors: { role: 'Cannot remove the last admin.' } }, 400)
-      }
-    }
+    if (role === target.role) return renderAdmin(c) // stale page double-submit; nothing to do
 
-    await repos.users.update(target.id, { role })
+    if (role === 'member') {
+      // Demotion goes through the repository's ATOMIC guard, never a
+      // count-then-update here: two concurrent demotions (two admins
+      // removing each other) would both pass a separate count and leave the
+      // instance with zero admins — a lockout only recoverable by
+      // hand-editing the database. The page also hides the button on the
+      // last admin, but the statement-level guard is the invariant.
+      const ok = await repos.users.demoteAdmin(target.id)
+      if (!ok) return renderAdmin(c, { errors: { role: 'Cannot remove the last admin.' } }, 400)
+    } else {
+      await repos.users.update(target.id, { role })
+    }
     await advanceBookmark(c)
     return renderAdmin(c, {
       notice: role === 'admin' ? `${target.email} is now an admin.` : `${target.email} is now a member.`,

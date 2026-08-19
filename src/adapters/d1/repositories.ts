@@ -102,6 +102,18 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
       const row = await first<{ n: number }>('SELECT COUNT(*) AS n FROM users')
       return row?.n ?? 0
     },
+    async demoteAdmin(id) {
+      // The subquery is evaluated inside the same statement as the write, so
+      // D1 arbitrates the last-admin invariant — no interleaving between a
+      // count and an update can slip past it.
+      const res = await q(
+        `UPDATE users SET role = 'member'
+         WHERE id = ? AND role = 'admin'
+           AND (SELECT COUNT(*) FROM users WHERE role = 'admin') > 1`,
+        id,
+      ).run()
+      return (res.meta.changes ?? 0) > 0
+    },
     async create(user) {
       const row = { ...user, createdAt: Date.now() }
       await run(
