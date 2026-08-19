@@ -357,7 +357,7 @@ export const LANDING_CSS = `
 .pu-docs-content th,.pu-docs-content td{text-align:left;padding:.55rem .75rem;
   border-bottom:1px solid var(--pu-line);vertical-align:top}
 .pu-docs-content th{font-family:var(--pu-font-display);font-weight:600;font-size:.8125rem}
-.pu-docs-content table .pu-time{font-size:.8125rem}
+.pu-docs-content table .pu-time{font-size:.8125rem;white-space:nowrap}
 .pu-docs-content ul,.pu-docs-content ol{padding-left:1.25rem;margin:0 0 1rem}
 .pu-docs-content li{margin-bottom:.4rem}
 .pu-docs-content code{font-family:var(--pu-font-mono);font-size:.875em;background:var(--pu-paper-dim);
