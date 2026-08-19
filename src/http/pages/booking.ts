@@ -201,7 +201,7 @@ export function eventHeader(d: BookingPageData): string {
   <ul class="pu-meta">
     <li><span class="pu-dot"></span> ${escapeHtml(durationLabel)}</li>
     ${location ? `<li>${escapeHtml(location)}</li>` : ''}
-    <li>${timezonePicker(d)} (${escapeHtml(offsetLabel(Date.now(), d.guestTimezone))})</li>
+    <li>${timezonePicker(d)}</li>
   </ul>
 </header>`
 }
@@ -277,7 +277,9 @@ function timezonePicker(d: BookingPageData): string {
         <circle cx="12" cy="12" r="9"></circle>
         <path d="M3.6 9h16.8M3.6 15h16.8M12 3a13.5 13.5 0 0 1 0 18M12 3a13.5 13.5 0 0 0 0 18"></path>
       </svg>
-      <select id="pu-tz" name="tz" class="pu-tz-select" onchange="this.form.submit()">${options}</select>
+      <select id="pu-tz" name="tz" class="pu-tz-select" onchange="this.form.submit()"
+        style="width:calc(${d.guestTimezone.length}ch + 2.6rem)">${options}</select>
+      <span class="pu-tz-offset">${escapeHtml(offsetLabel(Date.now(), d.guestTimezone))}</span>
     </span>
     <noscript><button type="submit" class="pu-btn pu-btn-ghost" style="padding:.15rem .5rem">Set</button></noscript>
   </form>`

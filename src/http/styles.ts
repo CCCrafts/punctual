@@ -372,24 +372,43 @@ input:has(+ .pu-err),select:has(+ .pu-err),textarea:has(+ .pu-err){border-color:
   background:var(--pu-status-success-bg);color:var(--pu-status-success);font-weight:600}
 .pu-dot{display:inline-block;width:.5rem;height:.5rem;border-radius:99px;
   background:var(--pu-signal);vertical-align:middle}
-.pu-meta{display:flex;flex-wrap:wrap;gap:.5rem 1rem;font-size:.875rem;color:var(--pu-text-secondary);
+/* align-items:center, not the default stretch: the timezone control is a
+   bordered box taller than the text items, and without centering every
+   plain-text item top-aligns against it — the whole line reads crooked. */
+.pu-meta{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem 1rem;font-size:.875rem;color:var(--pu-text-secondary);
   list-style:none;padding:0;margin:.5rem 0 0}
-.pu-tz-form{display:inline-flex;align-items:center;gap:.35rem}
+.pu-tz-form{display:inline-flex;align-items:center;max-width:100%}
 /* A real control, not dotted-underline text a guest never notices is
-   interactive: bordered pill, globe at the left, chevron at the right. The
-   chevron is a CSS-drawn corner (not a data-URI image) so it takes its color
-   from a token and stays correct in both themes. */
-.pu-tz-wrap{position:relative;display:inline-flex;align-items:center;max-width:100%}
+   interactive: one bordered block — globe, zone, offset, chevron — on the
+   system radius, not a pill (nothing else on the page is a pill). The
+   border and focus state live on the WRAP so all four pieces read as a
+   single control; the select inside is borderless and sized to the selected
+   zone's name server-side (a bare <select> is otherwise as wide as its
+   widest option, leaving dead space before the chevron). The chevron is a
+   CSS-drawn corner, not a data-URI image, so it takes its color from a
+   token and stays correct in both themes. Focus is shown by border color
+   plus the shared input ring — an outline on top of a border reads as a
+   clumsy double ring (and Chrome applies :focus-visible to selects even on
+   mouse click).*/
+.pu-tz-wrap{position:relative;display:inline-flex;align-items:center;max-width:100%;
+  border:1px solid var(--pu-border-subtle);border-radius:var(--pu-radius);
+  background:var(--pu-surface-raised);transition:border-color .12s ease}
+.pu-tz-wrap:hover{border-color:var(--pu-border-strong)}
+.pu-tz-wrap:focus-within{border-color:var(--pu-border-focus);box-shadow:var(--pu-ring)}
 .pu-tz-globe{position:absolute;left:.6rem;color:var(--pu-text-secondary);pointer-events:none}
 .pu-tz-wrap::after{content:"";position:absolute;right:.7rem;top:50%;width:.4rem;height:.4rem;
   border-right:1.5px solid var(--pu-text-secondary);border-bottom:1.5px solid var(--pu-text-secondary);
   transform:translateY(-70%) rotate(45deg);pointer-events:none}
-.pu-tz-select{appearance:none;-webkit-appearance:none;width:auto;max-width:100%;
-  padding:.35rem 1.8rem .35rem 2.1rem;border:1px solid var(--pu-border-subtle);border-radius:99px;
-  background:var(--pu-surface-raised);color:var(--pu-text-primary);font:inherit;font-size:.875rem;
-  cursor:pointer;transition:border-color .12s ease;text-overflow:ellipsis}
-.pu-tz-select:hover{border-color:var(--pu-border-strong)}
-.pu-tz-select:focus-visible{outline:2px solid var(--pu-border-focus);outline-offset:2px}
+.pu-tz-select{appearance:none;-webkit-appearance:none;max-width:100%;min-width:0;
+  padding:.3rem 0 .3rem 2rem;border:0;border-radius:var(--pu-radius);outline:none;
+  background:transparent;color:var(--pu-text-primary);font:inherit;font-size:.875rem;
+  cursor:pointer;text-overflow:ellipsis}
+/* Outranks the global select:focus-visible ring — focus indication for this
+   control is the wrap's :focus-within border+ring above, and both firing at
+   once is the double-ring this replaced. */
+.pu-tz-select:focus-visible{outline:none;box-shadow:none}
+.pu-tz-offset{padding:0 1.7rem 0 .5rem;font-size:.8125rem;color:var(--pu-text-secondary);
+  white-space:nowrap;pointer-events:none}
 
 .pu-confirm{text-align:center;padding:2rem 1.5rem}
 .pu-confirm-icon{display:block;margin:0 auto .75rem;color:var(--pu-text-primary)}
