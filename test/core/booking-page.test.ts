@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { EventType, User } from '../../src/core/domain/types.js'
-import { eventHeader, type BookingPageData } from '../../src/http/pages/booking.js'
+import type { EventType, Slot, User } from '../../src/core/domain/types.js'
+import { eventHeader, slotList, type BookingPageData } from '../../src/http/pages/booking.js'
 
 const host: User = {
   id: 'u_host',
@@ -95,5 +95,27 @@ describe('eventHeader timezone picker', () => {
     // exception from the unrelated offset-label formatting.
     const html = eventHeader(pageData({ guestTimezone: 'US/Eastern' }))
     expect(html).toContain('value="US/Eastern" selected>')
+  })
+})
+
+/**
+ * CCC-493: the slot picker must go through the shared slot-state → class
+ * mapping (src/core/slot-state.ts), not a hardcoded "pu-slot" literal — this
+ * is the one place the semantic token layer's slot states are actually
+ * proven live, since the query engine (src/core/slots/engine.ts) only ever
+ * hands this page 'available' slots.
+ */
+describe('slotList slot-state wiring', () => {
+  const slots: Slot[] = [{ start: 1_789_000_000_000, end: 1_789_001_800_000, eligibleHostIds: ['u_host'] }]
+
+  it('renders each slot with the shared available slot-state class, not a bare "pu-slot"', () => {
+    const html = slotList(pageData({ selectedDate: '2026-09-10', slots }))
+    expect(html).toContain('class="pu-slot pu-slot-available"')
+    expect(html).not.toContain('class="pu-slot"')
+  })
+
+  it('still renders as a real, focusable link — available slots stay interactive', () => {
+    const html = slotList(pageData({ selectedDate: '2026-09-10', slots }))
+    expect(html).toMatch(/<a class="pu-slot pu-slot-available" href="[^"]+">/)
   })
 })

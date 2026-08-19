@@ -58,6 +58,14 @@ export const TOKENS = `
      to ~2.4:1 (fails WCAG AA) if it shares the token. Same shades as
      light mode's green-700/800 — those already pass comfortably (5.2:1). */
   --pu-green-fill:#0E7C4C; --pu-green-fill-hover:#0A5C3A;
+  /* Warn — added for the semantic layer (CCC-493). Fill/border stays one
+     value across themes, same discipline as --pu-green-fill above; a
+     separate -text variant is redefined per theme below because #F5A623
+     itself is ~1.9:1 on light paper (fine as a small border/icon, fails AA
+     as text) and ~9:1 on dark paper (fine either way), so light mode needs a
+     darkened amber for readable text while dark mode can stay near the
+     brand hue. */
+  --pu-warn:#F5A623; --pu-warn-text:#92400E; --pu-warn-tint:#FCEFD9;
   --pu-font-display:"Schibsted Grotesk",system-ui,-apple-system,sans-serif;
   --pu-font-ui:"Inter",system-ui,-apple-system,"Segoe UI",sans-serif;
   --pu-font-mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
@@ -70,22 +78,146 @@ export const TOKENS = `
      page background, which is simpler and more reliable than trying to keep
      a code block's syntax contrast correct across two flipped palettes. */
   --pu-code-bg:#0F1512; --pu-code-fg:#E7F2EA; --pu-code-line:#2E3B34;
+
+  /* ---------------------------------------------------------------------
+   * Semantic layer (CCC-493). Product UI states, one level above the raw
+   * palette above — components should reach for these, not for
+   * --pu-ink-*/--pu-green-*/--pu-danger/--pu-warn directly, so a future
+   * repaint of the brand only ever touches this block.
+   *
+   * Every value here is a var() onto a primitive already defined above
+   * (or, where a state needs a light/dark-specific reading and the flipped
+   * primitive doesn't fit, a literal redefined per theme below — never a
+   * color that exists ONLY inside a dark-mode block).
+   * ------------------------------------------------------------------- */
+
+  /* Surface: canvas < raised < sunken, by how far off the base page a thing
+     sits. "raised" is the same fill as canvas on light (elevation reads via
+     --pu-shadow-sm/border, exactly how .pu-card already works) but goes
+     lighter than canvas in dark mode below, because a drop shadow barely
+     reads against a near-black page — dark-mode elevation has to come from
+     value contrast instead. "overlay" is new: nothing in the product uses a
+     modal/backdrop yet, but a scrim still needs to read as "a wash over
+     content" on either theme, so it is a plain ink-tinted rgba() in light
+     mode and a plain black rgba() in dark mode below — not composed from
+     any other token, since nothing else in the palette is meant to be used
+     at partial opacity over arbitrary content. */
+  --pu-surface-canvas:var(--pu-paper);
+  --pu-surface-raised:var(--pu-paper);
+  --pu-surface-sunken:var(--pu-paper-dim);
+  --pu-surface-overlay:rgba(15,21,18,.45);
+
+  /* Text: primary/secondary track --pu-ink-950/--pu-ink-500 verbatim — they
+     already flip for dark mode below the same way. "muted" and "disabled"
+     are new, both ink-500 with alpha baked in (not the bare token plus a
+     sibling opacity rule) so a single custom property is the full color
+     in either theme. "disabled" alpha (.45) matches the treatment
+     .pu-day[aria-disabled] already shipped; "muted" (.72) is one step above
+     it — dim enough to read as decoration, e.g. table timestamps, not body
+     copy — deliberately sub-AA at 3.2:1 (large-text tier only), same trade
+     already accepted for e.g. .pu-cal-head. */
+  --pu-text-primary:var(--pu-ink-950);
+  --pu-text-secondary:var(--pu-ink-500);
+  --pu-text-muted:rgba(92,102,96,.72);
+  --pu-text-on-accent:#FFFFFF;
+  --pu-text-disabled:rgba(92,102,96,.45);
+
+  /* Border: subtle = --pu-line's existing job. strong = a border with more
+     presence than a hairline but no status meaning (e.g. a divider that
+     needs to read on its own, not next to a card's shadow) — set to
+     --pu-ink-500 rather than a new hex, so "strong border" and "secondary
+     text" are always the same value by construction. focus reuses
+     --pu-green-700, matching :focus-visible's existing outline color below
+     — a11y focus indication is expected to borrow the accent; that is a
+     different thing from rule 1's "system states don't get the accent",
+     which is about background/fill states like held/booked, not the
+     global focus ring. */
+  --pu-border-subtle:var(--pu-line);
+  --pu-border-strong:var(--pu-ink-500);
+  --pu-border-focus:var(--pu-green-700);
+
+  /* Status: independent decisions, not aliases of whatever the marketing
+     palette (docs/branding/assets/tokens.css) happens to alias.
+     - success reuses --pu-green-700, NOT --pu-signal. --pu-signal is a
+       fixed, always-vivid accent meant for a small dot (the wordmark colon,
+       a status pip) and is never contrast-managed for use as text — using
+       it here would mean unreadable status text the day someone sets it as
+       a label color. --pu-green-700 already does the light/dark contrast
+       flip a status text color needs (5.0:1 light, 7.8:1 dark — see
+       styles.ts's own note above on why fills stay pinned but this token
+       doesn't).
+     - danger/warning follow the same shape: a text-safe color plus a light
+       tint for a badge/callout background.
+     - info deliberately has NO owned hue. The brand system is one green +
+       conventional danger/warn — a blue "info" would be a hue the
+       brand doesn't own and no page currently needs one. .pu-docs-callout
+       already renders informational asides in neutral ink-on-sunken-surface
+       with no color at all; --pu-status-info/-bg codify that as the
+       intentional choice rather than leaving it undocumented. */
+  --pu-status-success:var(--pu-green-700);
+  --pu-status-success-bg:var(--pu-green-tint);
+  --pu-status-danger:var(--pu-danger-text);
+  --pu-status-danger-bg:var(--pu-danger-tint);
+  --pu-status-warning:var(--pu-warn-text);
+  --pu-status-warning-bg:var(--pu-warn-tint);
+  --pu-status-info:var(--pu-text-secondary);
+  --pu-status-info-bg:var(--pu-surface-sunken);
+
+  /* Slot: the booking flow's own state machine (see src/core/slot-state.ts).
+     Rule (CCC-493): held/booked are visually distinct from available
+     WITHOUT the accent — the accent is the guest's own current pick
+     (hover/selected), never a system state. held borrows the warning hue
+     (in flux, someone else is mid-booking, may free up); booked borrows the
+     neutral surface/border family (settled, permanently gone — distinct
+     hue from held on purpose, so the two read as different kinds of
+     unavailable, not different intensities of the same one). past and
+     outside-notice-window are both neutral too, and stay distinguishable
+     from booked and each other structurally (see .pu-slot-past/
+     .pu-slot-outside-notice border-style/opacity in BASE_CSS below), not
+     just by color, so the distinction survives greyscale. */
+  --pu-slot-available-bg:var(--pu-surface-raised);
+  --pu-slot-available-border:var(--pu-border-subtle);
+  --pu-slot-available-text:var(--pu-text-primary);
+  --pu-slot-hover-bg:var(--pu-green-tint);
+  --pu-slot-hover-border:var(--pu-green-700);
+  --pu-slot-hover-text:var(--pu-text-primary);
+  --pu-slot-selected-bg:var(--pu-green-tint);
+  --pu-slot-selected-border:var(--pu-green-700);
+  --pu-slot-selected-text:var(--pu-text-primary);
+  --pu-slot-held-bg:var(--pu-warn-tint);
+  --pu-slot-held-border:var(--pu-warn);
+  --pu-slot-held-text:var(--pu-warn-text);
+  --pu-slot-booked-bg:var(--pu-surface-sunken);
+  --pu-slot-booked-border:var(--pu-border-subtle);
+  --pu-slot-booked-text:var(--pu-text-disabled);
+  --pu-slot-past-bg:var(--pu-surface-canvas);
+  --pu-slot-past-border:transparent;
+  --pu-slot-past-text:var(--pu-text-muted);
+  --pu-slot-outside-notice-bg:var(--pu-surface-raised);
+  --pu-slot-outside-notice-border:var(--pu-border-subtle);
+  --pu-slot-outside-notice-text:var(--pu-text-muted);
 }
 @media (prefers-color-scheme:dark){
   :root:not([data-theme=light]){
     --pu-paper:#0F1512; --pu-paper-dim:#17201B; --pu-line:#2E3B34;
     --pu-ink-950:#FAFAF7; --pu-ink-500:#9AA5A0; --pu-green-700:#1FC16B;
     --pu-green-800:#3ED486; --pu-green-tint:#153A28; --pu-danger-text:#FF6B5B;
-    --pu-danger-tint:#3A1A16;
+    --pu-danger-tint:#3A1A16; --pu-warn-text:#FBBF24; --pu-warn-tint:#3A2C12;
     --pu-shadow-sm:0 1px 2px rgba(0,0,0,.4);
+    --pu-surface-raised:#17201B;
+    --pu-text-muted:rgba(154,165,160,.72); --pu-text-disabled:rgba(154,165,160,.45);
+    --pu-surface-overlay:rgba(0,0,0,.6);
   }
 }
 :root[data-theme=dark]{
   --pu-paper:#0F1512; --pu-paper-dim:#17201B; --pu-line:#2E3B34;
   --pu-ink-950:#FAFAF7; --pu-ink-500:#9AA5A0; --pu-green-700:#1FC16B;
   --pu-green-800:#3ED486; --pu-green-tint:#153A28; --pu-danger-text:#FF6B5B;
-  --pu-danger-tint:#3A1A16;
+  --pu-danger-tint:#3A1A16; --pu-warn-text:#FBBF24; --pu-warn-tint:#3A2C12;
   --pu-shadow-sm:0 1px 2px rgba(0,0,0,.4);
+  --pu-surface-raised:#17201B;
+  --pu-text-muted:rgba(154,165,160,.72); --pu-text-disabled:rgba(154,165,160,.45);
+  --pu-surface-overlay:rgba(0,0,0,.6);
 }
 `
 
@@ -108,7 +240,7 @@ export const TOKENS = `
  */
 export const BASE_CSS = `
 *,*::before,*::after{box-sizing:border-box}
-body{margin:0;background:var(--pu-paper);color:var(--pu-ink-950);
+body{margin:0;background:var(--pu-surface-canvas);color:var(--pu-text-primary);
   font-family:var(--pu-font-ui);line-height:1.5;-webkit-font-smoothing:antialiased}
 h1,h2,h3{font-family:var(--pu-font-display);font-weight:600;line-height:1.2;margin:0 0 .5rem}
 h1{font-size:1.5rem} h2{font-size:1.125rem} h3{font-size:1rem}
@@ -118,13 +250,13 @@ time,.pu-time{font-family:var(--pu-font-mono);font-variant-numeric:tabular-nums}
 ::selection{background:var(--pu-green-tint);color:var(--pu-green-800)}
 
 .pu-wrap{max-width:900px;margin:0 auto;padding:1.5rem 1rem 4rem}
-.pu-card{background:var(--pu-paper);border:1px solid var(--pu-line);
+.pu-card{background:var(--pu-surface-raised);border:1px solid var(--pu-border-subtle);
   border-radius:var(--pu-radius-lg);padding:1.375rem;box-shadow:var(--pu-shadow-sm)}
-.pu-muted{color:var(--pu-ink-500)}
-.pu-kicker{color:var(--pu-ink-500);font-size:.8125rem;font-weight:600;
+.pu-muted{color:var(--pu-text-secondary)}
+.pu-kicker{color:var(--pu-text-secondary);font-size:.8125rem;font-weight:600;
   letter-spacing:.03em;text-transform:uppercase;margin:0 0 .35rem}
 .pu-mark{font-family:var(--pu-font-mono);font-weight:600;letter-spacing:-.02em;
-  text-decoration:none;color:var(--pu-ink-950)}
+  text-decoration:none;color:var(--pu-text-primary)}
 .pu-mark span{color:var(--pu-signal)}
 
 .pu-grid{display:grid;gap:1.5rem;grid-template-columns:1fr}
@@ -135,45 +267,80 @@ time,.pu-time{font-family:var(--pu-font-mono);font-variant-numeric:tabular-nums}
 .pu-event-header .pu-meta{margin-top:.85rem}
 
 .pu-cal{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
-.pu-cal-head{font-size:.75rem;font-weight:600;text-align:center;color:var(--pu-ink-500);padding:.25rem 0}
+.pu-cal-head{font-size:.75rem;font-weight:600;text-align:center;color:var(--pu-text-secondary);padding:.25rem 0}
 .pu-day{position:relative;aspect-ratio:1;display:flex;align-items:center;justify-content:center;
   border:1px solid transparent;border-radius:var(--pu-radius);background:none;
   font:inherit;font-family:var(--pu-font-mono);font-size:.9375rem;cursor:pointer;
-  color:var(--pu-ink-950);text-decoration:none;transition:all .12s ease}
+  color:var(--pu-text-primary);text-decoration:none;transition:all .12s ease}
 .pu-day[data-has-slots="1"]{background:var(--pu-green-tint);color:var(--pu-green-700);font-weight:700}
-.pu-day[aria-disabled="true"]{color:var(--pu-ink-500);opacity:.45;cursor:default}
-.pu-day[aria-current="date"]{box-shadow:inset 0 0 0 2px var(--pu-green-700);font-weight:700}
+.pu-day[aria-disabled="true"]{color:var(--pu-text-disabled);cursor:default}
+.pu-day[aria-current="date"]{box-shadow:inset 0 0 0 2px var(--pu-border-focus);font-weight:700}
 .pu-day:hover[data-has-slots="1"]{background:var(--pu-green-700);color:var(--pu-paper);transform:translateY(-1px)}
 .pu-day:focus-visible,.pu-slot:focus-visible,.pu-btn:focus-visible{
-  outline:2px solid var(--pu-green-700);outline-offset:2px}
+  outline:2px solid var(--pu-border-focus);outline-offset:2px}
 input:focus-visible,select:focus-visible,textarea:focus-visible{
-  outline:2px solid var(--pu-green-700);outline-offset:1px;box-shadow:var(--pu-ring)}
+  outline:2px solid var(--pu-border-focus);outline-offset:1px;box-shadow:var(--pu-ring)}
 
 .pu-slots{display:grid;gap:.625rem;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));
   max-height:60vh;overflow-y:auto;padding:2px}
+/* Base .pu-slot is layout/typography only — every color comes from the
+   .pu-slot-* state modifier (see src/core/slot-state.ts's
+   slotStateClassName, which always pairs "pu-slot" with exactly one of
+   these) so a slot's appearance is never a color chosen ad hoc at a call
+   site. */
 .pu-slot{padding:.75rem .5rem;border:1px solid var(--pu-line);border-radius:var(--pu-radius);
-  background:var(--pu-paper);font-family:var(--pu-font-mono);font-size:.9375rem;font-weight:600;
-  color:var(--pu-ink-950);text-align:center;text-decoration:none;cursor:pointer;display:block;
-  transition:all .12s ease}
-.pu-slot:hover{border-color:var(--pu-green-700);background:var(--pu-green-tint);
-  box-shadow:var(--pu-shadow-sm);transform:translateY(-1px)}
-.pu-slot:active{background:var(--pu-green-fill);border-color:var(--pu-green-fill);color:#fff;transform:translateY(0)}
+  font-family:var(--pu-font-mono);font-size:.9375rem;font-weight:600;
+  text-align:center;text-decoration:none;display:block;transition:all .12s ease}
+.pu-slot-available{background:var(--pu-slot-available-bg);border-color:var(--pu-slot-available-border);
+  color:var(--pu-slot-available-text);cursor:pointer}
+.pu-slot-available:hover{background:var(--pu-slot-hover-bg);border-color:var(--pu-slot-hover-border);
+  color:var(--pu-slot-hover-text);box-shadow:var(--pu-shadow-sm);transform:translateY(-1px)}
+.pu-slot-available:active{background:var(--pu-green-fill);border-color:var(--pu-green-fill);
+  color:var(--pu-text-on-accent);transform:translateY(0)}
+.pu-slot-selected{background:var(--pu-slot-selected-bg);border-color:var(--pu-slot-selected-border);
+  color:var(--pu-slot-selected-text)}
+/* held/booked/past/outside-notice-window are never links (see
+   isInteractiveSlotState) — cursor/pointer-events say so even if a caller
+   ever renders one as an <a> by mistake. Distinguished from each other by
+   more than hue alone: held keeps a solid border (still "there", just not
+   yours to take right now), booked adds a strikethrough on the time
+   (settled, gone), past drops its border to blend into the canvas and dims
+   further (simply elapsed, nothing to look at), outside-notice-window
+   keeps a full card but switches to a dashed border (exists, just not
+   bookable yet) — so the four read as different reasons, not four
+   opacities of the same greyed-out slot. */
+.pu-slot-held,.pu-slot-booked,.pu-slot-past,.pu-slot-outside-notice{cursor:not-allowed;pointer-events:none}
+.pu-slot-held{background:var(--pu-slot-held-bg);border-color:var(--pu-slot-held-border);
+  color:var(--pu-slot-held-text)}
+.pu-slot-booked{background:var(--pu-slot-booked-bg);border-color:var(--pu-slot-booked-border);
+  color:var(--pu-slot-booked-text)}
+.pu-slot-booked time{text-decoration:line-through}
+.pu-slot-past{background:var(--pu-slot-past-bg);border-color:var(--pu-slot-past-border);
+  color:var(--pu-slot-past-text);opacity:.7}
+.pu-slot-outside-notice{background:var(--pu-slot-outside-notice-bg);
+  border-color:var(--pu-slot-outside-notice-border);border-style:dashed;
+  color:var(--pu-slot-outside-notice-text)}
 
 .pu-slot-chosen{display:flex;align-items:center;gap:.75rem;margin:0 0 1.25rem;
-  padding:.85rem 1rem;border:1px solid var(--pu-green-700);border-radius:var(--pu-radius);
-  background:var(--pu-green-tint)}
+  padding:.85rem 1rem;border:1px solid var(--pu-slot-selected-border);border-radius:var(--pu-radius);
+  background:var(--pu-slot-selected-bg)}
 .pu-slot-chosen .pu-dot-lg{flex:0 0 auto;width:.65rem;height:.65rem;border-radius:99px;
   background:var(--pu-green-700)}
 
 .pu-btn{display:inline-block;padding:.7rem 1.1rem;border-radius:var(--pu-radius);
-  background:var(--pu-green-fill);color:#fff;border:1px solid var(--pu-green-fill);
+  background:var(--pu-green-fill);color:var(--pu-text-on-accent);border:1px solid var(--pu-green-fill);
   font:inherit;font-weight:600;cursor:pointer;text-decoration:none;text-align:center;
   transition:all .12s ease}
 .pu-btn:hover{background:var(--pu-green-fill-hover);border-color:var(--pu-green-fill-hover)}
 .pu-btn[disabled]{opacity:.6;cursor:default}
-.pu-btn-ghost{background:none;color:var(--pu-ink-950);border-color:var(--pu-line)}
-.pu-btn-ghost:hover{background:var(--pu-paper-dim);border-color:var(--pu-ink-500);color:var(--pu-ink-950)}
-.pu-btn-danger{background:var(--pu-danger);border-color:var(--pu-danger);color:#fff}
+.pu-btn-ghost{background:none;color:var(--pu-text-primary);border-color:var(--pu-border-subtle)}
+.pu-btn-ghost:hover{background:var(--pu-surface-sunken);border-color:var(--pu-border-strong);color:var(--pu-text-primary)}
+/* --pu-danger, not --pu-status-danger: a solid fill behind white text needs
+   the same "pinned across themes" treatment as --pu-green-fill above —
+   --pu-status-danger tracks --pu-danger-text, which deliberately brightens
+   in dark mode for readability as TEXT and would drop this button's
+   white-on-fill contrast the same way sharing --pu-green-700 would have. */
+.pu-btn-danger{background:var(--pu-danger);border-color:var(--pu-danger);color:var(--pu-text-on-accent)}
 .pu-btn-danger:hover{background:var(--pu-danger-800);border-color:var(--pu-danger-800)}
 
 label{display:block;font-size:.875rem;font-weight:600;margin:1rem 0 .35rem}
@@ -181,28 +348,28 @@ input,select,textarea{width:100%;padding:.65rem .75rem;border:1px solid var(--pu
   border-radius:var(--pu-radius);background:var(--pu-paper);color:var(--pu-ink-950);
   font:inherit;transition:border-color .12s ease}
 textarea{min-height:5rem;resize:vertical}
-input:has(+ .pu-err),select:has(+ .pu-err),textarea:has(+ .pu-err){border-color:var(--pu-danger)}
-.pu-err{display:flex;align-items:flex-start;gap:.4rem;color:var(--pu-danger-text);
+input:has(+ .pu-err),select:has(+ .pu-err),textarea:has(+ .pu-err){border-color:var(--pu-status-danger)}
+.pu-err{display:flex;align-items:flex-start;gap:.4rem;color:var(--pu-status-danger);
   font-size:.8125rem;margin:.4rem 0 0}
 .pu-err::before{content:"!";flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;
   width:1rem;height:1rem;margin-top:.0625rem;border-radius:99px;background:var(--pu-danger);
-  color:#fff;font-size:.6875rem;font-weight:700;line-height:1}
+  color:var(--pu-text-on-accent);font-size:.6875rem;font-weight:700;line-height:1}
 /* A standing caution, not a one-line field error — normal block text flow
    (not .pu-err's flex layout, which mangles a multi-sentence paragraph with
    inline <code> into separate flex items) with its own visual weight. */
-.pu-callout{background:var(--pu-danger-tint);border:1px solid var(--pu-danger);
-  border-radius:var(--pu-radius);padding:.75rem 1rem;font-size:.875rem;color:var(--pu-ink-950)}
+.pu-callout{background:var(--pu-status-danger-bg);border:1px solid var(--pu-danger);
+  border-radius:var(--pu-radius);padding:.75rem 1rem;font-size:.875rem;color:var(--pu-text-primary)}
 .pu-badge{display:inline-block;padding:.15rem .5rem;border-radius:99px;font-size:.75rem;
-  background:var(--pu-green-tint);color:var(--pu-green-700);font-weight:600}
+  background:var(--pu-status-success-bg);color:var(--pu-status-success);font-weight:600}
 .pu-dot{display:inline-block;width:.5rem;height:.5rem;border-radius:99px;
   background:var(--pu-signal);vertical-align:middle}
-.pu-meta{display:flex;flex-wrap:wrap;gap:.5rem 1rem;font-size:.875rem;color:var(--pu-ink-500);
+.pu-meta{display:flex;flex-wrap:wrap;gap:.5rem 1rem;font-size:.875rem;color:var(--pu-text-secondary);
   list-style:none;padding:0;margin:.5rem 0 0}
 .pu-tz-form{display:inline-flex;align-items:center;gap:.35rem}
 .pu-tz-select{width:auto;padding:.15rem 1.5rem .15rem .1rem;border:none;border-radius:0;
   background:transparent;color:inherit;font:inherit;font-size:.875rem;
   text-decoration:underline;text-decoration-style:dotted;text-underline-offset:.2rem;cursor:pointer}
-.pu-tz-select:focus-visible{outline:2px solid var(--pu-green-700);outline-offset:2px;border-radius:4px}
+.pu-tz-select:focus-visible{outline:2px solid var(--pu-border-focus);outline-offset:2px;border-radius:4px}
 
 .pu-confirm{text-align:center;padding:2rem 1.5rem}
 .pu-confirm-icon{display:block;margin:0 auto .75rem}
@@ -211,16 +378,16 @@ input:has(+ .pu-err),select:has(+ .pu-err),textarea:has(+ .pu-err){border-color:
 .pu-ring-dot{fill:var(--pu-signal)}
 .pu-confirm h1{margin:.15rem 0 .35rem}
 .pu-confirm-details{text-align:left;list-style:none;margin:1.25rem 0;padding:1rem 1.25rem;
-  background:var(--pu-paper-dim);border-radius:var(--pu-radius);display:grid;gap:.6rem}
+  background:var(--pu-surface-sunken);border-radius:var(--pu-radius);display:grid;gap:.6rem}
 .pu-confirm-details div{display:flex;justify-content:space-between;align-items:baseline;
   gap:1rem;flex-wrap:wrap}
-.pu-confirm-details dt{color:var(--pu-ink-500);font-size:.8125rem;font-weight:600;margin:0}
+.pu-confirm-details dt{color:var(--pu-text-secondary);font-size:.8125rem;font-weight:600;margin:0}
 .pu-confirm-details dd{margin:0;text-align:right}
 
-.pu-nav-link{text-decoration:none;color:var(--pu-ink-500);font-weight:500;
+.pu-nav-link{text-decoration:none;color:var(--pu-text-secondary);font-weight:500;
   padding:.35rem 0;border-bottom:2px solid transparent}
-.pu-nav-link:hover{color:var(--pu-ink-950)}
-.pu-nav-link[aria-current="page"]{color:var(--pu-ink-950);font-weight:600;
+.pu-nav-link:hover{color:var(--pu-text-primary)}
+.pu-nav-link[aria-current="page"]{color:var(--pu-text-primary);font-weight:600;
   border-bottom-color:var(--pu-green-700)}
 .pu-dash-header{border-bottom:1px solid var(--pu-line);padding-bottom:1rem}
 /* Narrow enough that the nav's own wrapping (5 links) collides with the
@@ -232,22 +399,22 @@ input:has(+ .pu-err),select:has(+ .pu-err),textarea:has(+ .pu-err){border-color:
   .pu-dash-header{flex-direction:column;align-items:flex-start}
 }
 
-.pu-url{display:flex;align-items:center;gap:.5rem;background:var(--pu-paper-dim);
+.pu-url{display:flex;align-items:center;gap:.5rem;background:var(--pu-surface-sunken);
   border:1px solid var(--pu-line);border-radius:var(--pu-radius);padding:.15rem .15rem .15rem .8rem}
 .pu-url-input{flex:1;min-width:0;border:0;background:none;padding:.5rem 0;
-  font-family:var(--pu-font-mono);font-size:.8125rem;color:var(--pu-ink-950)}
+  font-family:var(--pu-font-mono);font-size:.8125rem;color:var(--pu-text-primary)}
 
-.pu-skeleton{height:2.4rem;border-radius:var(--pu-radius);background:var(--pu-paper-dim);
+.pu-skeleton{height:2.4rem;border-radius:var(--pu-radius);background:var(--pu-surface-sunken);
   animation:pu-pulse 1.2s ease-in-out infinite}
 @keyframes pu-pulse{50%{opacity:.55}}
 .pu-sr{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
   clip:rect(0 0 0 0);white-space:nowrap;border:0}
-.pu-foot{margin-top:2.5rem;font-size:.8125rem;color:var(--pu-ink-500);text-align:center}
+.pu-foot{margin-top:2.5rem;font-size:.8125rem;color:var(--pu-text-secondary);text-align:center}
 
 @media(prefers-reduced-motion:reduce){
   *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;
     transition-duration:.01ms!important;scroll-behavior:auto!important}
-  .pu-day:hover[data-has-slots="1"],.pu-slot:hover,.pu-slot:active{transform:none}
+  .pu-day:hover[data-has-slots="1"],.pu-slot-available:hover,.pu-slot-available:active{transform:none}
 }
 `
 
@@ -380,7 +547,7 @@ export const LANDING_CSS = `
 .pu-pre code{display:block;font-family:var(--pu-font-mono);font-size:.8125rem;line-height:1.7;
   color:inherit;background:none;border:0;padding:0;white-space:pre}
 
-.pu-docs-callout{background:var(--pu-paper-dim);border:1px solid var(--pu-line);border-radius:var(--pu-radius);
+.pu-docs-callout{background:var(--pu-status-info-bg);border:1px solid var(--pu-line);border-radius:var(--pu-radius);
   padding:.85rem 1rem;margin:0 0 1.25rem;font-size:.9375rem}
 .pu-docs-callout p:last-child{margin-bottom:0}
 

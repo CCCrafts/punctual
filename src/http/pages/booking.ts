@@ -16,6 +16,7 @@
  */
 
 import type { EventType, Slot, User } from '../../core/domain/types.js'
+import { slotStateClassName } from '../../core/slot-state.js'
 import { formatInZone, localDateString, offsetLabel } from '../../core/time/zone.js'
 import { embedResizeScriptTag } from '../embed.js'
 import { pageCss } from '../styles.js'
@@ -314,6 +315,20 @@ export function slotList(d: BookingPageData): string {
       <p class="pu-muted">No times available on this day.</p></section>`
   }
 
+  // Every slot the query engine hands back here has already cleared holds,
+  // bookings, past times and the host's notice window (src/core/slots/
+  // engine.ts never returns those) — so every slot on this page is, by
+  // construction, in the 'available' state. slotStateClassName still goes
+  // through the shared src/core/slot-state.ts mapping (rather than a literal
+  // "pu-slot pu-slot-available" string here) so this call site and the CSS
+  // in src/http/styles.ts can never drift from the one place that owns the
+  // state → class relationship. The 'held'/'booked'/'past'/
+  // 'outside-notice-window' classes it can also produce are exercised today
+  // by the semantic-tokens reference page and by test/core/slot-state.test.ts,
+  // not by live traffic — showing any of them here would mean the query
+  // engine surfacing a status per slot instead of silently omitting it,
+  // which is a product decision (does a guest get to see that a time is
+  // held/booked at all?) outside this ticket's scope.
   const items = slots
     .map((s) => {
       const label = formatInZone(s.start, d.guestTimezone, { hour: 'numeric', minute: '2-digit' })
@@ -321,7 +336,7 @@ export function slotList(d: BookingPageData): string {
         `${bookingPath(d)}/confirm?start=${s.start}` +
         `&tz=${encodeURIComponent(d.guestTimezone)}` +
         (d.embed ? '&embed=1' : '')
-      return `<a class="pu-slot" href="${escapeHtml(href)}">
+      return `<a class="${slotStateClassName('available')}" href="${escapeHtml(href)}">
         <time datetime="${new Date(s.start).toISOString()}">${escapeHtml(label)}</time></a>`
     })
     .join('\n    ')

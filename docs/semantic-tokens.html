@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Punctual — semantic tokens (CCC-493)</title>
+<meta name="color-scheme" content="light dark">
+<style>
+/* ===========================================================================
+ * This block is copy-pasted verbatim from src/http/styles.ts's TOKENS export
+ * (the CSS custom properties, not the design-note comments) plus the
+ * .pu-slot* rules from BASE_CSS that consume them. It is NOT generated or
+ * imported — if styles.ts changes these values, update this file by hand.
+ * That is a deliberate trade: this page has no build step (it is a plain
+ * static file a self-hoster can open straight from disk), so "copy, don't
+ * import" is the same choice engine already made for
+ * docs/branding/assets/tokens.css vs. this same TOKENS block.
+ * ======================================================================== */
+:root{
+  --pu-ink-950:#0F1512; --pu-ink-900:#17201B; --pu-ink-700:#2E3B34;
+  --pu-ink-500:#5C6660; --pu-paper:#FAFAF7; --pu-paper-dim:#F0F1EC;
+  --pu-line:#E3E5DE; --pu-green-700:#0E7C4C; --pu-green-800:#0A5C3A;
+  --pu-signal:#1FC16B; --pu-green-tint:#E4F5EC; --pu-danger:#D92D20;
+  --pu-danger-800:#B8241A; --pu-danger-text:#D92D20; --pu-danger-tint:#FBEAE8;
+  --pu-green-fill:#0E7C4C; --pu-green-fill-hover:#0A5C3A;
+  --pu-warn:#F5A623; --pu-warn-text:#92400E; --pu-warn-tint:#FCEFD9;
+  --pu-font-display:"Schibsted Grotesk",system-ui,-apple-system,sans-serif;
+  --pu-font-ui:"Inter",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --pu-font-mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --pu-radius:10px; --pu-radius-lg:16px;
+  --pu-shadow-sm:0 1px 2px rgba(15,21,18,.06);
+
+  --pu-surface-canvas:var(--pu-paper);
+  --pu-surface-raised:var(--pu-paper);
+  --pu-surface-sunken:var(--pu-paper-dim);
+  --pu-surface-overlay:rgba(15,21,18,.45);
+
+  --pu-text-primary:var(--pu-ink-950);
+  --pu-text-secondary:var(--pu-ink-500);
+  --pu-text-muted:rgba(92,102,96,.72);
+  --pu-text-on-accent:#FFFFFF;
+  --pu-text-disabled:rgba(92,102,96,.45);
+
+  --pu-border-subtle:var(--pu-line);
+  --pu-border-strong:var(--pu-ink-500);
+  --pu-border-focus:var(--pu-green-700);
+
+  --pu-status-success:var(--pu-green-700);
+  --pu-status-success-bg:var(--pu-green-tint);
+  --pu-status-danger:var(--pu-danger-text);
+  --pu-status-danger-bg:var(--pu-danger-tint);
+  --pu-status-warning:var(--pu-warn-text);
+  --pu-status-warning-bg:var(--pu-warn-tint);
+  --pu-status-info:var(--pu-text-secondary);
+  --pu-status-info-bg:var(--pu-surface-sunken);
+
+  --pu-slot-available-bg:var(--pu-surface-raised);
+  --pu-slot-available-border:var(--pu-border-subtle);
+  --pu-slot-available-text:var(--pu-text-primary);
+  --pu-slot-hover-bg:var(--pu-green-tint);
+  --pu-slot-hover-border:var(--pu-green-700);
+  --pu-slot-hover-text:var(--pu-text-primary);
+  --pu-slot-selected-bg:var(--pu-green-tint);
+  --pu-slot-selected-border:var(--pu-green-700);
+  --pu-slot-selected-text:var(--pu-text-primary);
+  --pu-slot-held-bg:var(--pu-warn-tint);
+  --pu-slot-held-border:var(--pu-warn);
+  --pu-slot-held-text:var(--pu-warn-text);
+  --pu-slot-booked-bg:var(--pu-surface-sunken);
+  --pu-slot-booked-border:var(--pu-border-subtle);
+  --pu-slot-booked-text:var(--pu-text-disabled);
+  --pu-slot-past-bg:var(--pu-surface-canvas);
+  --pu-slot-past-border:transparent;
+  --pu-slot-past-text:var(--pu-text-muted);
+  --pu-slot-outside-notice-bg:var(--pu-surface-raised);
+  --pu-slot-outside-notice-border:var(--pu-border-subtle);
+  --pu-slot-outside-notice-text:var(--pu-text-muted);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme=light]){
+    --pu-paper:#0F1512; --pu-paper-dim:#17201B; --pu-line:#2E3B34;
+    --pu-ink-950:#FAFAF7; --pu-ink-500:#9AA5A0; --pu-green-700:#1FC16B;
+    --pu-green-800:#3ED486; --pu-green-tint:#153A28; --pu-danger-text:#FF6B5B;
+    --pu-danger-tint:#3A1A16; --pu-warn-text:#FBBF24; --pu-warn-tint:#3A2C12;
+    --pu-shadow-sm:0 1px 2px rgba(0,0,0,.4);
+    --pu-surface-raised:#17201B;
+    --pu-text-muted:rgba(154,165,160,.72); --pu-text-disabled:rgba(154,165,160,.45);
+    --pu-surface-overlay:rgba(0,0,0,.6);
+  }
+}
+:root[data-theme=dark]{
+  --pu-paper:#0F1512; --pu-paper-dim:#17201B; --pu-line:#2E3B34;
+  --pu-ink-950:#FAFAF7; --pu-ink-500:#9AA5A0; --pu-green-700:#1FC16B;
+  --pu-green-800:#3ED486; --pu-green-tint:#153A28; --pu-danger-text:#FF6B5B;
+  --pu-danger-tint:#3A1A16; --pu-warn-text:#FBBF24; --pu-warn-tint:#3A2C12;
+  --pu-shadow-sm:0 1px 2px rgba(0,0,0,.4);
+  --pu-surface-raised:#17201B;
+  --pu-text-muted:rgba(154,165,160,.72); --pu-text-disabled:rgba(154,165,160,.45);
+  --pu-surface-overlay:rgba(0,0,0,.6);
+}
+
+/* Page chrome — not part of the token export, just this reference page. */
+*,*::before,*::after{box-sizing:border-box}
+body{margin:0;background:var(--pu-surface-canvas);color:var(--pu-text-primary);
+  font-family:var(--pu-font-ui);line-height:1.5;-webkit-font-smoothing:antialiased}
+.wrap{max-width:960px;margin:0 auto;padding:2rem 1.25rem 5rem}
+h1{font-family:var(--pu-font-display);font-size:1.75rem;margin:0 0 .25rem}
+h2{font-family:var(--pu-font-display);font-size:1.125rem;margin:2.5rem 0 .25rem}
+p.lede{color:var(--pu-text-secondary);max-width:38rem;margin:0 0 1.5rem}
+p.note{color:var(--pu-text-secondary);font-size:.875rem;max-width:38rem;margin:.35rem 0 1.25rem}
+code{font-family:var(--pu-font-mono);font-size:.8125rem;background:var(--pu-surface-sunken);
+  border:1px solid var(--pu-line);border-radius:4px;padding:.05rem .35rem}
+.top{display:flex;align-items:baseline;justify-content:space-between;gap:1rem;flex-wrap:wrap;
+  border-bottom:1px solid var(--pu-line);padding-bottom:1.25rem;margin-bottom:.5rem}
+.toggle{font:inherit;font-family:var(--pu-font-mono);font-size:.8125rem;font-weight:600;
+  padding:.5rem .85rem;border-radius:var(--pu-radius);border:1px solid var(--pu-line);
+  background:var(--pu-surface-raised);color:var(--pu-text-primary);cursor:pointer}
+.toggle:hover{border-color:var(--pu-border-strong)}
+
+/* --- slot swatches (verbatim from BASE_CSS's .pu-slot* rules) --- */
+.slot-row{display:grid;gap:.85rem;grid-template-columns:repeat(auto-fill,minmax(180px,1fr))}
+.pu-slot{padding:.75rem .5rem;border:1px solid var(--pu-line);border-radius:var(--pu-radius);
+  font-family:var(--pu-font-mono);font-size:.9375rem;font-weight:600;
+  text-align:center;text-decoration:none;display:block;transition:all .12s ease}
+.pu-slot-available{background:var(--pu-slot-available-bg);border-color:var(--pu-slot-available-border);
+  color:var(--pu-slot-available-text);cursor:pointer}
+.pu-slot-available:hover{background:var(--pu-slot-hover-bg);border-color:var(--pu-slot-hover-border);
+  color:var(--pu-slot-hover-text);box-shadow:var(--pu-shadow-sm);transform:translateY(-1px)}
+/* This swatch simulates :hover at rest (a static page can't force a real
+   hover), by applying the hover rule's own properties directly — kept as a
+   distinct .pu-slot-hover-demo class so it never leaks into the shared
+   .pu-slot-available:hover rule engine's pages actually ship. */
+.pu-slot-hover-demo{background:var(--pu-slot-hover-bg);border-color:var(--pu-slot-hover-border);
+  color:var(--pu-slot-hover-text);box-shadow:var(--pu-shadow-sm)}
+.pu-slot-selected{background:var(--pu-slot-selected-bg);border-color:var(--pu-slot-selected-border);
+  color:var(--pu-slot-selected-text)}
+.pu-slot-held,.pu-slot-booked,.pu-slot-past,.pu-slot-outside-notice{cursor:not-allowed}
+.pu-slot-held{background:var(--pu-slot-held-bg);border-color:var(--pu-slot-held-border);
+  color:var(--pu-slot-held-text)}
+.pu-slot-booked{background:var(--pu-slot-booked-bg);border-color:var(--pu-slot-booked-border);
+  color:var(--pu-slot-booked-text)}
+.pu-slot-booked time{text-decoration:line-through}
+.pu-slot-past{background:var(--pu-slot-past-bg);border-color:var(--pu-slot-past-border);
+  color:var(--pu-slot-past-text);opacity:.7}
+.pu-slot-outside-notice{background:var(--pu-slot-outside-notice-bg);
+  border-color:var(--pu-slot-outside-notice-border);border-style:dashed;
+  color:var(--pu-slot-outside-notice-text)}
+.slot-label{display:block;margin-top:.4rem;font-family:var(--pu-font-ui);font-size:.75rem;
+  font-weight:600;color:var(--pu-text-secondary);text-align:center}
+
+/* --- generic swatch grid for surface/text/border/status --- */
+.swatch-grid{display:grid;gap:1rem;grid-template-columns:repeat(auto-fill,minmax(200px,1fr))}
+.swatch{border:1px solid var(--pu-line);border-radius:var(--pu-radius-lg);overflow:hidden;
+  background:var(--pu-surface-raised)}
+.swatch-fill{height:4.5rem;display:flex;align-items:center;justify-content:center;
+  font-family:var(--pu-font-mono);font-weight:700;font-size:.9375rem}
+.swatch-meta{padding:.65rem .85rem;border-top:1px solid var(--pu-line)}
+.swatch-meta .name{display:block;font-weight:600;font-size:.875rem}
+.swatch-meta code{display:block;margin-top:.3rem;font-size:.75rem;word-break:break-all}
+
+.overlay-demo{position:relative;height:9rem;border-radius:var(--pu-radius-lg);
+  border:1px solid var(--pu-line);overflow:hidden;background:var(--pu-surface-raised)}
+.overlay-demo .content{position:absolute;inset:0;display:grid;place-items:center;
+  color:var(--pu-text-secondary);font-size:.8125rem}
+.overlay-demo .scrim{position:absolute;inset:0;background:var(--pu-surface-overlay);
+  display:grid;place-items:center;color:var(--pu-text-on-accent);font-weight:600;font-size:.8125rem}
+
+footer{margin-top:3rem;padding-top:1.25rem;border-top:1px solid var(--pu-line);
+  color:var(--pu-text-secondary);font-size:.8125rem}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div>
+      <h1>Semantic tokens</h1>
+      <p class="lede" style="margin:0">
+        CCC-493 — the product-UI state layer on top of the brand palette
+        (<code>docs/branding/assets/tokens.css</code>). Source of truth for
+        what ships: <code>engine/src/http/styles.ts</code>.
+      </p>
+    </div>
+    <button class="toggle" id="theme-toggle" type="button" aria-pressed="false">
+      Force dark theme
+    </button>
+  </div>
+  <p class="note">
+    This page follows the same mechanism as every Punctual product page:
+    <code>prefers-color-scheme</code> by default, overridable with
+    <code>&lt;html data-theme="dark|light"&gt;</code>. The button above just
+    flips that attribute — it does not simulate anything a real page
+    doesn't already do.
+  </p>
+
+  <h2>Slot states</h2>
+  <p class="note">
+    The booking flow's own state machine
+    (<code>src/core/slot-state.ts</code>). <strong>held</strong> and
+    <strong>booked</strong> are visually distinct from
+    <strong>available</strong> without the accent (meridian/signal green) —
+    that hue is reserved for the guest's own current pick
+    (<strong>hover</strong>/<strong>selected</strong>), never a system
+    state. held reads as "in flux" (warning hue, solid border); booked reads
+    as "settled" (neutral, struck-through time); past and
+    outside-notice-window are both neutral but stay distinguishable from
+    each other structurally — see the border style/opacity on each — so the
+    difference survives greyscale, not just colour.
+  </p>
+  <div class="slot-row">
+    <div>
+      <a class="pu-slot pu-slot-available" href="#" onclick="return false"><time>10:00 AM</time></a>
+      <span class="slot-label">available</span>
+    </div>
+    <div>
+      <a class="pu-slot pu-slot-available pu-slot-hover-demo" href="#" onclick="return false"><time>10:30 AM</time></a>
+      <span class="slot-label">hover</span>
+    </div>
+    <div>
+      <span class="pu-slot pu-slot-selected"><time>11:00 AM</time></span>
+      <span class="slot-label">selected</span>
+    </div>
+    <div>
+      <span class="pu-slot pu-slot-held"><time>11:30 AM</time></span>
+      <span class="slot-label">held</span>
+    </div>
+    <div>
+      <span class="pu-slot pu-slot-booked"><time>12:00 PM</time></span>
+      <span class="slot-label">booked</span>
+    </div>
+    <div>
+      <span class="pu-slot pu-slot-past"><time>9:00 AM</time></span>
+      <span class="slot-label">past</span>
+    </div>
+    <div>
+      <span class="pu-slot pu-slot-outside-notice"><time>12:15 PM</time></span>
+      <span class="slot-label">outside-notice-window</span>
+    </div>
+  </div>
+
+  <h2>Surface</h2>
+  <p class="note">canvas &lt; raised &lt; sunken by how far off the base page a thing sits; overlay is a scrim above everything.</p>
+  <div class="swatch-grid">
+    <div class="swatch"><div class="swatch-fill" style="background:var(--pu-surface-canvas)">canvas</div>
+      <div class="swatch-meta"><span class="name">--pu-surface-canvas</span><code>= --pu-paper</code></div></div>
+    <div class="swatch"><div class="swatch-fill" style="background:var(--pu-surface-raised);border-bottom:1px solid var(--pu-line)">raised</div>
+      <div class="swatch-meta"><span class="name">--pu-surface-raised</span><code>light = --pu-paper, dark = #17201B</code></div></div>
+    <div class="swatch"><div class="swatch-fill" style="background:var(--pu-surface-sunken)">sunken</div>
+      <div class="swatch-meta"><span class="name">--pu-surface-sunken</span><code>= --pu-paper-dim</code></div></div>
+  </div>
+  <div class="overlay-demo" style="margin-top:1rem">
+    <div class="content">raised surface behind the scrim</div>
+    <div class="scrim">overlay</div>
+  </div>
+
+  <h2>Text</h2>
+  <div class="swatch-grid">
+    <div class="swatch"><div class="swatch-fill" style="color:var(--pu-text-primary)">Aa primary</div>
+      <div class="swatch-meta"><span class="name">--pu-text-primary</span><code>= --pu-ink-950</code></div></div>
+    <div class="swatch"><div class="swatch-fill" style="color:var(--pu-text-secondary)">Aa secondary</div>
+      <div class="swatch-meta"><span class="name">--pu-text-secondary</span><code>= --pu-ink-500</code></div></div>
+    <div class="swatch"><div class="swatch-fill" style="color:var(--pu-text-muted)">Aa muted</div>
+      <div class="swatch-meta"><span class="name">--pu-text-muted</span><code>rgba(ink-500, .72)</code></div></div>
+    <div class="swatch"><div class="swatch-fill" style="background:var(--pu-green-fill);color:var(--pu-text-on-accent)">Aa on-accent</div>
+      <div class="swatch-meta"><span class="name">--pu-text-on-accent</span><code>#FFFFFF</code></div></div>
+    <div class="swatch"><div class="swatch-fill" style="color:var(--pu-text-disabled)">Aa disabled</div>
+      <div class="swatch-meta"><span class="name">--pu-text-disabled</span><code>rgba(ink-500, .45)</code></div></div>
+  </div>
+
+  <h2>Border</h2>
+  <div class="swatch-grid">
+    <div class="swatch"><div class="swatch-fill" style="border:2px solid var(--pu-border-subtle);margin:1rem;height:2.5rem">subtle</div>
+      <div class="swatch-meta"><span class="name">--pu-border-subtle</span><code>= --pu-line</code></div></div>
+    <div class="swatch"><div class="swatch-fill" style="border:2px solid var(--pu-border-strong);margin:1rem;height:2.5rem">strong</div>
+      <div class="swatch-meta"><span class="name">--pu-border-strong</span><code>= --pu-ink-500</code></div></div>
+    <div class="swatch"><div class="swatch-fill" style="border:2px solid var(--pu-border-focus);margin:1rem;height:2.5rem">focus</div>
+      <div class="swatch-meta"><span class="name">--pu-border-focus</span><code>= --pu-green-700</code></div></div>
+  </div>
+
+  <h2>Status</h2>
+  <p class="note">
+    success is <code>--pu-green-700</code>, not a reflexive alias of
+    <code>--pu-signal</code> (see styles.ts for why). info deliberately has
+    no owned hue — it reuses the neutral sunken-surface treatment
+    <code>.pu-docs-callout</code> already ships.
+  </p>
+  <div class="swatch-grid">
+    <div class="swatch"><div class="swatch-fill" style="background:var(--pu-status-success-bg);color:var(--pu-status-success)">success</div>
+      <div class="swatch-meta"><span class="name">--pu-status-success</span><code>= --pu-green-700</code></div></div>
+    <div class="swatch"><div class="swatch-fill" style="background:var(--pu-status-danger-bg);color:var(--pu-status-danger)">danger</div>
+      <div class="swatch-meta"><span class="name">--pu-status-danger</span><code>= --pu-danger-text</code></div></div>
+    <div class="swatch"><div class="swatch-fill" style="background:var(--pu-status-warning-bg);color:var(--pu-status-warning)">warning</div>
+      <div class="swatch-meta"><span class="name">--pu-status-warning</span><code>= --pu-warn-text</code></div></div>
+    <div class="swatch"><div class="swatch-fill" style="background:var(--pu-status-info-bg);color:var(--pu-status-info)">info</div>
+      <div class="swatch-meta"><span class="name">--pu-status-info</span><code>= --pu-text-secondary</code></div></div>
+  </div>
+
+  <footer>
+    Punctual — CCC-493. This file is a plain static reference with no build
+    step; it intentionally duplicates styles.ts's TOKENS block rather than
+    importing it, the same trade docs/branding/assets/tokens.css already
+    makes. Keep the three in sync by hand when a token changes.
+  </footer>
+</div>
+<script>
+  var btn = document.getElementById('theme-toggle');
+  btn.addEventListener('click', function () {
+    var root = document.documentElement;
+    var isDark = root.getAttribute('data-theme') === 'dark';
+    if (isDark) {
+      root.removeAttribute('data-theme');
+      btn.textContent = 'Force dark theme';
+      btn.setAttribute('aria-pressed', 'false');
+    } else {
+      root.setAttribute('data-theme', 'dark');
+      btn.textContent = 'Use system theme';
+      btn.setAttribute('aria-pressed', 'true');
+    }
+  });
+</script>
+</body>
+</html>

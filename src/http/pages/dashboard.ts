@@ -38,6 +38,7 @@ import type {
   User,
 } from '../../core/domain/types.js'
 import type { CalendarProviderName } from '../../ports.js'
+import { slotStateClassName } from '../../core/slot-state.js'
 import { formatInZone, localDateString, offsetLabel } from '../../core/time/zone.js'
 import { escapeHtml, shellFoot, shellHead } from './booking.js'
 
@@ -951,7 +952,7 @@ function rescheduleSection(d: BookingDetailPageData, tokenField: string): string
       .map((s) => {
         const label = formatInZone(s.start, d.booking.guestTimezone, { hour: 'numeric', minute: '2-digit' })
         const href = `${path}&date=${encodeURIComponent(date)}&start=${s.start}`
-        return `<a class="pu-slot" href="${escapeHtml(href)}">
+        return `<a class="${slotStateClassName('available')}" href="${escapeHtml(href)}">
       <time datetime="${new Date(s.start).toISOString()}">${escapeHtml(label)}</time></a>`
       })
       .join('\n    ')}
