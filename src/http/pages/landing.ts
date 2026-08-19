@@ -80,8 +80,14 @@ export function shell(opts: { title: string; description: string; baseUrl: strin
 <meta name="twitter:title" content="${escapeHtml(opts.title)}">
 <meta name="twitter:description" content="${escapeHtml(opts.description)}">
 <meta name="twitter:image" content="${escapeHtml(image)}">
-<link rel="preload" href="/fonts/ibmplexmono-600.woff2" as="font" type="font/woff2" crossorigin>
+<!-- All faces, same reasoning as shellHead in booking.ts: with
+     font-display:optional the first paint is final, so anything not
+     preloaded is likely never seen on a cold cache. -->
+<link rel="preload" href="/fonts/inter-variable.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/schibstedgrotesk-600.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/ibmplexmono-400.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/ibmplexmono-600.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/ibmplexmono-700.woff2" as="font" type="font/woff2" crossorigin>
 <style>${pageCss()}${LANDING_CSS}</style>
 </head>
 <body>

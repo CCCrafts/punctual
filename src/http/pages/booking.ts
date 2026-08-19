@@ -79,8 +79,15 @@ ${chrome.description ? `<meta name="twitter:description" content="${escapeHtml(c
 <meta name="twitter:image" content="${escapeHtml(chrome.og.image)}">`
     : ''
 }
-<link rel="preload" href="/fonts/ibmplexmono-600.woff2" as="font" type="font/woff2" crossorigin>
+<!-- Every face the page can use, not just two: with font-display:optional
+     the first paint is final, so a face that isn't preloaded is a face the
+     visitor likely never sees on a cold cache. Inter carries all body text —
+     leaving it out is what made whole pages repaint mid-view. -->
+<link rel="preload" href="/fonts/inter-variable.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/schibstedgrotesk-600.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/ibmplexmono-400.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/ibmplexmono-600.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/ibmplexmono-700.woff2" as="font" type="font/woff2" crossorigin>
 <style>${pageCss()}</style>
 </head>
 <body>

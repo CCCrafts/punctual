@@ -5,17 +5,22 @@
  * full load on mobile 4G with the whole page under 80 KB gzip, and a separate
  * stylesheet costs a round trip that a few KB of inline CSS does not. That
  * budget is HTML+CSS+JS only (spec §7); fonts are their own resource class —
- * fetched async, `font-display: swap` never blocks first paint on them, and a
- * returning visitor pays the ~120 KB combined cost once, cached long past any
- * single page's byte budget.
+ * fetched async, never blocking first paint, and a returning visitor pays
+ * the ~120 KB combined cost once, cached long past any single page's budget.
  *
  * Tokens mirror docs/branding/assets/tokens.css. The three brand faces are
  * self-hosted OFL files under assets/fonts/ (see FONT_FACES below) — vendored
  * at build time from Google Fonts' own CDN rather than called at runtime, so
- * a visitor's request never leaves punctual's origin. System stacks stay
- * listed after each brand face as the `font-display: swap` fallback while the
- * real face loads, and as the total fallback if a self-hoster ever strips
- * assets/fonts/ from their deploy.
+ * a visitor's request never leaves punctual's origin.
+ *
+ * `font-display: optional`, not `swap`, on every face: whichever font the
+ * first paint uses is the font the page KEEPS — the brand face when it's
+ * ready in time (nearly always: every used file is preloaded in shellHead
+ * and served same-origin from the edge), the system stack otherwise. Swap
+ * repainted the whole page mid-view as each face arrived, which read as the
+ * layout "loading in real time" — text shifting under the visitor on every
+ * cold cache. The system stacks after each face are that fallback, and the
+ * total fallback if a self-hoster strips assets/fonts/ from their deploy.
  */
 
 /**
@@ -25,19 +30,19 @@
  * weights riding along unused.
  */
 export const FONT_FACES = `
-@font-face{font-family:"IBM Plex Mono";font-style:normal;font-weight:400;font-display:swap;
+@font-face{font-family:"IBM Plex Mono";font-style:normal;font-weight:400;font-display:optional;
   src:url(/fonts/ibmplexmono-400.woff2) format("woff2");
   unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
-@font-face{font-family:"IBM Plex Mono";font-style:normal;font-weight:600;font-display:swap;
+@font-face{font-family:"IBM Plex Mono";font-style:normal;font-weight:600;font-display:optional;
   src:url(/fonts/ibmplexmono-600.woff2) format("woff2");
   unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
-@font-face{font-family:"IBM Plex Mono";font-style:normal;font-weight:700;font-display:swap;
+@font-face{font-family:"IBM Plex Mono";font-style:normal;font-weight:700;font-display:optional;
   src:url(/fonts/ibmplexmono-700.woff2) format("woff2");
   unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
-@font-face{font-family:"Inter";font-style:normal;font-weight:400 700;font-display:swap;
+@font-face{font-family:"Inter";font-style:normal;font-weight:400 700;font-display:optional;
   src:url(/fonts/inter-variable.woff2) format("woff2");
   unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
-@font-face{font-family:"Schibsted Grotesk";font-style:normal;font-weight:600;font-display:swap;
+@font-face{font-family:"Schibsted Grotesk";font-style:normal;font-weight:600;font-display:optional;
   src:url(/fonts/schibstedgrotesk-600.woff2) format("woff2");
   unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
 `
