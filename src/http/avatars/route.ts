@@ -1,5 +1,5 @@
 /**
- * `GET /avatars/:key` — host avatars and team logos (CCC-543), streamed from
+ * `GET /avatars/:key` — host avatars and team logos, streamed from
  * R2 through the Worker's own origin rather than a public R2 URL, so cache
  * behaviour and invalidation stay under this app's control (same reasoning as
  * the OG card route, `src/http/og/route.ts`).

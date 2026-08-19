@@ -1,5 +1,5 @@
 /**
- * Avatar upload and serving (CCC-543), under the real Workers runtime — the
+ * Avatar upload and serving, under the real Workers runtime — the
  * part that cannot be checked by reading the code: `@cf-wasm/photon` actually
  * decodes and resizes real bytes under workerd, and R2 (simulated by
  * `@cloudflare/vitest-pool-workers` from the `[[r2_buckets]]` binding in

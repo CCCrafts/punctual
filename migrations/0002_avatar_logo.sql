@@ -1,4 +1,4 @@
--- Avatar and team-logo upload (CCC-543).
+-- Avatar and team-logo upload.
 --
 -- Forward-only and additive (ADR-0006 §4): both columns are nullable with no
 -- default, so an existing row simply has no avatar/logo until its host

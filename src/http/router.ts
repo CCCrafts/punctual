@@ -162,7 +162,7 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
   // registered here anyway for the same reason as everything else above it.
   app.route('/', buildOgRoutes(ports))
 
-  // /avatars/:key (CCC-543) — single segment under a reserved first path
+  // /avatars/:key — single segment under a reserved first path
   // component, so it never collides with the two-segment catch-all below
   // either. `avatars` is reserved in `core/domain/slugs.ts` for this reason.
   app.route('/', buildAvatarRoutes(ports))

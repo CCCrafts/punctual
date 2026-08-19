@@ -24,7 +24,7 @@ export interface User {
   tz: string
   slug: string
   /**
-   * Content-addressed R2 key of the resized avatar thumbnail (CCC-543), or
+   * Content-addressed R2 key of the resized avatar thumbnail, or
    * null when nothing has been uploaded — every renderer falls back to an
    * initials badge in that case. Points at the DERIVED thumbnail, not the
    * original: the original lives in R2 under a related key (see

@@ -50,7 +50,7 @@ export interface BookingEmailContext {
   bookingUrl?: string
   supportEmail?: string
   /**
-   * The deployment's own origin (CCC-543) — needed to build an absolute
+   * The deployment's own origin — needed to build an absolute
    * `/avatars/:key` URL for the host's photo. Optional: absent, the guest
    * confirmation simply renders without one, same as a host with no photo
    * uploaded. Email images must always be absolute (unlike the booking page,
@@ -175,7 +175,7 @@ interface ShellInput {
   notes?: string[]
   accent?: string
   /**
-   * The host's photo (CCC-543) — optional decorative content, unlike the
+   * The host's photo — optional decorative content, unlike the
    * text wordmark above it. A host photo failing to load leaves the
    * confirmation fully legible (name, time, location are all still plain
    * text), which is a different bar than the wordmark's "never an image at
@@ -375,7 +375,7 @@ function brandOf(ctx: BookingEmailContext): string {
   return ctx.brandName ?? 'Punctual'
 }
 
-/** Absolute `/avatars/:key` URL for the primary host's photo, or `undefined` — same "no photo" degrade as everywhere else (CCC-543). */
+/** Absolute `/avatars/:key` URL for the primary host's photo, or `undefined` — same "no photo" degrade as everywhere else. */
 function hostAvatarUrl(ctx: BookingEmailContext): string | undefined {
   if (!ctx.host.avatarKey || !ctx.baseUrl) return undefined
   return `${ctx.baseUrl.replace(/\/$/, '')}/avatars/${ctx.host.avatarKey}`

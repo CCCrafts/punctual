@@ -207,7 +207,7 @@ export interface TeamRepository {
    */
   recordAssignment(teamId: string, userId: string, at: number): Promise<void>
   /**
-   * Rewrite only the logo key (CCC-543) — never name or slug. No dashboard
+   * Rewrite only the logo key — never name or slug. No dashboard
    * route calls this yet: team self-service management (creating a team,
    * renaming it) has no UI at all today, so wiring a logo-upload page ahead
    * of it would have nowhere real to live. The method exists now, tested,
@@ -404,7 +404,7 @@ export interface BlobCache {
 }
 
 /**
- * User-uploaded binary content: host avatars and team logos (CCC-543).
+ * User-uploaded binary content: host avatars and team logos.
  * Deliberately a THIRD storage port, not a reuse of `Cache` or `BlobCache`
  * above, because the trust category is different from both:
  *

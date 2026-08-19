@@ -139,7 +139,7 @@ export interface BookingPageData {
 }
 
 /**
- * A `size`×`size` circle: the uploaded avatar/logo thumbnail (CCC-543) if the
+ * A `size`×`size` circle: the uploaded avatar/logo thumbnail if the
  * user or team has one, otherwise a CSS-only initials badge so the layout
  * never depends on whether a photo has been uploaded. Shared between the
  * booking page header and the dashboard settings page — the same key served

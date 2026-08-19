@@ -1,5 +1,5 @@
 /**
- * `Team.logoKey` and `TeamRepository.updateLogo` (CCC-543) — the storage
+ * `Team.logoKey` and `TeamRepository.updateLogo` — the storage
  * layer for team logos, kept tested even though no dashboard route calls it
  * yet (see the doc comment on `updateLogo` in `ports.ts`: team self-service
  * management has no UI at all today, so wiring an upload page ahead of it

@@ -1,5 +1,5 @@
 /**
- * The `BlobStorage` port over R2 (CCC-543): host avatars and team logos.
+ * The `BlobStorage` port over R2: host avatars and team logos.
  *
  * A separate bucket from the `CACHE` KV namespace `Cache`/`BlobCache` share —
  * see the `BlobStorage` doc comment in `ports.ts` for why user-uploaded,

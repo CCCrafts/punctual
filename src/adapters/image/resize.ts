@@ -1,5 +1,5 @@
 /**
- * Server-side avatar/logo thumbnail generation (CCC-543), so a derived
+ * Server-side avatar/logo thumbnail generation, so a derived
  * thumbnail exists by upload time — never computed on the booking-page
  * request path, which has its own <100 ms budget (ADR-0007 §3) and no
  * business decoding and resizing images on it.

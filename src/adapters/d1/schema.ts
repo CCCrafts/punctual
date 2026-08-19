@@ -18,7 +18,7 @@ export const users = sqliteTable(
     name: text('name').notNull().default(''),
     tz: text('tz').notNull().default('UTC'),
     slug: text('slug').notNull(),
-    // Resized avatar thumbnail's R2 key (CCC-543); null until a photo is
+    // Resized avatar thumbnail's R2 key; null until a photo is
     // uploaded. See `core/domain/media.ts` for the key convention.
     avatarKey: text('avatar_key'),
     createdAt: integer('created_at').notNull(),
@@ -32,7 +32,7 @@ export const teams = sqliteTable(
     id: text('id').primaryKey(),
     name: text('name').notNull(),
     slug: text('slug').notNull(),
-    // Resized logo thumbnail's R2 key (CCC-543); same convention as `users.avatarKey`.
+    // Resized logo thumbnail's R2 key; same convention as `users.avatarKey`.
     logoKey: text('logo_key'),
     createdAt: integer('created_at').notNull(),
   },

@@ -34,7 +34,7 @@ migrations_dir = "migrations"
 binding = "CACHE"
 id = "fd1bb2cb37b942b480a8e80dc169a8df"
 
-# User-uploaded, durable content — host avatars and team logos (CCC-543).
+# User-uploaded, durable content — host avatars and team logos.
 # Deliberately its own bucket, not the CACHE namespace above: that KV
 # namespace is non-authoritative and re-derivable by construction (ADR-0006
 # §1); an uploaded photo is neither. R2's free tier (10 GB storage, no

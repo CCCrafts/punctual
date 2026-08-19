@@ -1,5 +1,5 @@
 /**
- * Avatar/team-logo upload rules (CCC-543): the allowed image types, the size
+ * Avatar/team-logo upload rules: the allowed image types, the size
  * cap, and content-addressed key derivation.
  *
  * Pure — no R2, no Workers imports, so it runs in `test/core`. `deriveBlobKey`
@@ -58,7 +58,7 @@ export function thumbKeyFor(originalKey: string): string {
   return `${originalKey.replace(/\.[^./]+$/, '')}-thumb.webp`
 }
 
-/** The square pixel size every avatar/logo thumbnail is resized to (CCC-543). */
+/** The square pixel size every avatar/logo thumbnail is resized to. */
 export const THUMB_DIMENSION = 256
 export const THUMB_CONTENT_TYPE = 'image/webp'
 

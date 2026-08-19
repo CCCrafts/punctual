@@ -1,5 +1,5 @@
 /**
- * Avatar/logo upload rules (CCC-543) — content-type allowlist, size cap, and
+ * Avatar/logo upload rules — content-type allowlist, size cap, and
  * content-addressed key derivation. Pure, so it runs without R2 or the
  * Workers runtime; the actual upload/serve routes are covered under
  * test/workers/avatars.test.ts.

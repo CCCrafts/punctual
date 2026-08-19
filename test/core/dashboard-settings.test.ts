@@ -35,7 +35,7 @@ describe('settingsPage slug-change caution', () => {
   })
 })
 
-describe('settingsPage photo section (CCC-543)', () => {
+describe('settingsPage photo section', () => {
   it('shows an initials badge and no Remove button when nothing is uploaded', () => {
     const html = settingsPage({ brandName: 'Punctual', user, csrf: 'tok' })
     expect(html).toContain('>G<') // initial of "Grace Hopper"

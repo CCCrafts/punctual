@@ -217,7 +217,7 @@ describe('email-client safety', () => {
   })
 })
 
-describe('host photo (CCC-543)', () => {
+describe('host photo', () => {
   it('omits the <img> entirely when the host has no avatar', () => {
     const html = bookingConfirmationForGuest(ctx({ baseUrl: 'https://punctual.example' })).html
     expect(html).not.toContain('<img')

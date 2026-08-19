@@ -901,7 +901,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
   })
 
   /**
-   * Avatar upload (CCC-543).
+   * Avatar upload.
    *
    * Validation order matters: type and size are checked BEFORE anything
    * touches R2 or the resizer, so a bad upload is a clean 400 with no wasted
