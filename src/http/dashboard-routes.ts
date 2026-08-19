@@ -70,10 +70,12 @@ import { dayRange } from '../engine.js'
 import { isValidTimeZone, localDateString } from '../core/time/zone.js'
 import { validateSlug } from '../core/domain/slugs.js'
 import {
+  MAX_DECODED_PIXELS,
   MAX_UPLOAD_BYTES,
   THUMB_CONTENT_TYPE,
   deriveBlobKey,
   isAllowedImageType,
+  readImageDimensions,
   thumbKeyFor,
 } from '../core/domain/media.js'
 import { resizeToSquareThumbnail } from '../adapters/image/resize.js'
@@ -922,6 +924,16 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     if (!isAllowedImageType(file.type)) return fail('PNG, JPEG or WebP images only')
 
     const bytes = new Uint8Array(await file.arrayBuffer())
+
+    // Read from the header only, before anything decodes a pixel — a highly
+    // compressible image can be tiny on disk and still be a decompression
+    // bomb (see MAX_DECODED_PIXELS's doc comment). A header that doesn't
+    // parse is treated the same as "too large": it also won't decode.
+    const dimensions = readImageDimensions(bytes, file.type)
+    if (!dimensions || dimensions.width * dimensions.height > MAX_DECODED_PIXELS) {
+      return fail('That image is too large. Try a smaller photo.')
+    }
+
     const originalKey = await deriveBlobKey(bytes, file.type)
     const thumbKey = thumbKeyFor(originalKey)
 

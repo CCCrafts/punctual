@@ -12,6 +12,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { buildRouter } from '../../src/http/router.js'
 import { createD1Repositories } from '../../src/adapters/d1/repositories.js'
 import { createR2BlobStorage } from '../../src/adapters/storage/r2-blob.js'
+import { deriveBlobKey } from '../../src/core/domain/media.js'
 import { createWebCrypto } from '../../src/adapters/crypto/webcrypto.js'
 import { createSlotService } from '../../src/engine.js'
 import {
@@ -49,6 +50,25 @@ function pngBytes(): Uint8Array {
   const out = new Uint8Array(binary.length)
   for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i)
   return out
+}
+
+/**
+ * A well-formed PNG header (real signature + IHDR) claiming a huge decode
+ * size, but only 24 bytes on the wire — the decompression-bomb shape
+ * MAX_DECODED_PIXELS exists to reject. A real solid-color PNG this size
+ * compresses to a few KB on disk (verified separately with ImageMagick),
+ * well under MAX_UPLOAD_BYTES, so the byte-size check alone would let it
+ * through; only the header-dimension check catches it before any decode.
+ */
+function bombPngBytes(): Uint8Array {
+  const header = new Uint8Array(24)
+  header.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 0)
+  header.set([0, 0, 0, 13], 8)
+  header.set([0x49, 0x48, 0x44, 0x52], 12)
+  const view = new DataView(header.buffer)
+  view.setUint32(16, 20000, false)
+  view.setUint32(20, 20000, false)
+  return header
 }
 
 const crypto_ = createWebCrypto({
@@ -159,6 +179,14 @@ describe('avatar upload', () => {
     expect(res.status).toBe(403)
   })
 
+  it('rejects a decompression-bomb PNG by its claimed dimensions, without ever decoding it', async () => {
+    const cookie = await seedSession(HOST_ID)
+    const csrf = await csrfFor(cookie)
+    const res = await uploadAvatar(cookie, csrf, { bytes: bombPngBytes(), type: 'image/png' })
+    expect(res.status).toBe(400)
+    expect(await res.text()).toContain('too large')
+  })
+
   it('uploads a real PNG, resizes it, and serves the thumbnail back at /avatars/:key', async () => {
     const cookie = await seedSession(HOST_ID)
     const csrf = await csrfFor(cookie)
@@ -183,6 +211,28 @@ describe('avatar upload', () => {
       avatar_key: string
     }>()
     expect(row?.avatar_key).toBe(key)
+  })
+
+  it('never serves the original upload, only the thumbnail — even though the original is in R2', async () => {
+    const cookie = await seedSession(HOST_ID)
+    const csrf = await csrfFor(cookie)
+    const bytes = pngBytes()
+
+    await uploadAvatar(cookie, csrf, { bytes, type: 'image/png' })
+
+    // The upload route does store the original (see dashboard-routes.ts's
+    // avatar handler) — this proves the ORIGINAL key exists in R2 and the
+    // 404 below comes from the route's key pattern rejecting it, not from
+    // R2 simply not having the object.
+    const originalKey = await deriveBlobKey(bytes, 'image/png')
+    const inR2 = await env.AVATARS.get(originalKey)
+    expect(inR2).not.toBeNull()
+
+    // A host's original photo can carry EXIF (GPS, device serial, capture
+    // time) they never agreed to publish — only the re-encoded, metadata-
+    // free thumbnail is meant to be public.
+    const res = await app.fetch(new Request(`${BASE}/avatars/${originalKey}`))
+    expect(res.status).toBe(404)
   })
 
   it('the booking page for this host now shows the uploaded photo, not the initials badge', async () => {

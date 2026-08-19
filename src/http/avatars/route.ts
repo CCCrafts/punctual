@@ -14,8 +14,16 @@ import type { EnginePorts } from '../../ports.js'
 
 type Env = Record<string, unknown>
 
-/** `{sha256 hex}.{png|jpg|webp}` (the original) or `{sha256 hex}-thumb.webp` (the derived thumbnail) — see `deriveBlobKey`/`thumbKeyFor`. Rejecting anything else before it reaches R2 keeps this route from being usable as a generic "fetch any key" probe. */
-const KEY_PATTERN = /^[a-f0-9]{64}(-thumb)?\.(png|jpg|webp)$/
+/**
+ * `{sha256 hex}-thumb.webp` — the derived thumbnail only, never the
+ * original an upload also stores under `{sha256 hex}.{png|jpg|webp}` (see
+ * `deriveBlobKey`/`thumbKeyFor`). The original is never served: it can carry
+ * EXIF (GPS, device serial, capture time) a host never agreed to publish —
+ * only the re-encoded, metadata-free thumbnail is meant to be public. This
+ * pattern also keeps the route from being usable as a generic "fetch any
+ * key" probe against the bucket.
+ */
+const KEY_PATTERN = /^[a-f0-9]{64}-thumb\.webp$/
 
 // A year, immutable: the key IS the hash of the bytes, so nothing this route
 // serves can ever change under a fixed key (contrast the OG card route's
