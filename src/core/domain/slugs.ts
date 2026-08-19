@@ -19,7 +19,7 @@
 export const RESERVED_SLUGS = new Set([
   // Live routes
   'api', 'health', 'mcp', 'embed', 'embed.js', 'favicon.svg', 'robots.txt',
-  'auth', 'login', 'logout', 'dashboard', 'booking', 'bookings',
+  'auth', 'login', 'logout', 'dashboard', 'booking', 'bookings', 'og',
   // Near-misses and likely future routes
   'admin', 'settings', 'account', 'billing', 'pricing', 'signup', 'signin',
   'register', 'app', 'www', 'static', 'assets', 'public', 'docs', 'help',

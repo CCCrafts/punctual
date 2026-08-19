@@ -23,6 +23,17 @@ const CACHE_TTL_SECONDS = 60 * 60
 const DEFAULT_CARD_PATH = '/og/default.png'
 const PNG_SUFFIX = '.png'
 
+/**
+ * In-flight renders, keyed by cache key, so concurrent requests for the same
+ * card share one render instead of each paying satori+resvg's cost. A fresh
+ * link posted to Slack/X/LinkedIn/Telegram/iMessage gets unfurled by several
+ * of those within the same second, all racing an empty cache — exactly the
+ * case this closes. Isolate-local only (Workers has no cross-isolate memory),
+ * so it is a best-effort thinning, not a correctness guarantee — the cache
+ * write below is still what makes a second isolate's hit free.
+ */
+const inFlight = new Map<string, Promise<Uint8Array | null>>()
+
 export function buildOgRoutes(ports: EnginePorts): Hono<{ Bindings: Env }> {
   const app = new Hono<{ Bindings: Env }>()
   const publicScope: RequestScope = { consistency: 'unconstrained' }
@@ -42,18 +53,20 @@ export function buildOgRoutes(ports: EnginePorts): Hono<{ Bindings: Env }> {
     const cached = await safeGet(ports, cacheKey)
     if (cached) return pngResponse(c, cached)
 
-    const now = ports.clock.now()
-    const timeLabel = `${formatInZone(now, host.tz, {
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-    })} ${offsetLabel(now, host.tz)}`
+    const png = await renderJoining(cacheKey, async () => {
+      const now = ports.clock.now()
+      const timeLabel = `${formatInZone(now, host.tz, {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      })} ${offsetLabel(now, host.tz)}`
 
-    const png = await renderOgCard({
-      hostName: host.name || host.slug,
-      brandName: ports.config.brandName,
-      durationMinutes: eventType.durationMinutes,
-      timeLabel,
+      return renderOgCard({
+        hostName: host.name || host.slug,
+        brandName: ports.config.brandName,
+        durationMinutes: eventType.durationMinutes,
+        timeLabel,
+      })
     })
     if (!png) return c.redirect(DEFAULT_CARD_PATH, 302)
 
@@ -62,6 +75,15 @@ export function buildOgRoutes(ports: EnginePorts): Hono<{ Bindings: Env }> {
   })
 
   return app
+}
+
+/** Joins a concurrent request for `key` onto an already-running render rather than starting a second one. */
+function renderJoining(key: string, render: () => Promise<Uint8Array | null>): Promise<Uint8Array | null> {
+  const existing = inFlight.get(key)
+  if (existing) return existing
+  const promise = render().finally(() => inFlight.delete(key))
+  inFlight.set(key, promise)
+  return promise
 }
 
 function pngResponse(c: Context<{ Bindings: Env }>, bytes: Uint8Array): Response {

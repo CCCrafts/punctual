@@ -94,6 +94,24 @@ describe('the dynamic OG card', () => {
     expect(res.status).toBe(404)
   })
 
+  it('joins concurrent requests for the same uncached card onto one render', async () => {
+    // A freshly-shared link gets unfurled by several platforms within the
+    // same second, all racing an empty cache — every one of them must still
+    // get a valid PNG back, not just the request that wins the render.
+    await seedHost({ id: 'usr_og_d', slug: 'og-host-d', name: 'Grace', eventSlug: 'sync' })
+
+    const [a, b, c] = await Promise.all([
+      getOg('/og/og-host-d/sync.png'),
+      getOg('/og/og-host-d/sync.png'),
+      getOg('/og/og-host-d/sync.png'),
+    ])
+    for (const res of [a, b, c]) {
+      expect(res.status).toBe(200)
+      const bytes = new Uint8Array(await res.arrayBuffer())
+      expect(Array.from(bytes.slice(0, 4))).toEqual(PNG_MAGIC)
+    }
+  })
+
   it('the booking page itself links to the dynamic card, not the static default', async () => {
     await seedHost({ id: 'usr_og_c', slug: 'og-host-c', name: 'Ada', eventSlug: 'intro' })
 

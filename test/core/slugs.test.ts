@@ -38,7 +38,7 @@ describe('validateSlug', () => {
 
   it('reserves every route the router actually mounts', () => {
     // If a route is added without reserving its segment, a host could claim it.
-    for (const mounted of ['api', 'health', 'mcp', 'embed.js', 'favicon.svg', 'auth', 'booking']) {
+    for (const mounted of ['api', 'health', 'mcp', 'embed.js', 'favicon.svg', 'auth', 'booking', 'og']) {
       expect({ mounted, reserved: RESERVED_SLUGS.has(mounted) }).toEqual({ mounted, reserved: true })
     }
   })
