@@ -49,6 +49,15 @@ export const TOKENS = `
   --pu-line:#E3E5DE; --pu-green-700:#0E7C4C; --pu-green-800:#0A5C3A;
   --pu-signal:#1FC16B; --pu-green-tint:#E4F5EC; --pu-danger:#D92D20;
   --pu-danger-800:#B8241A; --pu-danger-text:#D92D20; --pu-danger-tint:#FBEAE8;
+  /* A solid green fill behind white/paper text (buttons, the chosen-slot dot,
+     step numbers) needs to stay this dark in EITHER theme — unlike
+     --pu-green-700/800, deliberately NOT redefined under dark mode below.
+     --pu-green-700 brightens in dark mode because it also serves as body
+     text/links there, where it must read against a dark page background;
+     that same brightening drops a filled button's white-on-green contrast
+     to ~2.4:1 (fails WCAG AA) if it shares the token. Same shades as
+     light mode's green-700/800 — those already pass comfortably (5.2:1). */
+  --pu-green-fill:#0E7C4C; --pu-green-fill-hover:#0A5C3A;
   --pu-font-display:"Schibsted Grotesk",system-ui,-apple-system,sans-serif;
   --pu-font-ui:"Inter",system-ui,-apple-system,"Segoe UI",sans-serif;
   --pu-font-mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
@@ -148,7 +157,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{
   transition:all .12s ease}
 .pu-slot:hover{border-color:var(--pu-green-700);background:var(--pu-green-tint);
   box-shadow:var(--pu-shadow-sm);transform:translateY(-1px)}
-.pu-slot:active{background:var(--pu-green-700);border-color:var(--pu-green-700);color:#fff;transform:translateY(0)}
+.pu-slot:active{background:var(--pu-green-fill);border-color:var(--pu-green-fill);color:#fff;transform:translateY(0)}
 
 .pu-slot-chosen{display:flex;align-items:center;gap:.75rem;margin:0 0 1.25rem;
   padding:.85rem 1rem;border:1px solid var(--pu-green-700);border-radius:var(--pu-radius);
@@ -157,10 +166,10 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{
   background:var(--pu-green-700)}
 
 .pu-btn{display:inline-block;padding:.7rem 1.1rem;border-radius:var(--pu-radius);
-  background:var(--pu-green-700);color:#fff;border:1px solid var(--pu-green-700);
+  background:var(--pu-green-fill);color:#fff;border:1px solid var(--pu-green-fill);
   font:inherit;font-weight:600;cursor:pointer;text-decoration:none;text-align:center;
   transition:all .12s ease}
-.pu-btn:hover{background:var(--pu-green-800);border-color:var(--pu-green-800)}
+.pu-btn:hover{background:var(--pu-green-fill-hover);border-color:var(--pu-green-fill-hover)}
 .pu-btn[disabled]{opacity:.6;cursor:default}
 .pu-btn-ghost{background:none;color:var(--pu-ink-950);border-color:var(--pu-line)}
 .pu-btn-ghost:hover{background:var(--pu-paper-dim);border-color:var(--pu-ink-500);color:var(--pu-ink-950)}
@@ -297,7 +306,7 @@ export const LANDING_CSS = `
   list-style:none;padding:0;margin:0;counter-reset:pu-step}
 .pu-steps li{counter-increment:pu-step;padding-top:2.75rem;position:relative}
 .pu-steps li::before{content:counter(pu-step);position:absolute;top:0;left:0;
-  width:2rem;height:2rem;border-radius:99px;background:var(--pu-green-700);color:#fff;
+  width:2rem;height:2rem;border-radius:99px;background:var(--pu-green-fill);color:#fff;
   display:flex;align-items:center;justify-content:center;font-family:var(--pu-font-mono);
   font-weight:700;font-size:.875rem}
 
