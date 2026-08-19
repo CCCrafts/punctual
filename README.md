@@ -96,7 +96,7 @@ repository — see the pledge.
 ## Development
 
 ```bash
-npm test              # 392 tests
+npm test              # 454 tests
 npm run test:core     # pure domain only — no Workers runtime, runs in ~150ms
 npm run typecheck
 npm run dev
