@@ -82,7 +82,7 @@ export const TOKENS = `
   /* ---------------------------------------------------------------------
    * Semantic layer. Product UI states, one level above the raw
    * palette above — components should reach for these, not for
-   * --pu-ink-*/--pu-green-*/--pu-danger/--pu-warn directly, so a future
+   * --pu-ink-*, --pu-green-*, --pu-danger or --pu-warn directly, so a future
    * repaint of the brand only ever touches this block.
    *
    * Every value here is a var() onto a primitive already defined above
