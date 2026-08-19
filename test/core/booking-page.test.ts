@@ -11,6 +11,7 @@ const host: User = {
   avatarKey: null,
   company: null,
   jobTitle: null,
+  companyUrl: null,
   createdAt: 0,
 }
 
@@ -89,6 +90,30 @@ describe('eventHeader host identity', () => {
     const html = eventHeader(pageData({ host: { ...host, company: '<script>alert(1)</script>' } }))
     expect(html).not.toContain('<script>')
     expect(html).toContain('&lt;script&gt;')
+  })
+
+  it('wraps the company in a link when a company URL is set — and only the company, not the title', () => {
+    const html = eventHeader(
+      pageData({ host: { ...host, jobTitle: 'CEO', company: 'Acme Inc', companyUrl: 'https://acme.example' } }),
+    )
+    expect(html).toContain(
+      '<a class="pu-host-link" href="https://acme.example" target="_blank" rel="noopener">Acme Inc</a>',
+    )
+    expect(hostBlockText(html, 'pu-host-org')).toBe('CEO, Acme Inc')
+  })
+
+  it('a company URL without a company name links nothing', () => {
+    const html = eventHeader(pageData({ host: { ...host, companyUrl: 'https://acme.example' } }))
+    expect(html).not.toContain('pu-host-link')
+  })
+
+  it('escapes a hostile stored company URL rather than letting it break out of the href', () => {
+    // Save-time validation (isHttpUrl) is the real gate; this proves the
+    // renderer alone still cannot be broken out of by a stored value.
+    const html = eventHeader(
+      pageData({ host: { ...host, company: 'Acme', companyUrl: 'https://a.example/"><script>x</script>' } }),
+    )
+    expect(html).not.toContain('<script>')
   })
 
   it('never shows a company on a team-owned event — "host" there is one representative member, not the team', () => {

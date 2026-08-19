@@ -696,6 +696,33 @@ describe('settings — profile (name and company)', () => {
     expect(row?.company).toBeNull()
   })
 
+  it('saves a company link, and rejects a non-http scheme that could reach a public href', async () => {
+    await resetProfileHost()
+    const cookie = await seedSession(PROFILE_HOST_ID)
+    let csrf = await settingsCsrf(cookie)
+
+    const ok = await post(
+      '/dashboard/settings/profile',
+      { name: 'New Name', company: 'Acme', company_url: 'https://acme.example', csrf },
+      cookie,
+    )
+    expect(ok.status).toBe(200)
+    const row = await db
+      .prepare('SELECT company_url FROM users WHERE id = ?')
+      .bind(PROFILE_HOST_ID)
+      .first<{ company_url: string | null }>()
+    expect(row?.company_url).toBe('https://acme.example')
+
+    csrf = await settingsCsrf(cookie)
+    const bad = await post(
+      '/dashboard/settings/profile',
+      { name: 'New Name', company: 'Acme', company_url: 'javascript:alert(1)', csrf },
+      cookie,
+    )
+    expect(bad.status).toBe(400)
+    expect(await bad.text()).toContain('starting with https://')
+  })
+
   it('rejects an empty name, leaving the row unchanged', async () => {
     await resetProfileHost()
     const cookie = await seedSession(PROFILE_HOST_ID)

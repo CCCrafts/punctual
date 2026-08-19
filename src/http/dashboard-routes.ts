@@ -929,12 +929,19 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     const name = String(form.get('name') ?? '').trim()
     const jobTitleRaw = String(form.get('job_title') ?? '').trim()
     const companyRaw = String(form.get('company') ?? '').trim()
+    const companyUrlRaw = String(form.get('company_url') ?? '').trim()
     const errors: Record<string, string> = {}
 
     if (name.length === 0) errors['name'] = 'Name is required'
     else if (name.length > 120) errors['name'] = 'Must be 120 characters or fewer'
     if (jobTitleRaw.length > 120) errors['job_title'] = 'Must be 120 characters or fewer'
     if (companyRaw.length > 120) errors['company'] = 'Must be 120 characters or fewer'
+    // The URL lands in an href on a public page — only absolute http(s), so a
+    // stored value can never be a javascript:/data: scheme.
+    if (companyUrlRaw.length > 200) errors['company_url'] = 'Must be 200 characters or fewer'
+    else if (companyUrlRaw !== '' && !isHttpUrl(companyUrlRaw)) {
+      errors['company_url'] = 'Must be a full link starting with https://'
+    }
 
     if (Object.keys(errors).length > 0) {
       return c.html(
@@ -945,6 +952,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
           nameValue: name,
           jobTitleValue: jobTitleRaw,
           companyValue: companyRaw,
+          companyUrlValue: companyUrlRaw,
           errors,
         }),
         400,
@@ -954,14 +962,15 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     // Empty fields clear (null), same "unset" convention as avatarKey.
     const company = companyRaw.length > 0 ? companyRaw : null
     const jobTitle = jobTitleRaw.length > 0 ? jobTitleRaw : null
+    const companyUrl = companyUrlRaw.length > 0 ? companyUrlRaw : null
     const repos = c.get('repos')
-    await repos.users.update(user.id, { name, company, jobTitle })
+    await repos.users.update(user.id, { name, company, jobTitle, companyUrl })
     await advanceBookmark(c)
 
     return c.html(
       settingsPage({
         brandName,
-        user: { ...user, name, company, jobTitle },
+        user: { ...user, name, company, jobTitle, companyUrl },
         csrf: c.get('csrf'),
         notice: 'Profile updated.',
       }),
@@ -1629,6 +1638,16 @@ function readEventTypeForm(
     createdAt: 0,
   }
   return { draft, questionsText }
+}
+
+/** Absolute http(s) only — the one place this is checked before a value can reach a public page's href. */
+function isHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value)
+    return url.protocol === 'https:' || url.protocol === 'http:'
+  } catch {
+    return false
+  }
 }
 
 function locationTypeOf(value: string): EventType['locationType'] {

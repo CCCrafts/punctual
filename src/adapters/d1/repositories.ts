@@ -96,7 +96,7 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
     async create(user) {
       const row = { ...user, createdAt: Date.now() }
       await run(
-        'INSERT INTO users (id,email,name,tz,slug,avatar_key,company,job_title,created_at) VALUES (?,?,?,?,?,?,?,?,?)',
+        'INSERT INTO users (id,email,name,tz,slug,avatar_key,company,job_title,company_url,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)',
         row.id,
         row.email.toLowerCase(),
         row.name,
@@ -105,6 +105,7 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
         row.avatarKey,
         row.company,
         row.jobTitle,
+        row.companyUrl,
         row.createdAt,
       )
       return row
@@ -118,6 +119,7 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
       if (patch.avatarKey !== undefined) (sets.push('avatar_key = ?'), binds.push(patch.avatarKey))
       if (patch.company !== undefined) (sets.push('company = ?'), binds.push(patch.company))
       if (patch.jobTitle !== undefined) (sets.push('job_title = ?'), binds.push(patch.jobTitle))
+      if (patch.companyUrl !== undefined) (sets.push('company_url = ?'), binds.push(patch.companyUrl))
       if (sets.length === 0) return true
       binds.push(id)
       try {
@@ -175,6 +177,7 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
            COALESCE(u.avatar_key, ru.avatar_key) AS u_avatar_key,
            COALESCE(u.company, ru.company) AS u_company,
            COALESCE(u.job_title, ru.job_title) AS u_job_title,
+           COALESCE(u.company_url, ru.company_url) AS u_company_url,
            COALESCE(u.created_at, ru.created_at) AS u_created_at,
            et.*
          FROM event_types et
@@ -202,6 +205,7 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
         avatar_key: row['u_avatar_key'],
         company: row['u_company'],
         job_title: row['u_job_title'],
+        company_url: row['u_company_url'],
         created_at: row['u_created_at'],
       })
       const eventType = mapEventType(row)
@@ -904,6 +908,7 @@ function mapUser(row: Record<string, unknown> | null): User | null {
     avatarKey: row['avatar_key'] == null ? null : String(row['avatar_key']),
     company: row['company'] == null ? null : String(row['company']),
     jobTitle: row['job_title'] == null ? null : String(row['job_title']),
+    companyUrl: row['company_url'] == null ? null : String(row['company_url']),
     createdAt: Number(row['created_at']),
   }
 }

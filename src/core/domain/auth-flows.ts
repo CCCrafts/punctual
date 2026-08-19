@@ -207,6 +207,7 @@ export async function consumeMagicLink(
       avatarKey: null,
       company: null,
       jobTitle: null,
+      companyUrl: null,
     })
   }
 

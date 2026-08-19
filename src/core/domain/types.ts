@@ -36,6 +36,8 @@ export interface User {
   company: string | null
   /** Free-text job title/position, shown with the company ("CEO, Acme Inc"). Null until set — never required. */
   jobTitle: string | null
+  /** Optional https URL wrapped around the company name on the booking page. Null until set. */
+  companyUrl: string | null
   createdAt: number
 }
 

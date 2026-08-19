@@ -191,28 +191,36 @@ export function displayCompany(d: Pick<BookingPageData, 'host' | 'eventType'>): 
 }
 
 /**
- * The muted line under the host's name: "CEO, Acme Inc", either half
- * optional. Same personal-event-only gate as `displayCompany` — a
- * representative team member's personal title/company would read as the
- * team's.
+ * The muted line under the host's name — "CEO, Acme Inc", either half
+ * optional, the company wrapped in a link when the host set one. Returns
+ * HTML (everything interpolated is escaped here). Same personal-event-only
+ * gate as `displayCompany` — a representative team member's personal
+ * title/company would read as the team's. The href was validated to be
+ * absolute http(s) at save time (`isHttpUrl` in dashboard-routes.ts), so a
+ * stored value can never be a javascript:/data: scheme.
  */
-export function displayIdentityLine(d: Pick<BookingPageData, 'host' | 'eventType'>): string | null {
+function identityLineHtml(d: Pick<BookingPageData, 'host' | 'eventType'>): string | null {
   if (d.eventType.ownerTeamId !== null) return null
-  const parts = [d.host.jobTitle, d.host.company].filter((p): p is string => !!p)
+  const companyHtml = d.host.company
+    ? d.host.companyUrl
+      ? `<a class="pu-host-link" href="${escapeHtml(d.host.companyUrl)}" target="_blank" rel="noopener">${escapeHtml(d.host.company)}</a>`
+      : escapeHtml(d.host.company)
+    : ''
+  const parts = [d.host.jobTitle ? escapeHtml(d.host.jobTitle) : '', companyHtml].filter(Boolean)
   return parts.length > 0 ? parts.join(', ') : null
 }
 
 export function eventHeader(d: BookingPageData): string {
   const durationLabel = `${d.eventType.durationMinutes} min`
   const location = locationLabel(d.eventType)
-  const identity = displayIdentityLine(d)
+  const identity = identityLineHtml(d)
   const hostName = d.host.name || d.host.slug
   return `<header class="pu-event-header">
   <div class="pu-host">
     ${avatarHtml({ key: d.host.avatarKey, name: hostName, size: 56 })}
     <div>
       <p class="pu-host-name">${escapeHtml(hostName)}</p>
-      ${identity ? `<p class="pu-host-org">${escapeHtml(identity)}</p>` : ''}
+      ${identity ? `<p class="pu-host-org">${identity}</p>` : ''}
     </div>
   </div>
   <h1>${escapeHtml(d.eventType.title)}</h1>

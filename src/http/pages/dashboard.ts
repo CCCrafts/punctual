@@ -822,6 +822,8 @@ export interface SettingsPageData extends DashboardChrome {
   jobTitleValue?: string
   /** Same reasoning as `slugValue`, for the profile form's Company field. */
   companyValue?: string
+  /** Same reasoning as `slugValue`, for the profile form's Company link field. */
+  companyUrlValue?: string
   errors?: Record<string, string>
   notice?: string
 }
@@ -832,6 +834,7 @@ export function settingsPage(d: SettingsPageData): string {
   const nameValue = d.nameValue ?? d.user.name
   const jobTitleValue = d.jobTitleValue ?? d.user.jobTitle ?? ''
   const companyValue = d.companyValue ?? d.user.company ?? ''
+  const companyUrlValue = d.companyUrlValue ?? d.user.companyUrl ?? ''
 
   return (
     shellTop(d, 'Settings', 'settings') +
@@ -881,6 +884,11 @@ export function settingsPage(d: SettingsPageData): string {
       <input id="company" name="company" maxlength="120" placeholder="Optional"
              value="${escapeHtml(companyValue)}"${describedBy('company', errors)}>
       ${fieldError('company', errors)}
+      <label for="company_url">Company link</label>
+      <input id="company_url" name="company_url" type="url" maxlength="200" placeholder="https://… (optional)"
+             value="${escapeHtml(companyUrlValue)}"${describedBy('company_url', errors)}>
+      <p class="pu-muted" style="font-size:.8125rem;margin:.25rem 0 0">Wraps the company name on your booking page.</p>
+      ${fieldError('company_url', errors)}
       <div style="margin-top:1.25rem"><button class="pu-btn" type="submit">Save profile</button></div>
     </form>
   </div>

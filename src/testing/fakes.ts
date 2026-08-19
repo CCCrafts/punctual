@@ -224,6 +224,7 @@ export function createFakeRepositories(): FakeRepositories {
         avatarKey: null,
         company: null,
         jobTitle: null,
+        companyUrl: null,
         createdAt: 0,
         ...user,
       }

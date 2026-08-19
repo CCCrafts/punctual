@@ -269,6 +269,8 @@ time,.pu-time{font-family:var(--pu-font-mono);font-variant-numeric:tabular-nums}
 .pu-host-name{margin:0;font-family:var(--pu-font-display);font-size:1.0625rem;
   font-weight:600;line-height:1.3;color:var(--pu-text-primary)}
 .pu-host-org{margin:.1rem 0 0;font-size:.875rem;line-height:1.35;color:var(--pu-text-secondary)}
+.pu-host-link{color:var(--pu-green-700);text-decoration:none}
+.pu-host-link:hover{text-decoration:underline}
 .pu-mark{font-family:var(--pu-font-mono);font-weight:600;letter-spacing:-.02em;
   text-decoration:none;color:var(--pu-text-primary)}
 .pu-mark span{color:var(--pu-signal)}

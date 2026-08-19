@@ -26,6 +26,7 @@ const host: User = {
   avatarKey: null,
   company: null,
   jobTitle: null,
+  companyUrl: null,
   createdAt: 0,
 }
 
