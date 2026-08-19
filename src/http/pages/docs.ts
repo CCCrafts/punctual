@@ -333,8 +333,8 @@ const API_ENDPOINTS: Array<[string, string, string, string]> = [
   ['GET', '/api/v1/availability', 'read', "Get the key holder's weekly schedule and date overrides"],
   ['PUT', '/api/v1/availability', 'write', 'Replace the weekly schedule and overrides'],
   ['GET', '/api/v1/slots', 'read', 'List bookable start times for an event type in a time range'],
-  ['GET', '/api/v1/bookings', 'read', 'List bookings in a time range, optionally filtered by status'],
-  ['GET', '/api/v1/bookings/:id', 'read', 'Get one booking'],
+  ['GET', '/api/v1/bookings', 'read', 'List confirmed bookings in a time range'],
+  ['GET', '/api/v1/bookings/:id', 'read', 'Get one booking, any status — cancelled and rescheduled included'],
   ['POST', '/api/v1/bookings', 'write', 'Create a booking directly, bypassing the public booking page'],
   ['POST', '/api/v1/bookings/:id/cancel', 'write', 'Cancel a confirmed booking'],
   ['POST', '/api/v1/bookings/:id/reschedule', 'write', 'Move a confirmed booking to a new time'],
@@ -355,8 +355,10 @@ function apiContent(opts: DocsPageOptions): string {
 
   return `
 <p>A REST API mounted at <span class="pu-time">/api/v1</span>. Every request
-  needs an API key with the right scope; every response &mdash; success or
-  error &mdash; is JSON.</p>
+  needs an API key with the right scope; every response body &mdash; success
+  or error &mdash; is JSON, except a successful
+  <span class="pu-time">DELETE</span>, which returns
+  <span class="pu-time">204 No Content</span> with no body at all.</p>
 
 <h2>Authentication</h2>
 <p>Send your key as a bearer token:</p>

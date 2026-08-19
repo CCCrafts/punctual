@@ -74,8 +74,16 @@ one else can see your calendar data.
    project and enable the **Google Calendar API**.
 2. Configure the OAuth consent screen. While it is unverified you can add up to
    100 test users, which is plenty for a team.
-3. Create an **OAuth client ID** of type *Web application* with the redirect
-   URI `https://<your-worker-url>/auth/google/callback`.
+3. Create an **OAuth client ID** of type *Web application* with both redirect
+   URIs below registered — sign-in and calendar connect are deliberately
+   separate flows, so a leaked code for one can never be exchanged against
+   the other's endpoint:
+
+```
+https://<your-worker-url>/auth/google/callback?purpose=identity
+https://<your-worker-url>/auth/google/callback?purpose=calendar
+```
+
 4. Set the credentials:
 
 ```bash

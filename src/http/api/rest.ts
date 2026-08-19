@@ -613,17 +613,23 @@ export function buildApiRoutes(ports: EnginePorts, slots: SlotService): Hono<Api
     if (!range.ok) return range.response
 
     const status = c.req.query('status')
-    if (status !== undefined && !['confirmed', 'cancelled', 'rescheduled'].includes(status)) {
-      return problem(400, 'Invalid request', '`status` must be confirmed, cancelled or rescheduled.')
-    }
-
     // The host+range query returns confirmed bookings only — that is the shape
     // the port offers (ADR-0003 keeps it minimal), and it is the shape the slot
-    // engine needs. So a cancelled/rescheduled filter is honestly empty here
-    // rather than quietly wrong; those are reachable by id.
+    // engine needs. Accepting `cancelled`/`rescheduled` here used to validate
+    // as an allowed value and then always return an empty list — indistinguishable
+    // from "you have none in this range" from the caller's side. Rejecting them
+    // outright is the honest response; a cancelled/rescheduled booking is still
+    // reachable by id.
+    if (status !== undefined && status !== 'confirmed') {
+      return problem(
+        400,
+        'Invalid request',
+        'This endpoint only lists confirmed bookings in a range; `status` may only be `confirmed`. Fetch a cancelled or rescheduled booking by id instead.',
+      )
+    }
+
     const bookings = await repos.bookings.listForHost(user.id, range.range)
-    const filtered = status === undefined ? bookings : bookings.filter((b) => b.status === status)
-    return c.json({ data: filtered.map(bookingJson) })
+    return c.json({ data: bookings.map(bookingJson) })
   })
 
   app.get('/bookings/:id', async (c) => {

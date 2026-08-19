@@ -629,6 +629,44 @@ describe('POST /bookings', () => {
   })
 })
 
+/**
+ * Regression: `?status=cancelled`/`rescheduled` used to validate as an
+ * accepted value and then always return `{ data: [] }` — `listForHost`'s
+ * query is hardcoded to `status = 'confirmed'` (ADR-0003 keeps that port
+ * minimal), so the request-level filter ran against a list that could
+ * structurally never contain what was asked for. That's indistinguishable
+ * from "you truly have none in this range" from the caller's side. Rejecting
+ * the unsupported values is the honest response.
+ */
+describe('GET /bookings status filter', () => {
+  it('accepts status=confirmed', async () => {
+    const ports = testPorts()
+    const app = buildApp(ports)
+    const seed = await seedHost(ports)
+
+    const res = await app.request('/api/v1/bookings?status=confirmed', { headers: auth(seed.apiKey) })
+    expect(res.status).toBe(200)
+  })
+
+  it('rejects status=cancelled rather than silently returning an empty list', async () => {
+    const ports = testPorts()
+    const app = buildApp(ports)
+    const seed = await seedHost(ports)
+
+    const res = await app.request('/api/v1/bookings?status=cancelled', { headers: auth(seed.apiKey) })
+    expect(res.status).toBe(400)
+  })
+
+  it('rejects status=rescheduled rather than silently returning an empty list', async () => {
+    const ports = testPorts()
+    const app = buildApp(ports)
+    const seed = await seedHost(ports)
+
+    const res = await app.request('/api/v1/bookings?status=rescheduled', { headers: auth(seed.apiKey) })
+    expect(res.status).toBe(400)
+  })
+})
+
 // ---------------------------------------------------------------------------
 // Webhooks
 // ---------------------------------------------------------------------------
