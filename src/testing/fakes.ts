@@ -222,6 +222,7 @@ export function createFakeRepositories(): FakeRepositories {
         tz: 'UTC',
         slug: user.id,
         avatarKey: null,
+        company: null,
         createdAt: 0,
         ...user,
       }

@@ -903,6 +903,55 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
   })
 
   /**
+   * Name and company — shown next to the avatar on the booking page and in
+   * confirmation emails. No uniqueness check needed here (unlike slug):
+   * neither is part of a URL or any lookup key, so two hosts sharing a name
+   * or company is unremarkable, not a collision.
+   */
+  app.post('/dashboard/settings/profile', requireSession, async (c) => {
+    const form = await c.req.formData()
+    if (!(await csrfOk(c, form))) return csrfRejected(c)
+
+    const user = c.get('user')
+    const name = String(form.get('name') ?? '').trim()
+    const companyRaw = String(form.get('company') ?? '').trim()
+    const errors: Record<string, string> = {}
+
+    if (name.length === 0) errors['name'] = 'Name is required'
+    else if (name.length > 120) errors['name'] = 'Must be 120 characters or fewer'
+    if (companyRaw.length > 120) errors['company'] = 'Must be 120 characters or fewer'
+
+    if (Object.keys(errors).length > 0) {
+      return c.html(
+        settingsPage({
+          brandName,
+          user,
+          csrf: c.get('csrf'),
+          nameValue: name,
+          companyValue: companyRaw,
+          errors,
+        }),
+        400,
+      )
+    }
+
+    // Empty company clears the field (null), same "unset" convention as avatarKey.
+    const company = companyRaw.length > 0 ? companyRaw : null
+    const repos = c.get('repos')
+    await repos.users.update(user.id, { name, company })
+    await advanceBookmark(c)
+
+    return c.html(
+      settingsPage({
+        brandName,
+        user: { ...user, name, company },
+        csrf: c.get('csrf'),
+        notice: 'Profile updated.',
+      }),
+    )
+  })
+
+  /**
    * Avatar upload.
    *
    * Validation order matters: type and size are checked BEFORE anything

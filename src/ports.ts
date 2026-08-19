@@ -77,7 +77,10 @@ export interface UserRepository {
    * most of that window, but not a concurrent write racing the same check.
    * True for any other patch, including one that changes nothing.
    */
-  update(id: string, patch: Partial<Pick<User, 'name' | 'tz' | 'slug' | 'avatarKey'>>): Promise<boolean>
+  update(
+    id: string,
+    patch: Partial<Pick<User, 'name' | 'tz' | 'slug' | 'avatarKey' | 'company'>>,
+  ): Promise<boolean>
 }
 
 export interface EventTypeRepository {

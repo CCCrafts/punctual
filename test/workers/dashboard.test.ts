@@ -635,3 +635,90 @@ describe('settings — change slug', () => {
     expect(await fresh.text()).toContain('Chat with Sluggy')
   })
 })
+
+describe('settings — profile (name and company)', () => {
+  const PROFILE_HOST_ID = 'usr_profile_host'
+
+  beforeAll(async () => {
+    await db
+      .prepare('INSERT INTO users (id,email,name,tz,slug,created_at) VALUES (?,?,?,?,?,?)')
+      .bind(PROFILE_HOST_ID, 'profile@example.test', 'Original Name', 'UTC', 'profile-host', NOW)
+      .run()
+  })
+
+  async function resetProfileHost(): Promise<void> {
+    await db
+      .prepare('UPDATE users SET name = ?, company = NULL WHERE id = ?')
+      .bind('Original Name', PROFILE_HOST_ID)
+      .run()
+  }
+
+  async function settingsCsrf(cookie: string): Promise<string> {
+    const page = await get('/dashboard/settings', cookie)
+    return /name="csrf" value="([^"]+)"/.exec(await page.text())?.[1] ?? ''
+  }
+
+  it('saves a new name and company', async () => {
+    await resetProfileHost()
+    const cookie = await seedSession(PROFILE_HOST_ID)
+    const csrf = await settingsCsrf(cookie)
+
+    const res = await post(
+      '/dashboard/settings/profile',
+      { name: 'New Name', company: 'Acme Inc', csrf },
+      cookie,
+    )
+    expect(res.status).toBe(200)
+    expect(await res.text()).toContain('Profile updated')
+
+    const row = await db
+      .prepare('SELECT name, company FROM users WHERE id = ?')
+      .bind(PROFILE_HOST_ID)
+      .first<{ name: string; company: string | null }>()
+    expect(row?.name).toBe('New Name')
+    expect(row?.company).toBe('Acme Inc')
+  })
+
+  it('an empty company clears the field rather than storing an empty string', async () => {
+    await resetProfileHost()
+    const cookie = await seedSession(PROFILE_HOST_ID)
+    let csrf = await settingsCsrf(cookie)
+    await post('/dashboard/settings/profile', { name: 'New Name', company: 'Acme Inc', csrf }, cookie)
+
+    csrf = await settingsCsrf(cookie)
+    await post('/dashboard/settings/profile', { name: 'New Name', company: '', csrf }, cookie)
+
+    const row = await db
+      .prepare('SELECT company FROM users WHERE id = ?')
+      .bind(PROFILE_HOST_ID)
+      .first<{ company: string | null }>()
+    expect(row?.company).toBeNull()
+  })
+
+  it('rejects an empty name, leaving the row unchanged', async () => {
+    await resetProfileHost()
+    const cookie = await seedSession(PROFILE_HOST_ID)
+    const csrf = await settingsCsrf(cookie)
+
+    const res = await post('/dashboard/settings/profile', { name: '  ', company: '', csrf }, cookie)
+    expect(res.status).toBe(400)
+    expect(await res.text()).toContain('Name is required')
+
+    const row = await db
+      .prepare('SELECT name FROM users WHERE id = ?')
+      .bind(PROFILE_HOST_ID)
+      .first<{ name: string }>()
+    expect(row?.name).toBe('Original Name')
+  })
+
+  it('rejects a request with no valid CSRF token', async () => {
+    await resetProfileHost()
+    const cookie = await seedSession(PROFILE_HOST_ID)
+    const res = await post(
+      '/dashboard/settings/profile',
+      { name: 'Forged Name', company: '', csrf: 'forged' },
+      cookie,
+    )
+    expect(res.status).toBe(403)
+  })
+})

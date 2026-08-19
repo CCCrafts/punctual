@@ -781,6 +781,10 @@ export interface SettingsPageData extends DashboardChrome {
    * to fix.
    */
   slugValue?: string
+  /** Same reasoning as `slugValue`, for the profile form's Name field. */
+  nameValue?: string
+  /** Same reasoning as `slugValue`, for the profile form's Company field. */
+  companyValue?: string
   errors?: Record<string, string>
   notice?: string
 }
@@ -788,6 +792,8 @@ export interface SettingsPageData extends DashboardChrome {
 export function settingsPage(d: SettingsPageData): string {
   const errors = d.errors ?? {}
   const slugValue = d.slugValue ?? d.user.slug
+  const nameValue = d.nameValue ?? d.user.name
+  const companyValue = d.companyValue ?? d.user.company ?? ''
 
   return (
     shellTop(d, 'Settings', 'settings') +
@@ -817,6 +823,22 @@ export function settingsPage(d: SettingsPageData): string {
     </div>
   </div>
   ${fieldError('avatar', errors)}
+</section>
+<section class="pu-card" aria-label="Your profile" style="margin-bottom:1.25rem">
+  <h2>Your profile</h2>
+  <p class="pu-muted">Shown on your booking page and in confirmation emails.</p>
+  <form method="post" action="/dashboard/settings/profile">
+    ${csrfField(d.csrf)}
+    <label for="name">Name</label>
+    <input id="name" name="name" required aria-required="true" maxlength="120"
+           value="${escapeHtml(nameValue)}"${describedBy('name', errors)}>
+    ${fieldError('name', errors)}
+    <label for="company">Company</label>
+    <input id="company" name="company" maxlength="120" placeholder="Optional"
+           value="${escapeHtml(companyValue)}"${describedBy('company', errors)}>
+    ${fieldError('company', errors)}
+    <div style="margin-top:1.25rem"><button class="pu-btn" type="submit">Save profile</button></div>
+  </form>
 </section>
 <section class="pu-card" aria-label="Account settings">
   <h2>Your booking page slug</h2>

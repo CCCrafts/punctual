@@ -32,6 +32,8 @@ export interface User {
    * address it directly, because nothing serves it in this pass.
    */
   avatarKey: string | null
+  /** Free-text company/organisation, shown next to the name on the booking page and in confirmation emails. Null until set — never required. */
+  company: string | null
   createdAt: number
 }
 

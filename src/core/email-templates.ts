@@ -323,6 +323,18 @@ function hostNames(ctx: BookingEmailContext): string {
   return all.map((h) => h.name).join(', ')
 }
 
+/**
+ * `hostNames` plus a company, ONLY for the single-host case — a team event's
+ * "Host: Alice, Bob" row has nowhere unambiguous to attach one person's
+ * company, so this deliberately doesn't attempt it there.
+ */
+function hostNamesWithCompany(ctx: BookingEmailContext): string {
+  const all = ctx.hosts && ctx.hosts.length > 0 ? ctx.hosts : [ctx.host]
+  if (all.length !== 1) return hostNames(ctx)
+  const host = all[0]!
+  return host.company ? `${host.name}, ${host.company}` : host.name
+}
+
 function answerRows(ctx: BookingEmailContext): DetailRow[] {
   const rows: DetailRow[] = []
   for (const q of ctx.eventType.questions) {
@@ -342,7 +354,7 @@ function baseRows(ctx: BookingEmailContext, audience: EmailAudience, tz: string)
     { label: 'Where', value: describeLocation(eventType) },
   ]
   if (audience === 'guest') {
-    rows.push({ label: 'Host', value: hostNames(ctx) })
+    rows.push({ label: 'Host', value: hostNamesWithCompany(ctx) })
   } else {
     rows.push({ label: 'Guest', value: `${booking.guestName} (${booking.guestEmail})` })
     // The host is told the guest's zone explicitly: it is what makes "9am for

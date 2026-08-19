@@ -160,7 +160,7 @@ export function eventHeader(d: BookingPageData): string {
   return `<header class="pu-event-header">
   <p class="pu-kicker" style="display:flex;align-items:center;gap:.5rem">
     ${avatarHtml({ key: d.host.avatarKey, name: d.host.name || d.host.slug, size: 28 })}
-    ${escapeHtml(d.host.name || d.host.slug)}
+    ${escapeHtml(d.host.name || d.host.slug)}${d.host.company ? `, ${escapeHtml(d.host.company)}` : ''}
   </p>
   <h1>${escapeHtml(d.eventType.title)}</h1>
   ${d.eventType.description ? `<p class="pu-muted">${escapeHtml(d.eventType.description)}</p>` : ''}

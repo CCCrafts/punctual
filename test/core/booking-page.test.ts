@@ -9,6 +9,7 @@ const host: User = {
   tz: 'America/New_York',
   slug: 'grace',
   avatarKey: null,
+  company: null,
   createdAt: 0,
 }
 
@@ -46,6 +47,31 @@ function pageData(patch: Partial<BookingPageData> = {}): BookingPageData {
     ...patch,
   }
 }
+
+function kickerText(html: string): string {
+  const match = /<p class="pu-kicker"[^>]*>([\s\S]*?)<\/p>/.exec(html)
+  if (!match) throw new Error('no .pu-kicker paragraph found')
+  return match[1]!.replace(/<[^>]+>/g, '').trim()
+}
+
+describe('eventHeader host identity', () => {
+  it('shows the host name alone when no company is set', () => {
+    const kicker = kickerText(eventHeader(pageData()))
+    expect(kicker.endsWith('Grace Hopper')).toBe(true)
+    expect(kicker).not.toContain(',')
+  })
+
+  it('shows the company next to the name, comma-separated', () => {
+    const kicker = kickerText(eventHeader(pageData({ host: { ...host, company: 'Acme Inc' } })))
+    expect(kicker.endsWith('Grace Hopper, Acme Inc')).toBe(true)
+  })
+
+  it('escapes an attacker-controlled company the same as the name', () => {
+    const html = eventHeader(pageData({ host: { ...host, company: '<script>alert(1)</script>' } }))
+    expect(html).not.toContain('<script>')
+    expect(html).toContain('&lt;script&gt;')
+  })
+})
 
 /**
  * Regression: the timezone picker form used to always post back to the

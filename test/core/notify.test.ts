@@ -25,6 +25,7 @@ const host: User = {
   tz: 'America/New_York',
   slug: 'grace',
   avatarKey: null,
+  company: null,
   createdAt: 0,
 }
 

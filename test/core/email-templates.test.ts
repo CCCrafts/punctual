@@ -24,6 +24,7 @@ const host: User = {
   tz: 'America/New_York',
   slug: 'grace',
   avatarKey: null,
+  company: null,
   createdAt: 0,
 }
 
@@ -247,6 +248,49 @@ describe('host photo', () => {
     // The plain-text alternative has no <img> at all, and never could.
     expect(mail.text).not.toContain('<img')
     expect(mail.text).toContain(host.name)
+  })
+})
+
+/** The value cell of the row labelled `label`, tags stripped — the row order/layout is not this test's concern. */
+function rowValue(html: string, label: string): string {
+  const match = new RegExp(`>${label}<\\/td>\\s*<td[^>]*>([\\s\\S]*?)<\\/td>`).exec(html)
+  if (!match) throw new Error(`no row labelled "${label}" found`)
+  return match[1]!.replace(/<[^>]+>/g, '').trim()
+}
+
+describe('host company', () => {
+  it('the Host row is just the name when no company is set', () => {
+    const html = bookingConfirmationForGuest(ctx()).html
+    expect(rowValue(html, 'Host')).toBe(host.name)
+  })
+
+  it('the Host row appends the company, comma-separated', () => {
+    const html = bookingConfirmationForGuest(ctx({ host: { ...host, company: 'Acme Inc' } })).html
+    expect(rowValue(html, 'Host')).toBe(`${host.name}, Acme Inc`)
+  })
+
+  it('a team event with multiple hosts never attaches one host company to the whole list', () => {
+    const teammate: User = { ...host, id: 'u_2', name: 'Ada Lovelace', company: 'Analytical Engines' }
+    const html = bookingConfirmationForGuest(
+      ctx({ host: { ...host, company: 'Acme Inc' }, hosts: [host, teammate] }),
+    ).html
+    // Both names appear (the existing multi-host list), but neither company does.
+    expect(html).toContain(`${host.name}, ${teammate.name}`)
+    expect(html).not.toContain('Acme Inc')
+    expect(html).not.toContain('Analytical Engines')
+  })
+
+  it('is not shown to the host viewing their own confirmation', () => {
+    const html = bookingConfirmationForHost(ctx({ host: { ...host, company: 'Acme Inc' } })).html
+    expect(html).not.toContain('Acme Inc')
+  })
+
+  it('escapes an attacker-controlled company the same as the name', () => {
+    const html = bookingConfirmationForGuest(
+      ctx({ host: { ...host, company: '<script>alert(1)</script>' } }),
+    ).html
+    expect(html).not.toContain('<script>')
+    expect(html).toContain('&lt;script&gt;')
   })
 })
 

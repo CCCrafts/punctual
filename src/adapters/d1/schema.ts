@@ -21,6 +21,8 @@ export const users = sqliteTable(
     // Resized avatar thumbnail's R2 key; null until a photo is
     // uploaded. See `core/domain/media.ts` for the key convention.
     avatarKey: text('avatar_key'),
+    // Free-text company/organisation, shown next to the name; null until set.
+    company: text('company'),
     createdAt: integer('created_at').notNull(),
   },
   (t) => [uniqueIndex('users_email_idx').on(t.email), uniqueIndex('users_slug_idx').on(t.slug)],
