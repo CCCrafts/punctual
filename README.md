@@ -1,4 +1,10 @@
-# Punctual
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/brand/wordmark-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="assets/brand/wordmark-light.svg">
+    <img src="assets/brand/wordmark-light.svg" alt="punctual:" width="360">
+  </picture>
+</p>
 
 [![CI](https://github.com/CCCrafts/punctual/actions/workflows/ci.yml/badge.svg)](https://github.com/CCCrafts/punctual/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -12,6 +18,13 @@ $0 on the free tier.
 
 > **Status:** pre-release, under active development. The engine deploys and
 > takes bookings; interfaces may still change before 1.0.
+
+## What it looks like
+
+A booking page, rendered at the edge — no client-side spinner between the
+guest picking a day and seeing open times.
+
+![Punctual booking page: a day picker calendar next to a list of available half-hour slots, in the light theme](assets/brand/screenshot-booking.png)
 
 ## The pledge
 
