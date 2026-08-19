@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { EventType, Slot, User } from '../../src/core/domain/types.js'
-import { eventHeader, slotList, type BookingPageData } from '../../src/http/pages/booking.js'
+import { eventHeader, shellFoot, slotList, type BookingPageData } from '../../src/http/pages/booking.js'
 
 const host: User = {
   id: 'u_host',
@@ -48,22 +48,23 @@ function pageData(patch: Partial<BookingPageData> = {}): BookingPageData {
   }
 }
 
-function kickerText(html: string): string {
-  const match = /<p class="pu-kicker"[^>]*>([\s\S]*?)<\/p>/.exec(html)
-  if (!match) throw new Error('no .pu-kicker paragraph found')
-  return match[1]!.replace(/<[^>]+>/g, '').trim()
+/** The text of one element inside the host identity block, tags stripped. */
+function hostBlockText(html: string, cls: 'pu-host-name' | 'pu-host-org'): string | null {
+  const match = new RegExp(`<p class="${cls}">([\\s\\S]*?)<\\/p>`).exec(html)
+  return match ? match[1]!.replace(/<[^>]+>/g, '').trim() : null
 }
 
 describe('eventHeader host identity', () => {
-  it('shows the host name alone when no company is set', () => {
-    const kicker = kickerText(eventHeader(pageData()))
-    expect(kicker.endsWith('Grace Hopper')).toBe(true)
-    expect(kicker).not.toContain(',')
+  it('shows the host name, and no company line when none is set', () => {
+    const html = eventHeader(pageData())
+    expect(hostBlockText(html, 'pu-host-name')).toBe('Grace Hopper')
+    expect(hostBlockText(html, 'pu-host-org')).toBeNull()
   })
 
-  it('shows the company next to the name, comma-separated', () => {
-    const kicker = kickerText(eventHeader(pageData({ host: { ...host, company: 'Acme Inc' } })))
-    expect(kicker.endsWith('Grace Hopper, Acme Inc')).toBe(true)
+  it('shows the company as its own line under the name', () => {
+    const html = eventHeader(pageData({ host: { ...host, company: 'Acme Inc' } }))
+    expect(hostBlockText(html, 'pu-host-name')).toBe('Grace Hopper')
+    expect(hostBlockText(html, 'pu-host-org')).toBe('Acme Inc')
   })
 
   it('escapes an attacker-controlled company the same as the name', () => {
@@ -73,16 +74,34 @@ describe('eventHeader host identity', () => {
   })
 
   it('never shows a company on a team-owned event — "host" there is one representative member, not the team', () => {
-    const kicker = kickerText(
-      eventHeader(
-        pageData({
-          host: { ...host, company: 'Acme Inc' },
-          eventType: { ...eventType, ownerUserId: null, ownerTeamId: 'team_1', schedulingType: 'round_robin' },
-        }),
-      ),
+    const html = eventHeader(
+      pageData({
+        host: { ...host, company: 'Acme Inc' },
+        eventType: { ...eventType, ownerUserId: null, ownerTeamId: 'team_1', schedulingType: 'round_robin' },
+      }),
     )
-    expect(kicker.endsWith('Grace Hopper')).toBe(true)
-    expect(kicker).not.toContain('Acme Inc')
+    expect(hostBlockText(html, 'pu-host-name')).toBe('Grace Hopper')
+    expect(html).not.toContain('Acme Inc')
+  })
+})
+
+describe('shellFoot operator line', () => {
+  it('anchors the footer with the operator and keeps the wordmark as attribution', () => {
+    const html = shellFoot('Punctual', true, false, 'Acme Inc')
+    expect(html).toContain('Acme Inc · scheduling by')
+    expect(html).toContain('punctual<span>:</span>')
+    expect(html).not.toContain('scheduling that shows up on time')
+  })
+
+  it('keeps the product tagline when there is no operator', () => {
+    const html = shellFoot('Punctual', true, false, null)
+    expect(html).toContain('punctual<span>:</span></a> — scheduling that shows up on time')
+  })
+
+  it('escapes an attacker-controlled operator', () => {
+    const html = shellFoot('Punctual', true, false, '<img onerror=x>')
+    expect(html).not.toContain('<img onerror')
+    expect(html).toContain('&lt;img onerror=x&gt;')
   })
 })
 

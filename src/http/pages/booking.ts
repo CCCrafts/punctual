@@ -91,10 +91,25 @@ ${chrome.description ? `<meta name="twitter:description" content="${escapeHtml(c
  * it the iframe on a customer's page never learns the booking page's real
  * height and stays pinned at `data-height` (default 620px) for the whole
  * multi-step flow.
+ *
+ * `operator` is the host's company on booking-flow pages (see
+ * `displayCompany`). A guest on someone's booking page is dealing with that
+ * person's company, not with this software — so the company anchors the
+ * footer and the wordmark becomes the attribution, instead of the product
+ * tagline fronting a page it doesn't own.
  */
-export function shellFoot(brandName: string, poweredBy = true, embed = false): string {
+export function shellFoot(
+  brandName: string,
+  poweredBy = true,
+  embed = false,
+  operator?: string | null,
+): string {
+  const mark = `<a class="pu-mark" href="/">${escapeHtml(brandName.toLowerCase())}<span>:</span></a>`
+  const foot = operator
+    ? `<p class="pu-foot">${escapeHtml(operator)} · scheduling by ${mark}</p>`
+    : `<p class="pu-foot">${mark} — scheduling that shows up on time</p>`
   return `</div>
-${poweredBy ? `<p class="pu-foot"><a class="pu-mark" href="/">${escapeHtml(brandName.toLowerCase())}<span>:</span></a> — scheduling that shows up on time</p>` : ''}
+${poweredBy ? foot : ''}
 ${embed ? embedResizeScriptTag() : ''}
 </body></html>`
 }
@@ -154,20 +169,32 @@ export function avatarHtml(opts: { key: string | null; name: string; size?: numb
   return `<div aria-hidden="true" style="width:${size}px;height:${size}px;border-radius:50%;background:var(--pu-green-700);color:var(--pu-paper);display:flex;align-items:center;justify-content:center;font-family:var(--pu-font-mono);font-weight:600;font-size:${Math.round(size * 0.42)}px;flex:none">${escapeHtml(initial)}</div>`
 }
 
+/**
+ * The company shown for this booking page, or null. A team-owned event's
+ * `host` is one representative member picked by `bookingPageContext` for
+ * display purposes (see that function's own comment) — real, but not "the"
+ * host of a round-robin/collective event. Their company is personal to them,
+ * not the team, so it only ever renders for a personal event type, where
+ * `host` really is the host. Shared by the header and the page footer so the
+ * two can never disagree.
+ */
+export function displayCompany(d: Pick<BookingPageData, 'host' | 'eventType'>): string | null {
+  return d.eventType.ownerTeamId === null ? d.host.company : null
+}
+
 export function eventHeader(d: BookingPageData): string {
   const durationLabel = `${d.eventType.durationMinutes} min`
   const location = locationLabel(d.eventType)
-  // A team-owned event's `host` is one representative member picked by
-  // `bookingPageContext` for display purposes (see that function's own
-  // comment) — real, but not "the" host of a round-robin/collective event.
-  // Their company is personal to them, not the team, so it only ever
-  // renders for a personal event type, where `host` really is the host.
-  const company = d.eventType.ownerTeamId === null ? d.host.company : null
+  const company = displayCompany(d)
+  const hostName = d.host.name || d.host.slug
   return `<header class="pu-event-header">
-  <p class="pu-kicker" style="display:flex;align-items:center;gap:.5rem">
-    ${avatarHtml({ key: d.host.avatarKey, name: d.host.name || d.host.slug, size: 28 })}
-    ${escapeHtml(d.host.name || d.host.slug)}${company ? `, ${escapeHtml(company)}` : ''}
-  </p>
+  <div class="pu-host">
+    ${avatarHtml({ key: d.host.avatarKey, name: hostName, size: 56 })}
+    <div>
+      <p class="pu-host-name">${escapeHtml(hostName)}</p>
+      ${company ? `<p class="pu-host-org">${escapeHtml(company)}</p>` : ''}
+    </div>
+  </div>
   <h1>${escapeHtml(d.eventType.title)}</h1>
   ${d.eventType.description ? `<p class="pu-muted">${escapeHtml(d.eventType.description)}</p>` : ''}
   <ul class="pu-meta">

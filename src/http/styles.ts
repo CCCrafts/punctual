@@ -253,8 +253,15 @@ time,.pu-time{font-family:var(--pu-font-mono);font-variant-numeric:tabular-nums}
 .pu-card{background:var(--pu-surface-raised);border:1px solid var(--pu-border-subtle);
   border-radius:var(--pu-radius-lg);padding:1.375rem;box-shadow:var(--pu-shadow-sm)}
 .pu-muted{color:var(--pu-text-secondary)}
-.pu-kicker{color:var(--pu-text-secondary);font-size:.8125rem;font-weight:600;
-  letter-spacing:.03em;text-transform:uppercase;margin:0 0 .35rem}
+/* Host identity block atop a booking page — a person, not a label, so the
+   name is set in the display face at text size (never uppercase/tracked:
+   this is who the guest is meeting, not a section heading). The company gets
+   its own muted line rather than a comma splice, so the two facts read at
+   different weights the way they matter differently. */
+.pu-host{display:flex;align-items:center;gap:.875rem;margin:0 0 1.25rem}
+.pu-host-name{margin:0;font-family:var(--pu-font-display);font-size:1.0625rem;
+  font-weight:600;line-height:1.3;color:var(--pu-text-primary)}
+.pu-host-org{margin:.1rem 0 0;font-size:.875rem;line-height:1.35;color:var(--pu-text-secondary)}
 .pu-mark{font-family:var(--pu-font-mono);font-weight:600;letter-spacing:-.02em;
   text-decoration:none;color:var(--pu-text-primary)}
 .pu-mark span{color:var(--pu-signal)}

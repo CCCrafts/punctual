@@ -30,6 +30,7 @@ import { isValidTimeZone, localDateString } from '../core/time/zone.js'
 import {
   bookedConfirmation,
   confirmForm,
+  displayCompany,
   errorPage,
   eventHeader,
   monthGrid,
@@ -267,7 +268,7 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
       }
 
       return `<div class="pu-grid">${monthGrid(data)}${slotList(data)}</div>`
-    }, shellFoot(ports.config.brandName, true, embed))
+    }, shellFoot(ports.config.brandName, true, embed, displayCompany(headerData)))
   })
 
   // -------------------------------------------------------------------------
@@ -304,7 +305,7 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
       shellHead({ title: `Confirm · ${eventType.title}`, brandName: ports.config.brandName }) +
       eventHeader(data) +
       confirmForm(data, start) +
-      shellFoot(ports.config.brandName, true, embed)
+      shellFoot(ports.config.brandName, true, embed, displayCompany(data))
     return c.html(html)
   })
 
@@ -380,7 +381,7 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
         shellHead({ title: `Confirm · ${eventType.title}`, brandName: ports.config.brandName }) +
           eventHeader(data) +
           confirmForm(data, start, { errors, values: { name, email, ...answers }, holdId }) +
-          shellFoot(ports.config.brandName, true, embed),
+          shellFoot(ports.config.brandName, true, embed, displayCompany(data)),
         400,
       )
     }
@@ -410,7 +411,7 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
         shellHead({ title: 'Time unavailable', brandName: ports.config.brandName }) +
           eventHeader(data) +
           body +
-          shellFoot(ports.config.brandName, true, embed),
+          shellFoot(ports.config.brandName, true, embed, displayCompany(data)),
         409,
       )
     }
@@ -429,7 +430,7 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
           guestTimezone,
           manageUrl,
         }) +
-        shellFoot(ports.config.brandName, true, embed),
+        shellFoot(ports.config.brandName, true, embed, displayCompany(data)),
     )
   })
 
