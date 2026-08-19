@@ -267,6 +267,11 @@ function timezonePicker(d: BookingPageData): string {
       ? `<input type="hidden" name="start" value="${d.confirmStart}">`
       : `${d.selectedDate ? `<input type="hidden" name="date" value="${escapeHtml(d.selectedDate)}">` : ''}
     <input type="hidden" name="month" value="${escapeHtml(d.month)}">`
+  // Only numbers interpolated into the style attribute — the zone string
+  // itself never is (it's validated upstream, but belt and braces).
+  const offset = offsetLabel(Date.now(), d.guestTimezone)
+  const zoneCh = d.guestTimezone.length
+  const offsetCh = offset.length
   return `<form class="pu-tz-form" method="get" action="${escapeHtml(action)}">
     ${hiddenFields}
     ${d.embed ? '<input type="hidden" name="embed" value="1">' : ''}
@@ -278,8 +283,8 @@ function timezonePicker(d: BookingPageData): string {
         <path d="M3.6 9h16.8M3.6 15h16.8M12 3a13.5 13.5 0 0 1 0 18M12 3a13.5 13.5 0 0 0 0 18"></path>
       </svg>
       <select id="pu-tz" name="tz" class="pu-tz-select" onchange="this.form.submit()"
-        style="width:calc(${d.guestTimezone.length}ch + 2.6rem)">${options}</select>
-      <span class="pu-tz-offset">${escapeHtml(offsetLabel(Date.now(), d.guestTimezone))}</span>
+        style="width:calc(${zoneCh + offsetCh}ch + 4.5rem);padding-right:calc(${offsetCh}ch + 2.2rem)">${options}</select>
+      <span class="pu-tz-offset">${escapeHtml(offset)}</span>
     </span>
     <noscript><button type="submit" class="pu-btn pu-btn-ghost" style="padding:.15rem .5rem">Set</button></noscript>
   </form>`

@@ -407,8 +407,13 @@ input:has(+ .pu-err),select:has(+ .pu-err),textarea:has(+ .pu-err){border-color:
    control is the wrap's :focus-within border+ring above, and both firing at
    once is the double-ring this replaced. */
 .pu-tz-select:focus-visible{outline:none;box-shadow:none}
-.pu-tz-offset{padding:0 1.7rem 0 .5rem;font-size:.8125rem;color:var(--pu-text-secondary);
-  white-space:nowrap;pointer-events:none}
+/* Overlaid decoration, not a flex sibling: the SELECT spans the whole
+   bordered control (its width and right padding reserve this label's space
+   via the inline calc), so every pixel inside the border — offset and
+   chevron included — opens the picker. A sibling taking its own flex space
+   would leave the control's right half click-dead. */
+.pu-tz-offset{position:absolute;right:1.7rem;top:50%;transform:translateY(-50%);
+  font-size:.8125rem;color:var(--pu-text-secondary);white-space:nowrap;pointer-events:none}
 
 .pu-confirm{text-align:center;padding:2rem 1.5rem}
 .pu-confirm-icon{display:block;margin:0 auto .75rem;color:var(--pu-text-primary)}
