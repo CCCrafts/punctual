@@ -58,7 +58,7 @@ export const TOKENS = `
      to ~2.4:1 (fails WCAG AA) if it shares the token. Same shades as
      light mode's green-700/800 — those already pass comfortably (5.2:1). */
   --pu-green-fill:#0E7C4C; --pu-green-fill-hover:#0A5C3A;
-  /* Warn — added for the semantic layer (CCC-493). Fill/border stays one
+  /* Warn — added for the semantic layer below. Fill/border stays one
      value across themes, same discipline as --pu-green-fill above; a
      separate -text variant is redefined per theme below because #F5A623
      itself is ~1.9:1 on light paper (fine as a small border/icon, fails AA
@@ -80,7 +80,7 @@ export const TOKENS = `
   --pu-code-bg:#0F1512; --pu-code-fg:#E7F2EA; --pu-code-line:#2E3B34;
 
   /* ---------------------------------------------------------------------
-   * Semantic layer (CCC-493). Product UI states, one level above the raw
+   * Semantic layer. Product UI states, one level above the raw
    * palette above — components should reach for these, not for
    * --pu-ink-*/--pu-green-*/--pu-danger/--pu-warn directly, so a future
    * repaint of the brand only ever touches this block.
@@ -164,7 +164,7 @@ export const TOKENS = `
   --pu-status-info-bg:var(--pu-surface-sunken);
 
   /* Slot: the booking flow's own state machine (see src/core/slot-state.ts).
-     Rule (CCC-493): held/booked are visually distinct from available
+     Rule: held/booked are visually distinct from available
      WITHOUT the accent — the accent is the guest's own current pick
      (hover/selected), never a system state. held borrows the warning hue
      (in flux, someone else is mid-booking, may free up); booked borrows the

@@ -99,7 +99,7 @@ describe('eventHeader timezone picker', () => {
 })
 
 /**
- * CCC-493: the slot picker must go through the shared slot-state → class
+ * The slot picker must go through the shared slot-state → class
  * mapping (src/core/slot-state.ts), not a hardcoded "pu-slot" literal — this
  * is the one place the semantic token layer's slot states are actually
  * proven live, since the query engine (src/core/slots/engine.ts) only ever

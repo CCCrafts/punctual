@@ -1,5 +1,5 @@
 /**
- * The semantic *slot* states the booking flow renders (CCC-493).
+ * The semantic *slot* states the booking flow renders.
  *
  * This is deliberately a closed enum, not a free-form status string: every
  * value here has a matching `.pu-slot-*` rule in `../http/styles.ts` (TOKENS'
