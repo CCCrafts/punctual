@@ -748,7 +748,11 @@ describe('signup policy', () => {
     return token
   }
 
-  it('a closed instance still answers identically for known and unknown addresses — and mails only the known one', async () => {
+  it('a closed instance answers identically for known and unknown addresses — and mails BOTH, so there is no timing branch either', async () => {
+    // The request path must be byte- and work-identical regardless of policy:
+    // an earlier version suppressed the stranger's email here, and the skipped
+    // D1 insert + awaited provider send was a measurable existence oracle.
+    // The stranger's link simply dead-ends at the consume gate below.
     const known = await closedPost('/login', { email: HOST_EMAIL })
     const unknown = await closedPost('/login', { email: 'stranger-closed@example.test' })
     expect(known.status).toBe(200)
@@ -756,7 +760,7 @@ describe('signup policy', () => {
 
     const recipients = email.sent.map((m) => m.to)
     expect(recipients).toContain(HOST_EMAIL)
-    expect(recipients).not.toContain('stranger-closed@example.test')
+    expect(recipients).toContain('stranger-closed@example.test')
   })
 
   it('the consume gate refuses to CREATE a user on a closed instance, with a distinct message', async () => {

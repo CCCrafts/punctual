@@ -127,18 +127,15 @@ export async function requestMagicLink(
   const ipCheck = await deps.rateLimiter.check('magic_link_ip', req.ip, perIp.limit, perIp.windowSeconds)
   if (!ipCheck.allowed) return rateLimited(ipCheck.resetAt, req.now)
 
-  // Under a restrictive signup policy, an address that has no account and may
-  // not create one gets the SAME "accepted" response — and simply no email.
-  // Responding differently would be an account-existence oracle; sending the
-  // link would put a dead end in a stranger's inbox, since `consumeMagicLink`
-  // (the authoritative gate — this check is UX, not security) refuses the
-  // create branch anyway. Open instances skip the lookup entirely, keeping
-  // the original no-existence-check property.
-  if (deps.config.signupPolicy && deps.config.signupPolicy.mode !== 'open') {
-    const existing = await deps.repos.users.byEmail(email)
-    if (!existing && !signupAllowed(email, deps.config.signupPolicy)) return { status: 'accepted' }
-  }
-
+  // No existence check, on purpose — INCLUDING under a restrictive signup
+  // policy. A first version of the policy suppressed the email for unknown
+  // non-allowed addresses here; the response body was identical, but the
+  // refused path skipped the D1 insert and the awaited HTTPS send to the
+  // email provider, a 100–500 ms difference a stopwatch client reads as an
+  // account-existence oracle. So every plausible address takes exactly this
+  // same path, and the signup policy lives ONLY in `consumeMagicLink`'s
+  // create branch: a non-allowed stranger gets a real email whose link
+  // lands on "sign-ups are closed" — honest, and timing-silent.
   const token = deps.crypto.randomToken(32)
   const record: MagicLinkToken = {
     tokenHash: await deps.crypto.hash(token),
