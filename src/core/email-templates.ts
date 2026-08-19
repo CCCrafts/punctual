@@ -378,7 +378,10 @@ function manageCtas(ctx: BookingEmailContext, audience: EmailAudience): Cta[] {
 }
 
 function tzNote(tz: string, startUtc: number): string {
-  return `All times shown in ${tz} (${offsetLabel(startUtc, tz)}).`
+  // Same humanization as the timezone picker on the booking page (booking.ts)
+  // — the raw IANA id's underscore reads as a system identifier, not a place,
+  // in a sentence meant for a guest.
+  return `All times shown in ${tz.replace(/_/g, ' ')} (${offsetLabel(startUtc, tz)}).`
 }
 
 function supportNote(ctx: BookingEmailContext): string[] {
@@ -414,7 +417,13 @@ export function bookingConfirmationForGuest(ctx: BookingEmailContext): EmailCont
     ctas: manageCtas(ctx, 'guest'),
     notes: [tzNote(tz, ctx.booking.startUtc), ...supportNote(ctx)],
     avatarUrl: hostAvatarUrl(ctx),
-    avatarAlt: hostNames(ctx),
+    // Empty, not the host's name: the "Host" row two lines down already says
+    // it, and a client that fails to load the image (a stale key, a blocked-
+    // images policy — common in corporate Outlook) renders a broken-image
+    // icon with the alt text spilling out next to it, not the clean "no
+    // visible artifact" degradation the row above promises. A purely
+    // decorative image takes an empty alt on accessibility grounds too.
+    avatarAlt: '',
   }
   return render(
     input,

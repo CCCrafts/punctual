@@ -123,6 +123,15 @@ describe('the recipient reads their own timezone', () => {
     expect(forHost.text).toContain(timeIn(START, 'Europe/Kyiv'))
   })
 
+  it('the "All times shown in" note reads like a place, not a raw IANA id', () => {
+    // Same humanization as the timezone picker on the booking page — the
+    // underscore in the raw id reads as a system identifier, not a place,
+    // in a sentence written for a guest.
+    const forHost = bookingConfirmationForHost(ctx())
+    expect(forHost.text).toContain('All times shown in America/New York')
+    expect(forHost.text).not.toContain('America/New_York')
+  })
+
   it('formatWhen spans start to end with the start offset', () => {
     const s = formatWhen(START, START + 30 * 60_000, 'Europe/Kyiv')
     expect(s).toContain(timeIn(START, 'Europe/Kyiv'))
@@ -234,13 +243,16 @@ describe('host photo', () => {
     expect(html).not.toContain('<img')
   })
 
-  it('renders an absolute /avatars/:key URL with real alt text when both are present', () => {
+  it('renders an absolute /avatars/:key URL, empty alt, when both are present', () => {
     const key = 'a'.repeat(64) + '-thumb.webp'
     const html = bookingConfirmationForGuest(
       ctx({ host: { ...host, avatarKey: key }, baseUrl: 'https://punctual.example/' }),
     ).html
     expect(html).toContain(`<img src="https://punctual.example/avatars/${key}"`)
-    expect(html).toContain(`alt="${host.name}"`)
+    // Empty, not the host's name: the "Host" row already says it, and a
+    // client that fails to load the image renders a broken-image icon with
+    // the alt text spilling out next to it when alt is non-empty.
+    expect(html).toContain(`alt=""`)
   })
 
   it('every fact in the email is still plain text — the photo is decorative, not load-bearing', () => {
