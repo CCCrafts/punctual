@@ -560,7 +560,21 @@ async function listEventTypes(
   input: z.infer<typeof listEventTypesArgs>,
 ): Promise<ToolResult> {
   const { repos, user } = deps.auth
+  // Personal rows first, then each team's — `listForUser` selects WHERE
+  // owner_user_id = ?, which never returns a team-owned row (owner_team_id
+  // is set instead), so a team event type was invisible here even though
+  // get/reschedule/cancel already authorize it by id for any team member.
+  const ownerSlugs = new Map<string, string>()
   const all = await repos.eventTypes.listForUser(user.id)
+  for (const et of all) ownerSlugs.set(et.id, user.slug)
+  for (const membership of await repos.teams.memberships(user.id)) {
+    const team = await repos.teams.byId(membership.teamId)
+    if (!team) continue
+    for (const et of await repos.eventTypes.listForTeam(membership.teamId)) {
+      all.push(et)
+      ownerSlugs.set(et.id, team.slug)
+    }
+  }
   const visible = input.includeInactive ? all : all.filter((et) => et.active)
   if (visible.length === 0) {
     return text('This account has no bookable event types yet.')
@@ -580,7 +594,9 @@ async function listEventTypes(
       // Effective, not declared: an agent filling the booking form needs to
       // see the built-in agenda question too, or it can never answer it.
       questions: effectiveQuestions(et).map((q) => ({ id: q.id, label: q.label, type: q.type, required: q.required, options: q.options })),
-      bookingUrl: `${trimSlash(deps.ports.config.baseUrl)}/${user.slug}/${et.slug}`,
+      // The OWNER's slug — the team's for a team-owned event type, never the
+      // calling user's, whose personal slug would print a dead link.
+      bookingUrl: `${trimSlash(deps.ports.config.baseUrl)}/${ownerSlugs.get(et.id) ?? user.slug}/${et.slug}`,
     })),
   })
 }

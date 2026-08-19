@@ -230,6 +230,49 @@ describe('event types', () => {
     expect(body.data[0]!['url']).toBe(`https://punctual.test/${seed.user.slug}/30min`)
   })
 
+  it('lists team-owned event types too, with the TEAM slug in the URL', async () => {
+    const ports = testPorts()
+    const app = buildApp(ports)
+    const seed = await seedHost(ports)
+    const repos = ports.repositories({ consistency: 'bookmark' })
+
+    // `listForUser` selects WHERE owner_user_id = ?, which a team-owned row
+    // never matches (owner_team_id is set instead) — without also walking
+    // the caller's memberships, a team event type is invisible to the list
+    // endpoint even though get/patch/delete already authorize it by id.
+    const team = await repos.teams.createWithFirstMember(
+      { id: 'team_api_test', name: 'API Test Team', slug: 'api-test-team', logoKey: null },
+      { userId: seed.user.id, role: 'admin', rrWeight: 1 },
+    )
+    await repos.eventTypes.create({
+      id: 'evt_team_test',
+      ownerUserId: null,
+      ownerTeamId: team!.id,
+      schedulingType: 'round_robin',
+      slug: 'team-call',
+      title: 'Team call',
+      description: '',
+      durationMinutes: 30,
+      slotIntervalMinutes: null,
+      bufferBeforeMinutes: 0,
+      bufferAfterMinutes: 0,
+      minNoticeMinutes: 0,
+      maxHorizonDays: 60,
+      maxPerDay: null,
+      locationType: 'custom_link',
+      locationValue: null,
+      questions: [],
+      active: true,
+    })
+
+    const res = await app.request('/api/v1/event-types', { headers: auth(seed.apiKey) })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { data: Array<Record<string, unknown>> }
+    expect(body.data).toHaveLength(2)
+    const teamEvent = body.data.find((d) => d['id'] === 'evt_team_test')
+    expect(teamEvent?.['url']).toBe('https://punctual.test/api-test-team/team-call')
+  })
+
   it('returns problem JSON with field errors on an invalid body', async () => {
     const ports = testPorts()
     const app = buildApp(ports)
@@ -792,6 +835,53 @@ describe('MCP server', () => {
     })
     expect(denied.status).toBe(403)
     expect(denied.body.error?.code).toBe(-32003)
+  })
+
+  it('list_event_types includes team-owned event types, with the team slug in bookingUrl', async () => {
+    const ports = testPorts()
+    const app = buildApp(ports)
+    const seed = await seedHost(ports)
+    const repos = ports.repositories({ consistency: 'bookmark' })
+
+    // Same gap as the REST list endpoint: listForUser alone never returns a
+    // team-owned row, so an agent could get/reschedule/cancel a team event
+    // by id but never discover it exists.
+    const team = await repos.teams.createWithFirstMember(
+      { id: 'team_mcp_test', name: 'MCP Test Team', slug: 'mcp-test-team', logoKey: null },
+      { userId: seed.user.id, role: 'admin', rrWeight: 1 },
+    )
+    await repos.eventTypes.create({
+      id: 'evt_mcp_team_test',
+      ownerUserId: null,
+      ownerTeamId: team!.id,
+      schedulingType: 'round_robin',
+      slug: 'mcp-team-call',
+      title: 'MCP team call',
+      description: '',
+      durationMinutes: 30,
+      slotIntervalMinutes: null,
+      bufferBeforeMinutes: 0,
+      bufferAfterMinutes: 0,
+      minNoticeMinutes: 0,
+      maxHorizonDays: 60,
+      maxPerDay: null,
+      locationType: 'custom_link',
+      locationValue: null,
+      questions: [],
+      active: true,
+    })
+
+    const call = await rpc(app, seed.apiKey, 'tools/call', {
+      name: 'list_event_types',
+      arguments: {},
+    })
+    const content = call.body.result?.['content'] as Array<{ type: string; text: string }>
+    const payload = JSON.parse(content[0]!.text) as {
+      eventTypes: Array<{ id: string; bookingUrl: string }>
+    }
+    expect(payload.eventTypes).toHaveLength(2)
+    const teamEvent = payload.eventTypes.find((et) => et.id === 'evt_mcp_team_test')
+    expect(teamEvent?.bookingUrl).toBe('https://punctual.test/mcp-test-team/mcp-team-call')
   })
 
   it('runs the slot and booking tools end to end', async () => {

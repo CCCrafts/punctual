@@ -847,16 +847,29 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
 
     // Read-then-write: a concurrent create of the same slug can slip past the
     // check above and hit the teams_slug_idx UNIQUE constraint instead. That
-    // window is a form re-submit away from fixed, so it stays a constraint
-    // error rather than growing the repository a compare-and-swap for it.
+    // window is a form re-submit away from fixed, so createWithFirstMember
+    // catches the constraint and returns null rather than growing the
+    // repository a compare-and-swap for it — but the caller still has to
+    // turn that into the same form error, not an uncaught 500.
     // The creator is the first member, in the SAME atomic write as the team
     // row — a team with no members can be seen and managed by nobody, and a
     // transient failure between two separate inserts would strand exactly
     // that, with the slug squatted forever.
-    await repos.teams.createWithFirstMember(
+    const created = await repos.teams.createWithFirstMember(
       { id: `team_${ports.crypto.randomToken(12)}`, name, slug: raw, logoKey: null },
       { userId: user.id, role: 'admin', rrWeight: 1 },
     )
+    if (!created) {
+      return c.html(
+        teamsPage({
+          ...(await teamsData(c)),
+          nameValue: name,
+          slugValue: raw,
+          errors: { 'team-slug': 'That slug is already taken' },
+        }),
+        400,
+      )
+    }
     await advanceBookmark(c)
     return c.redirect('/dashboard/teams?created=1', 302)
   })

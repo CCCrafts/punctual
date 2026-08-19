@@ -229,8 +229,14 @@ export interface TeamRepository {
    * Team row and its first membership in ONE atomic write. Creating them as
    * two statements lets a transient failure between the two strand a
    * memberless team — unmanageable by everyone, its slug squatted forever.
+   * @returns null when `team.slug` lost a race against a concurrent create —
+   *          the caller's own precheck is read-then-write and this is the
+   *          constraint that actually arbitrates it.
    */
-  createWithFirstMember(team: Omit<Team, 'createdAt'>, member: Omit<TeamMember, 'teamId'>): Promise<Team>
+  createWithFirstMember(
+    team: Omit<Team, 'createdAt'>,
+    member: Omit<TeamMember, 'teamId'>,
+  ): Promise<Team | null>
   addMember(member: TeamMember): Promise<void>
   removeMember(teamId: string, userId: string): Promise<void>
   /**

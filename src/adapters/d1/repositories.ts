@@ -613,17 +613,26 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
       const row = { ...team, createdAt: Date.now() }
       // One batch: D1 rolls the whole thing back if either insert fails, so
       // a memberless (unmanageable, slug-squatting) team can never exist.
-      await session.batch([
-        q(
-          'INSERT INTO teams (id,name,slug,logo_key,created_at) VALUES (?,?,?,?,?)',
-          row.id, row.name, row.slug, row.logoKey, row.createdAt,
-        ),
-        q(
-          'INSERT INTO team_members (team_id,user_id,role,rr_weight) VALUES (?,?,?,?)',
-          row.id, member.userId, member.role, member.rrWeight,
-        ),
-      ])
-      return row
+      try {
+        await session.batch([
+          q(
+            'INSERT INTO teams (id,name,slug,logo_key,created_at) VALUES (?,?,?,?,?)',
+            row.id, row.name, row.slug, row.logoKey, row.createdAt,
+          ),
+          q(
+            'INSERT INTO team_members (team_id,user_id,role,rr_weight) VALUES (?,?,?,?)',
+            row.id, member.userId, member.role, member.rrWeight,
+          ),
+        ])
+        return row
+      } catch (err) {
+        // The route's own precheck is read-then-write: a concurrent create of
+        // the same slug can slip past it and hit teams_slug_idx here instead.
+        // Without this catch that surfaced as a bare 500 rather than the same
+        // "slug already taken" form error the precheck gives everyone else.
+        if (isConstraintViolation(err)) return null
+        throw err
+      }
     },
     async updateLogo(id, logoKey) {
       await run('UPDATE teams SET logo_key = ? WHERE id = ?', logoKey, id)

@@ -483,7 +483,15 @@ export function buildApiRoutes(ports: EnginePorts, slots: SlotService): Hono<Api
 
   app.get('/event-types', async (c) => {
     const { repos, user } = c.get('auth')
+    // Personal rows first, then each team's — `listForUser` selects
+    // WHERE owner_user_id = ?, which by construction never returns a
+    // team-owned row (owner_team_id is set instead). Without this, an API
+    // key could GET/PATCH/DELETE a team event type by id (ownsEventType
+    // grants any team member access) but never discover it existed.
     const list = await repos.eventTypes.listForUser(user.id)
+    for (const membership of await repos.teams.memberships(user.id)) {
+      list.push(...(await repos.eventTypes.listForTeam(membership.teamId)))
+    }
     const data = []
     for (const et of list) data.push(eventTypeJson(et, ports, await ownerSlugFor(repos, user, et)))
     return c.json({ data })

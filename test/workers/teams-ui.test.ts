@@ -457,13 +457,14 @@ describe('repository-level atomic guards', () => {
     // Same PK (team_dup, usr_d1) — but createWithFirstMember generates its
     // own team id, so simulate by calling the raw batch shape: reuse the
     // method with a team whose id ALREADY exists, so the FIRST insert fails
-    // and nothing commits.
-    await expect(
-      repos.teams.createWithFirstMember(
-        { id: 'team_dup', name: 'Dup2', slug: 'dup-team-2', logoKey: null },
-        { userId: 'usr_d2', role: 'admin', rrWeight: 1 },
-      ),
-    ).rejects.toThrow()
+    // and nothing commits. A constraint violation resolves to null, not a
+    // throw — the route's own slug race (same constraint family) needs a
+    // clean form error, not an uncaught 500.
+    const result = await repos.teams.createWithFirstMember(
+      { id: 'team_dup', name: 'Dup2', slug: 'dup-team-2', logoKey: null },
+      { userId: 'usr_d2', role: 'admin', rrWeight: 1 },
+    )
+    expect(result).toBeNull()
     const member = await db
       .prepare("SELECT COUNT(*) AS n FROM team_members WHERE team_id='team_dup' AND user_id='usr_d2'")
       .first<{ n: number }>()
