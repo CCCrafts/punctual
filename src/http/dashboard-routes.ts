@@ -262,7 +262,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     const token = c.req.query('token') ?? ''
     const repos = ports.repositories({ consistency: 'bookmark' })
     const result = await consumeMagicLink(
-      { repos, crypto: ports.crypto },
+      { repos, crypto: ports.crypto, signupPolicy: ports.config.signupPolicy },
       { token, now: ports.clock.now(), timezone: timezoneHint(c) },
     )
     if (!result.ok) {
@@ -270,7 +270,10 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
         loginPage({
           brandName,
           providers: ports.calendars.available(),
-          error: 'That link has expired or was already used. Request a new one.',
+          error:
+            result.reason === 'signups_closed'
+              ? 'Sign-ups are closed on this instance. Ask its operator for access.'
+              : 'That link has expired or was already used. Request a new one.',
         }),
         400,
       )
@@ -416,10 +419,20 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
       createdAt: now,
     })
     const result = await consumeMagicLink(
-      { repos, crypto: ports.crypto },
+      { repos, crypto: ports.crypto, signupPolicy: ports.config.signupPolicy },
       { token: linkToken, now, timezone: timezoneHint(c) },
     )
-    if (!result.ok) return oauthError(c, 'Could not complete sign-in. Please try again.')
+    if (!result.ok) {
+      // Telling THIS person signups are closed is not an oracle: they just
+      // proved control of the address via the provider, so the only thing
+      // revealed is the instance's policy about their own email.
+      return oauthError(
+        c,
+        result.reason === 'signups_closed'
+          ? 'Sign-ups are closed on this instance. Ask its operator for access.'
+          : 'Could not complete sign-in. Please try again.',
+      )
+    }
     return startSession(c, result.sessionToken)
   }
 

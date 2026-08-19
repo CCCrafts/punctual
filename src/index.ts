@@ -23,6 +23,7 @@ import { createQueueAdapter } from './adapters/queue/index.js'
 import { createRateLimiterAdapter } from './adapters/rate-limiter.js'
 import { handleOne, handleQueueBatch } from './adapters/queue/consumer.js'
 import { runScheduledTasks } from './adapters/scheduled.js'
+import { parseSignupPolicy } from './core/domain/auth-flows.js'
 import type { EnginePorts, RequestScope } from './ports.js'
 
 export { HostCalendar } from './do/host-calendar.js'
@@ -40,6 +41,8 @@ export interface Env {
   BRAND_NAME?: string
   LEGAL_OPERATOR?: string
   DEMO_BOOKING_PATH?: string
+  /** Signup policy: unset/"open", "closed", or a comma list of emails/@domains — see `SignupPolicy` in ports.ts. Set as a secret/var per deployment; never a public-repo default, which would lock a fresh self-hoster out of their own instance. */
+  SIGNUPS?: string
   FROM_EMAIL?: string
   FROM_NAME?: string
   SUPPORT_EMAIL?: string
@@ -139,6 +142,7 @@ export function buildPorts(env: Env): EnginePorts {
       brandName: env.BRAND_NAME ?? 'Punctual',
       ...(env.LEGAL_OPERATOR ? { legalOperator: env.LEGAL_OPERATOR } : {}),
       ...(env.DEMO_BOOKING_PATH ? { demoBookingPath: env.DEMO_BOOKING_PATH } : {}),
+      ...(env.SIGNUPS ? { signupPolicy: parseSignupPolicy(env.SIGNUPS) } : {}),
       supportEmail: env.SUPPORT_EMAIL ?? 'hello@example.com',
       fromEmail: env.FROM_EMAIL ?? 'hello@example.com',
       fromName: env.FROM_NAME ?? 'Punctual',

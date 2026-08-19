@@ -184,6 +184,7 @@ Two features need a paid plan, and both degrade gracefully:
 | `FROM_EMAIL` / `FROM_NAME` | `[vars]` | Sender identity |
 | `SUPPORT_EMAIL` | `[vars]` | Reply-to on outbound mail |
 | `TELEMETRY_ENABLED` | `[vars]` | `0` by default. See below |
+| `SIGNUPS` | secret or `[vars]` | Who may create an account: unset/`open` (default), `closed` (existing users only), or a comma list of emails and `@domains` (`serge@acme.com, @acme.com`). Register your own account first, then close it — existing users always sign in |
 | `ENCRYPTION_KEY_V1` | secret | AES-GCM key for calendar tokens |
 | `SIGNING_KEY` | secret | HMAC key for guest manage links |
 | `GOOGLE_CLIENT_ID` / `_SECRET` | secret | Your Google OAuth app |

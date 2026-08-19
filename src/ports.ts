@@ -406,6 +406,28 @@ export interface BlobCache {
   put(key: string, value: Uint8Array, ttlSeconds: number): Promise<void>
 }
 
+// ---------------------------------------------------------------------------
+// Signup policy
+// ---------------------------------------------------------------------------
+
+/**
+ * Who may CREATE an account on this deployment. Existing users always sign
+ * in regardless — this gates the find-or-create's create branch only, which
+ * both the magic-link and OAuth identity flows funnel through
+ * (`consumeMagicLink` in core/domain/auth-flows.ts).
+ *
+ *  - 'open':      anyone (the default — a fresh self-host must let its own
+ *                 operator register before anything else exists)
+ *  - 'closed':    nobody new
+ *  - 'allowlist': lowercase exact emails and `@domain` suffixes
+ *
+ * Parsed from the `SIGNUPS` env var by `parseSignupPolicy`.
+ */
+export type SignupPolicy =
+  | { mode: 'open' }
+  | { mode: 'closed' }
+  | { mode: 'allowlist'; entries: string[] }
+
 /**
  * User-uploaded binary content: host avatars and team logos.
  * Deliberately a THIRD storage port, not a reuse of `Cache` or `BlobCache`
@@ -560,6 +582,8 @@ export interface EngineConfig {
   telemetryEnabled: boolean
   /** Abuse-limit overrides; operator-tunable. */
   rateLimits?: Partial<Record<string, { limit: number; windowSeconds: number }>>
+  /** Who may create an account here — see `SignupPolicy`. Unset = open. */
+  signupPolicy?: SignupPolicy
 }
 
 // ---------------------------------------------------------------------------

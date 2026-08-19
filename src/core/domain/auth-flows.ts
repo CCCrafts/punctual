@@ -22,6 +22,7 @@ import type {
   EngineConfig,
   RateLimiter,
   Repositories,
+  SignupPolicy,
 } from '../../ports.js'
 import {
   MAGIC_LINK_TTL_MS,
@@ -51,6 +52,37 @@ export interface MagicLinkDeps {
   email: EmailSender
   rateLimiter: RateLimiter
   config: EngineConfig
+}
+
+// ---------------------------------------------------------------------------
+// Signup policy
+// ---------------------------------------------------------------------------
+
+/**
+ * `SIGNUPS` env var → policy. Unset, empty or "open" → open; "closed" →
+ * closed; anything else is a comma-separated allowlist of exact emails and
+ * `@domain` suffixes ("serge@acme.com, @cccrafts.ai"). A list that trims to
+ * nothing falls back to open rather than silently locking the operator out
+ * of a fresh deployment over a typo.
+ */
+export function parseSignupPolicy(raw: string | undefined): SignupPolicy {
+  const value = (raw ?? '').trim().toLowerCase()
+  if (value === '' || value === 'open') return { mode: 'open' }
+  if (value === 'closed') return { mode: 'closed' }
+  const entries = value
+    .split(',')
+    .map((e) => e.trim())
+    .filter((e) => e !== '')
+  return entries.length > 0 ? { mode: 'allowlist', entries } : { mode: 'open' }
+}
+
+/** Whether `email` may CREATE an account. Callers gate creation only — an existing user always signs in. */
+export function signupAllowed(email: string, policy: SignupPolicy | undefined): boolean {
+  if (!policy || policy.mode === 'open') return true
+  if (policy.mode === 'closed') return false
+  const normalised = normaliseEmail(email)
+  const domain = normalised.slice(normalised.lastIndexOf('@'))
+  return policy.entries.some((entry) => (entry.startsWith('@') ? entry === domain : entry === normalised))
 }
 
 export interface MagicLinkRequest {
@@ -95,9 +127,18 @@ export async function requestMagicLink(
   const ipCheck = await deps.rateLimiter.check('magic_link_ip', req.ip, perIp.limit, perIp.windowSeconds)
   if (!ipCheck.allowed) return rateLimited(ipCheck.resetAt, req.now)
 
-  // No existence check, on purpose. A magic link is both sign-in and sign-up
-  // (the account is created at consumption), so there is no branch to leak —
-  // and adding one to "avoid emailing strangers" would rebuild the oracle.
+  // Under a restrictive signup policy, an address that has no account and may
+  // not create one gets the SAME "accepted" response — and simply no email.
+  // Responding differently would be an account-existence oracle; sending the
+  // link would put a dead end in a stranger's inbox, since `consumeMagicLink`
+  // (the authoritative gate — this check is UX, not security) refuses the
+  // create branch anyway. Open instances skip the lookup entirely, keeping
+  // the original no-existence-check property.
+  if (deps.config.signupPolicy && deps.config.signupPolicy.mode !== 'open') {
+    const existing = await deps.repos.users.byEmail(email)
+    if (!existing && !signupAllowed(email, deps.config.signupPolicy)) return { status: 'accepted' }
+  }
+
   const token = deps.crypto.randomToken(32)
   const record: MagicLinkToken = {
     tokenHash: await deps.crypto.hash(token),
@@ -125,11 +166,13 @@ export async function requestMagicLink(
 export interface SessionDeps {
   repos: Repositories
   crypto: Crypto
+  /** Gates the create branch of `consumeMagicLink` only. Unset = open. */
+  signupPolicy?: SignupPolicy
 }
 
 export type ConsumeMagicLinkResult =
   | { ok: true; sessionToken: string; session: Session; user: User; createdUser: boolean }
-  | { ok: false; reason: 'invalid_or_expired' }
+  | { ok: false; reason: 'invalid_or_expired' | 'signups_closed' }
 
 /**
  * Redeem a link: single-use, then find-or-create the user, then a session.
@@ -154,6 +197,10 @@ export async function consumeMagicLink(
   const existing = await deps.repos.users.byEmail(email)
   let user = existing
   if (!user) {
+    // The single authoritative signup gate: every account-creating flow
+    // (magic link AND OAuth identity, which redeems a synthetic link) funnels
+    // through this branch, so a policy check anywhere else is only UX.
+    if (!signupAllowed(email, deps.signupPolicy)) return { ok: false, reason: 'signups_closed' }
     user = await deps.repos.users.create({
       id: `usr_${deps.crypto.randomToken(12)}`,
       email,

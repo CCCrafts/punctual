@@ -723,3 +723,82 @@ describe('settings — profile (name and company)', () => {
     expect(res.status).toBe(403)
   })
 })
+
+describe('signup policy', () => {
+  const closedPorts: EnginePorts = {
+    ...ports,
+    config: fakeConfig({ baseUrl: BASE, signupPolicy: { mode: 'closed' } }),
+  }
+  const closedApp = buildDashboardRoutes(closedPorts, slots)
+
+  async function closedPost(path: string, body: Record<string, string>): Promise<Response> {
+    const form = new FormData()
+    for (const [k, v] of Object.entries(body)) form.append(k, v)
+    return closedApp.fetch(new Request(`${BASE}${path}`, { method: 'POST', body: form }))
+  }
+
+  async function seedLink(emailAddr: string): Promise<string> {
+    const token = crypto_.randomToken(32)
+    await createD1Repositories(db, { consistency: 'bookmark' }).sessions.createMagicLink({
+      tokenHash: await crypto_.hash(token),
+      email: emailAddr,
+      expiresAt: Date.now() + 60_000,
+      createdAt: Date.now(),
+    })
+    return token
+  }
+
+  it('a closed instance still answers identically for known and unknown addresses — and mails only the known one', async () => {
+    const known = await closedPost('/login', { email: HOST_EMAIL })
+    const unknown = await closedPost('/login', { email: 'stranger-closed@example.test' })
+    expect(known.status).toBe(200)
+    expect(await known.text()).toBe(await unknown.text())
+
+    const recipients = email.sent.map((m) => m.to)
+    expect(recipients).toContain(HOST_EMAIL)
+    expect(recipients).not.toContain('stranger-closed@example.test')
+  })
+
+  it('the consume gate refuses to CREATE a user on a closed instance, with a distinct message', async () => {
+    // A link seeded directly (as if policy changed between send and click, or
+    // a crafted OAuth identity redemption) — the create branch must still
+    // refuse; the request-time check is UX, this is the security boundary.
+    const token = await seedLink('brand-new-closed@example.test')
+    const res = await closedApp.fetch(new Request(`${BASE}/auth/callback?token=${encodeURIComponent(token)}`))
+    expect(res.status).toBe(400)
+    expect(await res.text()).toContain('Sign-ups are closed')
+
+    const row = await db
+      .prepare('SELECT id FROM users WHERE email = ?')
+      .bind('brand-new-closed@example.test')
+      .first()
+    expect(row).toBeNull()
+  })
+
+  it('an existing user still signs in on a closed instance', async () => {
+    const token = await seedLink(HOST_EMAIL)
+    const res = await closedApp.fetch(new Request(`${BASE}/auth/callback?token=${encodeURIComponent(token)}`))
+    expect(res.status).toBe(302)
+    expect(res.headers.get('location')).toBe('/dashboard')
+  })
+
+  it('an allowlist admits a matching domain and refuses everyone else', async () => {
+    const allowPorts: EnginePorts = {
+      ...ports,
+      config: fakeConfig({
+        baseUrl: BASE,
+        signupPolicy: { mode: 'allowlist', entries: ['@allowed.test'] },
+      }),
+    }
+    const allowApp = buildDashboardRoutes(allowPorts, slots)
+
+    const inToken = await seedLink('newhire@allowed.test')
+    const ok = await allowApp.fetch(new Request(`${BASE}/auth/callback?token=${encodeURIComponent(inToken)}`))
+    expect(ok.status).toBe(302)
+
+    const outToken = await seedLink('stranger@elsewhere.test')
+    const no = await allowApp.fetch(new Request(`${BASE}/auth/callback?token=${encodeURIComponent(outToken)}`))
+    expect(no.status).toBe(400)
+    expect(await no.text()).toContain('Sign-ups are closed')
+  })
+})
