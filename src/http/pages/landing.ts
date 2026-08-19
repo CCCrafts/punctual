@@ -321,6 +321,7 @@ export function calendlyAlternativePage(opts: CalendlyAlternativePageOptions): s
       </tbody>
     </table>
   </div>
+  <p class="pu-muted pu-scroll-hint" style="font-size:.8125rem;margin:.5rem 0 0">Scroll to see the Calendly column &rarr;</p>
 </section>
 
 <section aria-label="Open source Calendly">

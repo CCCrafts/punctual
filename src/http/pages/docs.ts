@@ -270,7 +270,7 @@ ${pre(`git pull\nnpm run migrate\nnpm run deploy`)}
 </ul>
 
 <h2>Configuration reference</h2>
-<table>
+<div class="pu-docs-table-wrap"><table>
 <thead><tr><th scope="col">Variable</th><th scope="col">Where</th><th scope="col">Purpose</th></tr></thead>
 <tbody>
 <tr><td class="pu-time">BASE_URL</td><td>[vars]</td><td>Public origin; used in links and emails</td></tr>
@@ -286,7 +286,7 @@ ${pre(`git pull\nnpm run migrate\nnpm run deploy`)}
 <tr><td class="pu-time">RESEND_API_KEY</td><td>secret</td><td>Omit to log emails instead of sending</td></tr>
 <tr><td class="pu-time">BREVO_API_KEY</td><td>secret</td><td>Alternative to Resend; Resend wins if both are set</td></tr>
 </tbody>
-</table>
+</table></div>
 
 <h2>Telemetry</h2>
 <p class="pu-muted">Off unless you set <code>TELEMETRY_ENABLED=1</code>. When
@@ -379,12 +379,12 @@ ${pre(`{\n  "type": "urn:punctual:problem:invalid-request",\n  "title": "Invalid
   punctual's own domain.</p>
 
 <h2>Endpoints</h2>
-<table>
+<div class="pu-docs-table-wrap"><table>
 <thead><tr><th scope="col">Method</th><th scope="col">Path</th><th scope="col">Scope</th><th scope="col">Description</th></tr></thead>
 <tbody>
 ${rows}
 </tbody>
-</table>
+</table></div>
 
 <h2>Example: create a booking</h2>
 ${pre(`curl ${base}/api/v1/bookings \\\n  -X POST \\\n  -H "Authorization: Bearer pk_..." \\\n  -H "Content-Type: application/json" \\\n  -d '{\n    "eventTypeId": "evt_abc123",\n    "start": "2026-08-20T14:30:00Z",\n    "guestName": "Ada Lovelace",\n    "guestEmail": "ada@example.com"\n  }'`)}
@@ -478,12 +478,12 @@ function mcpContent(opts: DocsPageOptions): string {
 ${pre(`curl ${base}/mcp \\\n  -X POST \\\n  -H "Authorization: Bearer pk_..." \\\n  -H "Content-Type: application/json" \\\n  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25"}}'`)}
 
 <h2>The five tools</h2>
-<table>
+<div class="pu-docs-table-wrap"><table>
 <thead><tr><th scope="col">Tool</th><th scope="col">Scope</th><th scope="col">Does</th><th scope="col">Parameters</th></tr></thead>
 <tbody>
 ${rows}
 </tbody>
-</table>
+</table></div>
 
 <h2>Example: calling a tool</h2>
 ${pre(`{\n  "jsonrpc": "2.0",\n  "id": 2,\n  "method": "tools/call",\n  "params": {\n    "name": "get_available_slots",\n    "arguments": { "eventTypeId": "evt_abc123", "timezone": "Europe/Berlin" }\n  }\n}`)}

@@ -309,6 +309,12 @@ export const LANDING_CSS = `
 .pu-compare li{margin-bottom:.4rem}
 
 .pu-compare-table-wrap{overflow-x:auto}
+/* The wrapper scrolling is invisible unless the reader already knows to try
+   it — on a narrow phone the Calendly column sits entirely off-screen with
+   no visual cue more content exists. Hidden by default; only a viewport
+   narrow enough to actually clip the table (min-width:32rem) shows it. */
+.pu-scroll-hint{display:none}
+@media(max-width:640px){.pu-scroll-hint{display:block}}
 .pu-compare-table{width:100%;border-collapse:collapse;min-width:32rem}
 .pu-compare-table th,.pu-compare-table td{text-align:left;padding:.65rem .9rem;
   border-bottom:1px solid var(--pu-line);vertical-align:top}
@@ -340,7 +346,14 @@ export const LANDING_CSS = `
 .pu-docs-content h2{font-size:1.25rem;margin:2.25rem 0 .75rem}
 .pu-docs-content section:first-child h2,.pu-docs-content>h2:first-child{margin-top:0}
 .pu-docs-content h3{font-size:1rem;margin:1.5rem 0 .5rem}
-.pu-docs-content table{width:100%;border-collapse:collapse;margin:0 0 1.25rem;font-size:.875rem}
+/* Same overflow-x:auto wrapper pattern as .pu-compare-table-wrap (the
+   calendly-alternative page) — a real <table> keeps normal browser column
+   alignment between thead/tbody, which a display:block-on-<table> trick
+   would break. Without a scrolling wrapper, a narrow viewport squeezed
+   columns instead of scrolling: paths like /api/v1/event-types and tool
+   names like list_event_types wrapped one syllable per line. */
+.pu-docs-table-wrap{overflow-x:auto;margin:0 0 1.25rem}
+.pu-docs-content table{width:100%;min-width:32rem;border-collapse:collapse;font-size:.875rem}
 .pu-docs-content th,.pu-docs-content td{text-align:left;padding:.55rem .75rem;
   border-bottom:1px solid var(--pu-line);vertical-align:top}
 .pu-docs-content th{font-family:var(--pu-font-display);font-weight:600;font-size:.8125rem}
