@@ -1159,7 +1159,19 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
       // hand-editing the database. The page also hides the button on the
       // last admin, but the statement-level guard is the invariant.
       const ok = await repos.users.demoteAdmin(target.id)
-      if (!ok) return renderAdmin(c, { errors: { role: 'Cannot remove the last admin.' } }, 400)
+      if (!ok) {
+        // The guard refuses for two different reasons, and only one is an
+        // error: the target being the last admin. The other — the target is
+        // ALREADY a member because a concurrent request (or a double submit
+        // from a stale page) demoted them between our read above and the
+        // guarded write — is a no-op, and claiming "last admin" over it would
+        // contradict the very user list rendered under the message.
+        const fresh = await repos.users.byId(target.id)
+        if (fresh && fresh.role === 'admin') {
+          return renderAdmin(c, { errors: { role: 'Cannot remove the last admin.' } }, 400)
+        }
+        return renderAdmin(c)
+      }
     } else {
       await repos.users.update(target.id, { role })
     }
