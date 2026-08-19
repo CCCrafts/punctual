@@ -198,6 +198,13 @@ export async function consumeMagicLink(
     // (magic link AND OAuth identity, which redeems a synthetic link) funnels
     // through this branch, so a policy check anywhere else is only UX.
     if (!signupAllowed(email, deps.signupPolicy)) return { ok: false, reason: 'signups_closed' }
+    // The instance's very first user bootstraps as admin — someone has to be
+    // able to close signups and manage the rest, and on a fresh deployment
+    // that is its operator by definition. Read-then-create, so two truly
+    // simultaneous first signups could both win admin; on a fresh instance
+    // both are the operator's own attempts, and an admin can demote the
+    // duplicate — a lockout (no admin at all) is the failure this avoids.
+    const isFirstUser = (await deps.repos.users.count()) === 0
     user = await deps.repos.users.create({
       id: `usr_${deps.crypto.randomToken(12)}`,
       email,
@@ -208,6 +215,7 @@ export async function consumeMagicLink(
       company: null,
       jobTitle: null,
       companyUrl: null,
+      role: isFirstUser ? 'admin' : 'member',
     })
   }
 

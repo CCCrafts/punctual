@@ -251,14 +251,18 @@ ${pre(`npx wrangler secret put RESEND_API_KEY\n# or\nnpx wrangler secret put BRE
   no email at all.</p>
 
 <h2>7. Make it yours</h2>
-<p><strong>Sign in first, then close the door.</strong> The first visit to
-  <code>/login</code> creates your account. When everyone who should have an
-  account has one:</p>
-${pre(`printf '%s' 'closed' | npx wrangler secret put SIGNUPS`)}
-<p class="pu-muted">Existing users keep signing in; nobody new can register.
-  To invite someone later, set an allowlist instead &mdash;
-  <code>'jo@acme.com, @acme.com'</code> admits one address and one whole
-  domain &mdash; then back to <code>closed</code>.</p>
+<p><strong>Sign in first &mdash; you're the admin.</strong> The first account
+  created on a fresh deployment gets the admin role: an <strong>Admin</strong>
+  page appears in the dashboard with the user list (grant or remove admin;
+  the last admin can never be demoted) and the sign-up policy &mdash; open,
+  closed, or an allowlist of emails and <code>@domains</code>. When everyone
+  who should have an account has one, close sign-ups there. Existing users
+  keep signing in.</p>
+<p class="pu-muted">Prefer configuration as code? Setting the
+  <code>SIGNUPS</code> variable (same values) <em>pins</em> the policy &mdash;
+  the Admin page then shows it read-only. Upgrading an existing deployment
+  where nobody is admin yet? Promote yourself once:</p>
+${pre(`npx wrangler d1 execute punctual --remote \\\n  --command "UPDATE users SET role='admin' WHERE email='you@acme.com'"`)}
 <p><strong>Fill in your profile</strong> at Dashboard &rarr; Settings: photo,
   name, position, company, and a company link. They render on your booking
   pages and in guest confirmation emails, and your company anchors the
@@ -304,7 +308,7 @@ ${pre(`git pull\nnpm run migrate\nnpm run deploy`)}
 <tr><td class="pu-time">FROM_EMAIL / FROM_NAME</td><td>[vars]</td><td>Sender identity</td></tr>
 <tr><td class="pu-time">SUPPORT_EMAIL</td><td>[vars]</td><td>Reply-to on outbound mail</td></tr>
 <tr><td class="pu-time">TELEMETRY_ENABLED</td><td>[vars]</td><td>0 by default &mdash; see below</td></tr>
-<tr><td class="pu-time">SIGNUPS</td><td>secret or [vars]</td><td>Who may create an account: unset/open (default), closed, or a comma list of emails and @domains. Register your own account first, then close it &mdash; existing users always sign in</td></tr>
+<tr><td class="pu-time">SIGNUPS</td><td>secret or [vars]</td><td>Pins the sign-up policy: open, closed, or a comma list of emails and @domains. Unset (the default), admins manage it from the dashboard's Admin page &mdash; existing users always sign in either way</td></tr>
 <tr><td class="pu-time">DEMO_BOOKING_PATH</td><td>[vars]</td><td>A live booking page on this deployment (e.g. /jo/30min), embedded on the landing page</td></tr>
 <tr><td class="pu-time">ENCRYPTION_KEY_V1</td><td>secret</td><td>AES-GCM key for calendar tokens</td></tr>
 <tr><td class="pu-time">SIGNING_KEY</td><td>secret</td><td>HMAC key for guest manage links</td></tr>

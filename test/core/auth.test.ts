@@ -762,3 +762,37 @@ describe("a 'manage' token satisfies both action purposes", () => {
     expect((await verifyManageToken(h, t.token, 'reschedule', NOW)).ok).toBe(false)
   })
 })
+
+describe('admin bootstrap', () => {
+  async function requestAndGetToken(h: ReturnType<typeof harness>, email: string) {
+    await requestMagicLink(h, { email, ip: '1.1.1.1', userAgent: 'UA', now: NOW })
+    return tokenFromEmail(h.email.sent[h.email.sent.length - 1]!.text)
+  }
+
+  it('the instance&apos;s first user becomes admin; everyone after is a member', async () => {
+    const h = harness()
+
+    const first = await consumeMagicLink(h, {
+      token: await requestAndGetToken(h, 'owner@example.com'),
+      now: NOW + 1000,
+    })
+    expect(first.ok && first.user.role).toBe('admin')
+
+    const second = await consumeMagicLink(h, {
+      token: await requestAndGetToken(h, 'teammate@example.com'),
+      now: NOW + 2000,
+    })
+    expect(second.ok && second.user.role).toBe('member')
+  })
+
+  it('an existing member signing in again stays a member — bootstrap is creation-time only', async () => {
+    const h = harness()
+    h.repos.seedUser({ id: 'usr_1', email: 'old@example.com' })
+
+    const res = await consumeMagicLink(h, {
+      token: await requestAndGetToken(h, 'old@example.com'),
+      now: NOW + 1000,
+    })
+    expect(res.ok && res.user.role).toBe('member')
+  })
+})

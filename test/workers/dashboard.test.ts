@@ -833,3 +833,117 @@ describe('signup policy', () => {
     expect(await no.text()).toContain('Sign-ups are closed')
   })
 })
+
+describe('admin — instance administration', () => {
+  const ADMIN_ID = 'usr_admin'
+  const ADMIN_EMAIL = 'admin@example.test'
+
+  beforeAll(async () => {
+    await db
+      .prepare("INSERT INTO users (id,email,name,tz,slug,role,created_at) VALUES (?,?,?,?,?,'admin',?)")
+      .bind(ADMIN_ID, ADMIN_EMAIL, 'The Admin', 'UTC', 'the-admin', NOW)
+      .run()
+  })
+
+  async function adminCsrf(cookie: string): Promise<string> {
+    const page = await get('/dashboard/admin', cookie)
+    return /name="csrf" value="([^"]+)"/.exec(await page.text())?.[1] ?? ''
+  }
+
+  async function seedLink(emailAddr: string): Promise<string> {
+    const token = crypto_.randomToken(32)
+    await createD1Repositories(db, { consistency: 'bookmark' }).sessions.createMagicLink({
+      tokenHash: await crypto_.hash(token),
+      email: emailAddr,
+      expiresAt: Date.now() + 60_000,
+      createdAt: Date.now(),
+    })
+    return token
+  }
+
+  it('a member who guesses the URL is redirected to their own dashboard, and never sees the nav link', async () => {
+    const cookie = await seedSession(HOST_ID)
+    const res = await get('/dashboard/admin', cookie)
+    expect(res.status).toBe(302)
+    expect(res.headers.get('location')).toBe('/dashboard')
+
+    const home = await get('/dashboard', cookie)
+    expect(await home.text()).not.toContain('href="/dashboard/admin"')
+  })
+
+  it('an admin sees the users list and the nav link', async () => {
+    const cookie = await seedSession(ADMIN_ID)
+    const res = await get('/dashboard/admin', cookie)
+    expect(res.status).toBe(200)
+    const html = await res.text()
+    expect(html).toContain('href="/dashboard/admin"')
+    expect(html).toContain(ADMIN_EMAIL)
+    expect(html).toContain(HOST_EMAIL)
+  })
+
+  it('closing sign-ups from the UI drives the real consume gate, and reopening lifts it', async () => {
+    const cookie = await seedSession(ADMIN_ID)
+    let csrf = await adminCsrf(cookie)
+
+    const closed = await post('/dashboard/admin/signups', { mode: 'closed', csrf }, cookie)
+    expect(closed.status).toBe(200)
+    expect(await closed.text()).toContain('Sign-up policy saved')
+
+    const refused = await app.fetch(
+      new Request(`${BASE}/auth/callback?token=${encodeURIComponent(await seedLink('ui-closed@example.test'))}`),
+    )
+    expect(refused.status).toBe(400)
+    expect(await refused.text()).toContain('Sign-ups are closed')
+
+    csrf = await adminCsrf(cookie)
+    await post('/dashboard/admin/signups', { mode: 'open', csrf }, cookie)
+    const admitted = await app.fetch(
+      new Request(`${BASE}/auth/callback?token=${encodeURIComponent(await seedLink('ui-open@example.test'))}`),
+    )
+    expect(admitted.status).toBe(302)
+  })
+
+  it('an allowlist saved from the UI must not be empty', async () => {
+    const cookie = await seedSession(ADMIN_ID)
+    const csrf = await adminCsrf(cookie)
+    const res = await post('/dashboard/admin/signups', { mode: 'allowlist', allowlist: ' , ', csrf }, cookie)
+    expect(res.status).toBe(400)
+    expect(await res.text()).toContain('at least one email or @domain')
+  })
+
+  it('promotes a member, and refuses to demote the last admin', async () => {
+    const cookie = await seedSession(ADMIN_ID)
+    let csrf = await adminCsrf(cookie)
+
+    // The only admin demoting themselves must be refused outright.
+    const refused = await post(`/dashboard/admin/users/${ADMIN_ID}/role`, { role: 'member', csrf }, cookie)
+    expect(refused.status).toBe(400)
+    expect(await refused.text()).toContain('Cannot remove the last admin')
+
+    csrf = await adminCsrf(cookie)
+    const promoted = await post(`/dashboard/admin/users/${HOST_ID}/role`, { role: 'admin', csrf }, cookie)
+    expect(promoted.status).toBe(200)
+    const row = await db.prepare('SELECT role FROM users WHERE id = ?').bind(HOST_ID).first<{ role: string }>()
+    expect(row?.role).toBe('admin')
+
+    // Two admins now — demoting one is allowed again. Restore the fixture.
+    csrf = await adminCsrf(cookie)
+    const demoted = await post(`/dashboard/admin/users/${HOST_ID}/role`, { role: 'member', csrf }, cookie)
+    expect(demoted.status).toBe(200)
+  })
+
+  it('an env-pinned policy renders read-only and ignores the form', async () => {
+    const pinnedPorts: EnginePorts = {
+      ...ports,
+      config: fakeConfig({ baseUrl: BASE, signupPolicy: { mode: 'closed' } }),
+    }
+    const pinnedApp = buildDashboardRoutes(pinnedPorts, slots)
+    const cookie = await seedSession(ADMIN_ID)
+
+    const page = await pinnedApp.fetch(new Request(`${BASE}/dashboard/admin`, { headers: { cookie } }))
+    expect(page.status).toBe(200)
+    const html = await page.text()
+    expect(html).toContain('Pinned to')
+    expect(html).not.toContain('name="mode"')
+  })
+})

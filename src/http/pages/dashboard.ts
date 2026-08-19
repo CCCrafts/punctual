@@ -49,7 +49,7 @@ import { avatarHtml, escapeHtml, shellFoot, shellHead } from './booking.js'
 /** Form field carrying the double-submit token. Routes read the same name. */
 export const CSRF_FIELD = 'csrf'
 
-export type NavKey = 'events' | 'availability' | 'connections' | 'keys' | 'settings'
+export type NavKey = 'events' | 'availability' | 'connections' | 'keys' | 'settings' | 'admin'
 
 const NAV: ReadonlyArray<{ key: NavKey; href: string; label: string }> = [
   { key: 'events', href: '/dashboard', label: 'Event types' },
@@ -57,6 +57,10 @@ const NAV: ReadonlyArray<{ key: NavKey; href: string; label: string }> = [
   { key: 'connections', href: '/dashboard/connections', label: 'Calendars' },
   { key: 'keys', href: '/dashboard/api-keys', label: 'API keys' },
   { key: 'settings', href: '/dashboard/settings', label: 'Settings' },
+  // Rendered for admins only (shellTop filters on chrome.user.role); the
+  // routes behind it are gated separately — hiding a link is not access
+  // control.
+  { key: 'admin', href: '/dashboard/admin', label: 'Admin' },
 ]
 
 /** Common shape of every authenticated page. */
@@ -79,10 +83,12 @@ export function csrfField(csrf: string): string {
  * a link the user might bookmark.
  */
 function shellTop(chrome: DashboardChrome, title: string, active: NavKey | null): string {
-  const links = NAV.map((item) => {
-    const current = item.key === active ? ' aria-current="page"' : ''
-    return `<a class="pu-nav-link" href="${item.href}"${current}>${escapeHtml(item.label)}</a>`
-  }).join('\n      ')
+  const links = NAV.filter((item) => item.key !== 'admin' || chrome.user.role === 'admin')
+    .map((item) => {
+      const current = item.key === active ? ' aria-current="page"' : ''
+      return `<a class="pu-nav-link" href="${item.href}"${current}>${escapeHtml(item.label)}</a>`
+    })
+    .join('\n      ')
 
   return (
     shellHead({ title: `${title} · ${chrome.brandName}`, brandName: chrome.brandName }) +
@@ -1251,4 +1257,98 @@ export function slugify(value: string): string {
 
 function trimSlash(url: string): string {
   return url.endsWith('/') ? url.slice(0, -1) : url
+}
+
+// ---------------------------------------------------------------------------
+// Admin
+// ---------------------------------------------------------------------------
+
+export interface AdminPageData extends DashboardChrome {
+  /** Every user on the instance, oldest first. */
+  allUsers: User[]
+  /**
+   * The signup policy as stored/effective, in SIGNUPS env syntax
+   * ('open' | 'closed' | comma list), plus whether the env var pins it —
+   * a pinned policy renders read-only, because silently out-ranking an
+   * operator's wrangler config from a web form is how two people each
+   * believe they control the same setting.
+   */
+  signups: { value: string; pinnedByEnv: boolean }
+  errors?: Record<string, string>
+  notice?: string
+}
+
+export function adminPage(d: AdminPageData): string {
+  const errors = d.errors ?? {}
+  const parsedMode = d.signups.value === 'closed' ? 'closed' : d.signups.value === 'open' || d.signups.value === '' ? 'open' : 'allowlist'
+  const allowlistValue = parsedMode === 'allowlist' ? d.signups.value : ''
+
+  const admins = d.allUsers.filter((u) => u.role === 'admin').length
+  const rows = d.allUsers
+    .map((u) => {
+      const isSelf = u.id === d.user.id
+      const lastAdmin = u.role === 'admin' && admins <= 1
+      // The last admin gets no demote button at all — the server enforces it
+      // too, but offering a button that can only fail is UI lying.
+      const action = lastAdmin
+        ? '<span class="pu-muted">Last admin</span>'
+        : `<form method="post" action="/dashboard/admin/users/${encodeURIComponent(u.id)}/role" style="margin:0">
+            ${csrfField(d.csrf)}
+            <input type="hidden" name="role" value="${u.role === 'admin' ? 'member' : 'admin'}">
+            <button class="pu-btn pu-btn-ghost" type="submit" style="padding:.3rem .6rem;font-size:.8125rem">
+              ${u.role === 'admin' ? 'Remove admin' : 'Make admin'}</button>
+          </form>`
+      return `<tr>
+        <td>${escapeHtml(u.name || u.slug)}${isSelf ? ' <span class="pu-muted">(you)</span>' : ''}<br>
+          <span class="pu-muted" style="font-size:.8125rem">${escapeHtml(u.email)}</span></td>
+        <td class="pu-time">/${escapeHtml(u.slug)}</td>
+        <td>${u.role === 'admin' ? '<span class="pu-badge">Admin</span>' : '<span class="pu-muted">Member</span>'}</td>
+        <td>${action}</td>
+      </tr>`
+    })
+    .join('\n')
+
+  const signupsBody = d.signups.pinnedByEnv
+    ? `<p class="pu-muted">Pinned to <code>${escapeHtml(d.signups.value)}</code> by the <code>SIGNUPS</code>
+        variable on this deployment. Remove that variable to manage sign-ups from here.</p>`
+    : `<form method="post" action="/dashboard/admin/signups">
+    ${csrfField(d.csrf)}
+    <label style="display:flex;align-items:baseline;gap:.5rem;font-weight:400;margin:.5rem 0 0">
+      <input type="radio" name="mode" value="open"${parsedMode === 'open' ? ' checked' : ''} style="width:auto">
+      <span><strong>Open</strong> — anyone who reaches the sign-in page can create an account</span>
+    </label>
+    <label style="display:flex;align-items:baseline;gap:.5rem;font-weight:400;margin:.5rem 0 0">
+      <input type="radio" name="mode" value="closed"${parsedMode === 'closed' ? ' checked' : ''} style="width:auto">
+      <span><strong>Closed</strong> — existing users only; nobody new can register</span>
+    </label>
+    <label style="display:flex;align-items:baseline;gap:.5rem;font-weight:400;margin:.5rem 0 0">
+      <input type="radio" name="mode" value="allowlist"${parsedMode === 'allowlist' ? ' checked' : ''} style="width:auto">
+      <span><strong>Allowlist</strong> — only these emails and <code>@domains</code>:</span>
+    </label>
+    <input name="allowlist" value="${escapeHtml(allowlistValue)}" placeholder="jo@acme.com, @acme.com"
+           style="margin-top:.5rem"${describedBy('allowlist', errors)}>
+    ${fieldError('allowlist', errors)}
+    <div style="margin-top:1.25rem"><button class="pu-btn" type="submit">Save sign-up policy</button></div>
+  </form>`
+
+  return (
+    shellTop(d, 'Admin', 'admin') +
+    (d.notice ? notice(d.notice) : '') +
+    `<section class="pu-card" aria-label="Sign-ups" style="margin-bottom:1.25rem">
+  <h1>Admin</h1>
+  <h2>Sign-ups</h2>
+  <p class="pu-muted">Who may create an account on this instance. Existing users always sign in.</p>
+  ${signupsBody}
+</section>
+<section class="pu-card" aria-label="Users">
+  <h2>Users</h2>
+  ${fieldError('role', errors)}
+  <div class="pu-docs-table-wrap"><table style="width:100%">
+    <thead><tr><th scope="col" style="text-align:left">User</th><th scope="col" style="text-align:left">Booking page</th>
+      <th scope="col" style="text-align:left">Role</th><th scope="col" style="text-align:left"></th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table></div>
+</section>` +
+    shellBottom(d.brandName)
+  )
 }

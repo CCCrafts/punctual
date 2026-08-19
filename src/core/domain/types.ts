@@ -38,6 +38,13 @@ export interface User {
   jobTitle: string | null
   /** Optional https URL wrapped around the company name on the booking page. Null until set. */
   companyUrl: string | null
+  /**
+   * Instance role. The FIRST user of a fresh instance bootstraps as 'admin'
+   * (consumeMagicLink's create branch); admins manage users and instance
+   * settings from the dashboard and can promote/demote others — but never
+   * demote the last admin, or the instance locks itself out.
+   */
+  role: 'admin' | 'member'
   createdAt: number
 }
 

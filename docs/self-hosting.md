@@ -152,17 +152,24 @@ no email at all.
 
 Everything a guest sees can carry your identity instead of the defaults.
 
-1. **Sign in first, then close the door.** The first visit to `/login` on
-   your deployment creates your account (magic link, or Google/Microsoft once
-   OAuth is set up). When everyone who should have an account has one, set
+1. **Sign in first — you're the admin.** The first account created on a
+   fresh deployment gets the admin role: an **Admin** page appears in the
+   dashboard with the user list (grant or remove admin; the last admin can
+   never be demoted) and the sign-up policy — open, closed, or an allowlist
+   of emails and `@domains`. When everyone who should have an account has
+   one, close sign-ups there. Existing users keep signing in.
+
+   Prefer configuration as code? Setting the `SIGNUPS` variable (same
+   values: `open`, `closed`, or a comma list) **pins** the policy — the
+   Admin page then shows it read-only and the stored setting is ignored.
+
+   Upgrading an existing deployment where nobody is admin yet? Promote
+   yourself once:
 
    ```bash
-   printf '%s' 'closed' | npx wrangler secret put SIGNUPS
+   npx wrangler d1 execute punctual --remote \
+     --command "UPDATE users SET role='admin' WHERE email='you@acme.com'"
    ```
-
-   Existing users keep signing in; nobody new can register. To invite
-   someone later, set it to an allowlist instead — `'jo@acme.com, @acme.com'`
-   admits one address and one whole domain — then back to `closed`.
 
 2. **Fill in your profile** at Dashboard → Settings: photo, name, position,
    company, and a company link. The photo and identity line ("CEO, Acme Inc",
@@ -221,7 +228,7 @@ Two features need a paid plan, and both degrade gracefully:
 | `FROM_EMAIL` / `FROM_NAME` | `[vars]` | Sender identity |
 | `SUPPORT_EMAIL` | `[vars]` | Reply-to on outbound mail |
 | `TELEMETRY_ENABLED` | `[vars]` | `0` by default. See below |
-| `SIGNUPS` | secret or `[vars]` | Who may create an account: unset/`open` (default), `closed` (existing users only), or a comma list of emails and `@domains` (`serge@acme.com, @acme.com`). Register your own account first, then close it — existing users always sign in |
+| `SIGNUPS` | secret or `[vars]` | Pins the sign-up policy: `open`, `closed`, or a comma list of emails and `@domains`. Unset (the default), admins manage it from the dashboard's Admin page instead — existing users always sign in either way |
 | `DEMO_BOOKING_PATH` | `[vars]` | A live booking page on this deployment (e.g. `/jo/30min`), embedded on the landing page. Unset: no demo section |
 | `ENCRYPTION_KEY_V1` | secret | AES-GCM key for calendar tokens |
 | `SIGNING_KEY` | secret | HMAC key for guest manage links |

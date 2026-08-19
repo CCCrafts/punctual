@@ -28,6 +28,7 @@ const host: User = {
   company: null,
   jobTitle: null,
   companyUrl: null,
+  role: 'member',
   createdAt: 0,
 }
 

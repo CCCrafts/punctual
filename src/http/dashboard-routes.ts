@@ -36,6 +36,7 @@ import type {
   EnginePorts,
   Repositories,
   RequestScope,
+  SignupPolicy,
 } from '../ports.js'
 import type { SlotService } from '../engine.js'
 import type {
@@ -59,6 +60,7 @@ import {
 } from '../core/domain/auth-service.js'
 import {
   consumeMagicLink,
+  parseSignupPolicy,
   createApiKey,
   requestMagicLink,
   revokeSession,
@@ -93,6 +95,7 @@ import {
   parseOverrides,
   parseQuestions,
   parseWindows,
+  adminPage,
   settingsPage,
   slugify,
   type ConnectionView,
@@ -164,6 +167,29 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     c.set('csrf', await csrfTokenFor(hash, auth.session.idHash))
     await next()
     return undefined
+  }
+
+  /**
+   * Admin routes: session first, then role. A member who guesses the URL is
+   * redirected to their own dashboard — the nav never shows them the link,
+   * but hiding a link is not access control.
+   */
+  const requireAdmin: MiddlewareHandler<{ Bindings: Env; Variables: Vars }> = async (c, next) => {
+    if (c.get('user').role !== 'admin') return c.redirect('/dashboard', 302)
+    await next()
+    return undefined
+  }
+
+  /**
+   * The signup policy in force. The SIGNUPS env var, when set, PINS the
+   * policy (an operator's wrangler config must never be silently out-ranked
+   * from a web form); otherwise the admin-editable stored setting applies,
+   * and with neither the instance is open.
+   */
+  async function effectiveSignupPolicy(repos: Repositories): Promise<SignupPolicy> {
+    if (ports.config.signupPolicy) return ports.config.signupPolicy
+    const stored = await repos.settings.get('signups')
+    return parseSignupPolicy(stored ?? undefined)
   }
 
   /** 403 unless the form carries this session's double-submit token. */
@@ -262,7 +288,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     const token = c.req.query('token') ?? ''
     const repos = ports.repositories({ consistency: 'bookmark' })
     const result = await consumeMagicLink(
-      { repos, crypto: ports.crypto, signupPolicy: ports.config.signupPolicy },
+      { repos, crypto: ports.crypto, signupPolicy: await effectiveSignupPolicy(repos) },
       { token, now: ports.clock.now(), timezone: timezoneHint(c) },
     )
     if (!result.ok) {
@@ -419,7 +445,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
       createdAt: now,
     })
     const result = await consumeMagicLink(
-      { repos, crypto: ports.crypto, signupPolicy: ports.config.signupPolicy },
+      { repos, crypto: ports.crypto, signupPolicy: await effectiveSignupPolicy(repos) },
       { token: linkToken, now, timezone: timezoneHint(c) },
     )
     if (!result.ok) {
@@ -1059,6 +1085,88 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
   })
 
   // ===========================================================================
+  // Admin — instance administration, admins only
+  // ===========================================================================
+
+  async function renderAdmin(
+    c: Ctx,
+    extra: { notice?: string; errors?: Record<string, string> } = {},
+    status = 200,
+  ): Promise<Response> {
+    const repos = c.get('repos')
+    const pinnedByEnv = ports.config.signupPolicy !== undefined
+    const value = pinnedByEnv
+      ? policyToValue(ports.config.signupPolicy!)
+      : ((await repos.settings.get('signups')) ?? 'open')
+    return c.html(
+      adminPage({
+        brandName,
+        user: c.get('user'),
+        csrf: c.get('csrf'),
+        allUsers: await repos.users.listAll(),
+        signups: { value, pinnedByEnv },
+        ...extra,
+      }),
+      status as 200,
+    )
+  }
+
+  app.get('/dashboard/admin', requireSession, requireAdmin, (c) => renderAdmin(c))
+
+  app.post('/dashboard/admin/signups', requireSession, requireAdmin, async (c) => {
+    const form = await c.req.formData()
+    if (!(await csrfOk(c, form))) return csrfRejected(c)
+    // Env-pinned policy is read-only from here — the form is not rendered in
+    // that state, so reaching this is a crafted request, not a lost update.
+    if (ports.config.signupPolicy) return c.redirect('/dashboard/admin', 302)
+
+    const mode = String(form.get('mode') ?? '')
+    let value: string
+    if (mode === 'open' || mode === 'closed') value = mode
+    else if (mode === 'allowlist') {
+      const raw = String(form.get('allowlist') ?? '')
+      const parsed = parseSignupPolicy(raw)
+      // parseSignupPolicy falls back to open on an empty list (an env typo
+      // must not lock an operator out) — but from THIS form an empty list is
+      // a mistake worth stopping, since the admin explicitly chose allowlist.
+      if (parsed.mode !== 'allowlist') {
+        return renderAdmin(c, { errors: { allowlist: 'Add at least one email or @domain' } }, 400)
+      }
+      value = parsed.entries.join(', ')
+    } else return renderAdmin(c, { errors: { allowlist: 'Choose a sign-up mode' } }, 400)
+
+    await c.get('repos').settings.set('signups', value, ports.clock.now())
+    await advanceBookmark(c)
+    return renderAdmin(c, { notice: 'Sign-up policy saved.' })
+  })
+
+  app.post('/dashboard/admin/users/:id/role', requireSession, requireAdmin, async (c) => {
+    const form = await c.req.formData()
+    if (!(await csrfOk(c, form))) return csrfRejected(c)
+
+    const repos = c.get('repos')
+    const target = await repos.users.byId(c.req.param('id'))
+    if (!target) return c.redirect('/dashboard/admin', 302)
+
+    const role = String(form.get('role') ?? '') === 'admin' ? 'admin' : 'member'
+    if (role === 'member' && target.role === 'admin') {
+      // Never demote the last admin — an instance with no admin can only be
+      // recovered by hand-editing the database. The page hides the button in
+      // this state, so reaching here is a stale page or a crafted request.
+      const admins = (await repos.users.listAll()).filter((u) => u.role === 'admin').length
+      if (admins <= 1) {
+        return renderAdmin(c, { errors: { role: 'Cannot remove the last admin.' } }, 400)
+      }
+    }
+
+    await repos.users.update(target.id, { role })
+    await advanceBookmark(c)
+    return renderAdmin(c, {
+      notice: role === 'admin' ? `${target.email} is now an admin.` : `${target.email} is now a member.`,
+    })
+  })
+
+  // ===========================================================================
   // Guest manage page — authenticated by the manage token, never by a session
   // ===========================================================================
 
@@ -1641,6 +1749,13 @@ function readEventTypeForm(
 }
 
 /** Absolute http(s) only — the one place this is checked before a value can reach a public page's href. */
+/** A `SignupPolicy` back into `SIGNUPS` env syntax, for read-only display of an env-pinned policy. */
+function policyToValue(policy: SignupPolicy): string {
+  if (policy.mode === 'open') return 'open'
+  if (policy.mode === 'closed') return 'closed'
+  return policy.entries.join(', ')
+}
+
 function isHttpUrl(value: string): boolean {
   try {
     const url = new URL(value)

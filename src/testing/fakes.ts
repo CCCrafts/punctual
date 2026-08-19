@@ -29,6 +29,7 @@ import type {
   RateLimitResult,
   Repositories,
   SessionRepository,
+  SettingsRepository,
   UserRepository,
 } from '../ports.js'
 
@@ -92,6 +93,12 @@ export function createFakeRepositories(): FakeRepositories {
       users.set(created.id, created)
       lastBookmark = `bm-${users.size}`
       return created
+    },
+    async listAll() {
+      return [...users.values()].sort((a, b) => a.createdAt - b.createdAt)
+    },
+    async count() {
+      return users.size
     },
     async update(id, patch) {
       const existing = users.get(id)
@@ -212,6 +219,7 @@ export function createFakeRepositories(): FakeRepositories {
     connections: connectionRepo,
     webhooks: unimplemented('webhooks'),
     idempotency: unimplemented('idempotency'),
+    settings: createFakeSettings(),
     bookmark() {
       return lastBookmark
     },
@@ -225,6 +233,7 @@ export function createFakeRepositories(): FakeRepositories {
         company: null,
         jobTitle: null,
         companyUrl: null,
+        role: 'member',
         createdAt: 0,
         ...user,
       }
@@ -315,5 +324,17 @@ export function fakeConfig(overrides: Partial<EngineConfig> = {}): EngineConfig 
     fromName: 'Punctual',
     telemetryEnabled: false,
     ...overrides,
+  }
+}
+
+export function createFakeSettings(): SettingsRepository {
+  const store = new Map<string, string>()
+  return {
+    async get(key) {
+      return store.get(key) ?? null
+    },
+    async set(key, value) {
+      store.set(key, value)
+    },
   }
 }

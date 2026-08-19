@@ -37,6 +37,7 @@ import type {
   Repositories,
   RequestScope,
   SessionRepository,
+  SettingsRepository,
   SlotLockRepository,
   StoredIdempotentResponse,
   TeamRepository,
@@ -93,10 +94,18 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
     async bySlug(slug) {
       return mapUser(await first('SELECT * FROM users WHERE slug = ?', slug))
     },
+    async listAll() {
+      const rows = await all<Record<string, unknown>>('SELECT * FROM users ORDER BY created_at')
+      return rows.map((r) => mapUser(r)!).filter(Boolean)
+    },
+    async count() {
+      const row = await first<{ n: number }>('SELECT COUNT(*) AS n FROM users')
+      return row?.n ?? 0
+    },
     async create(user) {
       const row = { ...user, createdAt: Date.now() }
       await run(
-        'INSERT INTO users (id,email,name,tz,slug,avatar_key,company,job_title,company_url,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)',
+        'INSERT INTO users (id,email,name,tz,slug,avatar_key,company,job_title,company_url,role,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
         row.id,
         row.email.toLowerCase(),
         row.name,
@@ -106,6 +115,7 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
         row.company,
         row.jobTitle,
         row.companyUrl,
+        row.role,
         row.createdAt,
       )
       return row
@@ -120,6 +130,7 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
       if (patch.company !== undefined) (sets.push('company = ?'), binds.push(patch.company))
       if (patch.jobTitle !== undefined) (sets.push('job_title = ?'), binds.push(patch.jobTitle))
       if (patch.companyUrl !== undefined) (sets.push('company_url = ?'), binds.push(patch.companyUrl))
+      if (patch.role !== undefined) (sets.push('role = ?'), binds.push(patch.role))
       if (sets.length === 0) return true
       binds.push(id)
       try {
@@ -849,9 +860,26 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
     },
   }
 
+  const settings: SettingsRepository = {
+    async get(key) {
+      const row = await first<{ value: string }>(
+        'SELECT value FROM instance_settings WHERE key = ?',
+        key,
+      )
+      return row?.value ?? null
+    },
+    async set(key, value, now) {
+      await run(
+        `INSERT INTO instance_settings (key,value,updated_at) VALUES (?,?,?)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+        key, value, now,
+      )
+    },
+  }
+
   return {
     users, eventTypes, availability, bookings, slotLocks, teams, connections,
-    sessions, apiKeys, webhooks, idempotency,
+    sessions, apiKeys, webhooks, idempotency, settings,
     async telemetryCounts() {
       const row = await first<{ users: number; event_types: number; bookings: number }>(
         `SELECT
@@ -909,6 +937,7 @@ function mapUser(row: Record<string, unknown> | null): User | null {
     company: row['company'] == null ? null : String(row['company']),
     jobTitle: row['job_title'] == null ? null : String(row['job_title']),
     companyUrl: row['company_url'] == null ? null : String(row['company_url']),
+    role: row['role'] === 'admin' ? 'admin' : 'member',
     createdAt: Number(row['created_at']),
   }
 }

@@ -54,6 +54,7 @@ export interface Repositories {
   apiKeys: ApiKeyRepository
   webhooks: WebhookRepository
   idempotency: IdempotencyRepository
+  settings: SettingsRepository
 
   /** Counts for the opt-in telemetry ping (ADR-0006 §5). Nothing identifying. */
   telemetryCounts(): Promise<{ users: number; eventTypes: number; bookings: number }>
@@ -71,6 +72,10 @@ export interface UserRepository {
   byEmail(email: string): Promise<User | null>
   bySlug(slug: string): Promise<User | null>
   create(user: Omit<User, 'createdAt'>): Promise<User>
+  /** Every user, oldest first — the admin page's user list. A single team's worth of rows, not a paginated feed. */
+  listAll(): Promise<User[]>
+  /** How many users exist at all — the first-user-becomes-admin bootstrap check. */
+  count(): Promise<number>
   /**
    * @returns false if `patch.slug` collided with another row's unique slug —
    * the caller's own read-then-write check (against users AND teams) closes
@@ -79,8 +84,22 @@ export interface UserRepository {
    */
   update(
     id: string,
-    patch: Partial<Pick<User, 'name' | 'tz' | 'slug' | 'avatarKey' | 'company' | 'jobTitle' | 'companyUrl'>>,
+    patch: Partial<
+      Pick<User, 'name' | 'tz' | 'slug' | 'avatarKey' | 'company' | 'jobTitle' | 'companyUrl' | 'role'>
+    >,
   ): Promise<boolean>
+}
+
+/**
+ * Operator-editable instance settings, admin-managed from the dashboard.
+ * A plain key-value table — currently only `signups` (the signup policy in
+ * `SIGNUPS` env syntax). An env var with the same meaning always WINS over
+ * the stored setting, so an operator who pins configuration in wrangler.toml
+ * or a secret is never silently overridden from the UI.
+ */
+export interface SettingsRepository {
+  get(key: string): Promise<string | null>
+  set(key: string, value: string, now: number): Promise<void>
 }
 
 export interface EventTypeRepository {
