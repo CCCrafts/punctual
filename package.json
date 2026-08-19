@@ -1,6 +1,6 @@
 {
   "name": "@punctual/engine",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Edge-native scheduling engine \u2014 the complete single-team product, on Cloudflare Workers",
   "license": "MIT",
   "type": "module",

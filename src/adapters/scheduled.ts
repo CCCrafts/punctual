@@ -121,11 +121,11 @@ async function sendTelemetry(ports: EnginePorts, now: number): Promise<void> {
   const repos = ports.repositories({ consistency: 'unconstrained' })
   const counts = await repos.telemetryCounts()
 
-  await fetch('https://telemetry.punctual.io/v1/ping', {
+  await fetch('https://telemetry.punctual.sh/v1/ping', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
-      version: '0.1.0',
+      version: '0.1.1',
       users: counts.users,
       eventTypes: counts.eventTypes,
       bookings: counts.bookings,

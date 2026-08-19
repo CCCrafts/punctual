@@ -6,6 +6,23 @@ still change interfaces.
 
 ## [Unreleased]
 
+## [0.1.1] — 2026-08-19
+
+Release-readiness fixes found while checking 0.1.0 against its own claims —
+no behavior change for a deployed instance.
+
+- README quoted a stale test count (454); the suite is at 525.
+- `schema.ts`, the Drizzle mirror of the D1 schema, was silently missing
+  migration 0006 (`users.role`, `instance_settings`). No functional impact —
+  every repository queries D1 with raw SQL, nothing reads through Drizzle's
+  schema object at runtime — but it's checked into the repo as the schema's
+  own documentation and was quietly wrong.
+- Opt-in telemetry pinged `telemetry.punctual.io`, a domain this project
+  does not own (`.sh` is canonical — ADR-0008); a stray doc-comment example
+  in `ports.ts` had the same stale domain. Neither is reachable behind the
+  scenes yet, so this was a silent no-op either way, not a live leak — fixed
+  before it could become one.
+
 ## [0.1.0] — 2026-08-19
 
 The first release: a complete single-team scheduler on Cloudflare Workers,
@@ -101,5 +118,6 @@ admin demotions racing to a zero-admin lockout.
 - Brand assets, self-hosted fonts with a stable first paint, light and dark
   themes, and a semantic design-token layer for the product UI.
 
-[Unreleased]: https://github.com/CCCrafts/punctual/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/CCCrafts/punctual/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/CCCrafts/punctual/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/CCCrafts/punctual/releases/tag/v0.1.0

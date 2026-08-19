@@ -605,7 +605,7 @@ export interface RateLimitResult {
 // ---------------------------------------------------------------------------
 
 export interface EngineConfig {
-  /** Public origin, e.g. https://punctual.io — used in links and .ics URLs. */
+  /** Public origin, e.g. https://punctual.sh — used in links and .ics URLs. */
   baseUrl: string
   brandName: string
   /**
