@@ -17,3 +17,4 @@ dist/
 
 # OS / editor
 .DS_Store
+wrangler.production.toml

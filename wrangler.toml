@@ -22,17 +22,17 @@ enabled = true
 [[d1_databases]]
 binding = "DB"
 database_name = "punctual"
-database_id = "0e4a644c-0d59-42a2-b438-e83aa85b2996"
+database_id = "<the id `wrangler d1 create punctual` printed>"
 migrations_dir = "migrations"
 
-# freeBusy cache (ADR-0006 §1) AND rendered OG card PNGs (CCC-496) — two key
+# freeBusy cache (ADR-0006 §1) AND rendered OG card PNGs — two key
 # prefixes (`fb:`, `og:`) on one namespace, both non-authoritative and
 # re-derivable. Own bookings and holds are never stored here in either form —
 # KV propagates in "up to 60 seconds or more", which is unacceptable for the
 # writes users check immediately.
 [[kv_namespaces]]
 binding = "CACHE"
-id = "fd1bb2cb37b942b480a8e80dc169a8df"
+id = "<the id `wrangler kv namespace create CACHE` printed>"
 
 # User-uploaded, durable content — host avatars and team logos.
 # Deliberately its own bucket, not the CACHE namespace above: that KV
@@ -73,14 +73,23 @@ dead_letter_queue = "punctual-tasks-dlq"
 [triggers]
 crons = ["*/5 * * * *"]
 
+# This file is the TEMPLATE a self-hoster edits: replace the two ids above
+# and every value below with your own. (Punctual's own deployment keeps its
+# real values in an untracked wrangler.production.toml and deploys with
+# `wrangler deploy -c wrangler.production.toml` — the values here are never
+# anyone's live infrastructure.)
 [vars]
-BASE_URL = "https://punctual.sh"
+# Your Worker's public origin — the URL `wrangler deploy` prints, or your
+# custom domain. Used in every link the engine writes into emails and .ics.
+BASE_URL = "https://punctual.YOUR-SUBDOMAIN.workers.dev"
 BRAND_NAME = "Punctual"
-LEGAL_OPERATOR = "Creative Content Crafts (CCCrafts)"
-DEMO_BOOKING_PATH = "/serge/30min"
-FROM_EMAIL = "hello@punctual.sh"
+# Optional: the legal entity named on /privacy and /terms (defaults to
+# BRAND_NAME), and a live booking page to embed on your landing page.
+#LEGAL_OPERATOR = "Your Company Ltd"
+#DEMO_BOOKING_PATH = "/you/30min"
+FROM_EMAIL = "scheduling@your-domain.example"
 FROM_NAME = "Punctual"
-SUPPORT_EMAIL = "hello@punctual.sh"
+SUPPORT_EMAIL = "you@your-domain.example"
 # Off unless explicitly enabled (ADR-0006 §5).
 TELEMETRY_ENABLED = "0"
 
