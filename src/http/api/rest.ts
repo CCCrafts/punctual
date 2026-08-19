@@ -38,7 +38,7 @@ import type { EnginePorts, Repositories, RequestScope } from '../../ports.js'
 import type { SlotService } from '../../engine.js'
 import { authenticateApiKey } from '../../core/domain/auth-flows.js'
 import { parseApiKey } from '../../core/domain/auth-service.js'
-import { isValidEmail, validateAnswers } from '../../core/domain/booking-service.js'
+import { effectiveQuestions, isValidEmail, validateAnswers } from '../../core/domain/booking-service.js'
 import { notifyBookingCancelled, notifyBookingRescheduled } from '../../adapters/notify.js'
 import { formatInZone, isValidTimeZone, localDateString } from '../../core/time/zone.js'
 
@@ -998,7 +998,13 @@ export function eventTypeJson(et: EventType, ports: EnginePorts, owner: User): R
     maxPerDay: et.maxPerDay,
     locationType: et.locationType,
     locationValue: et.locationValue,
-    questions: et.questions,
+    // Effective, not declared — same reasoning as the MCP listing: a client
+    // rendering a booking form from this resource can only ask questions it
+    // can see, and POST /bookings already validates an `agenda` answer. The
+    // update round-trip this creates is benign: echoing the builtin back
+    // declares an identical copy, and `effectiveQuestions` then returns
+    // exactly that.
+    questions: effectiveQuestions(et),
     active: et.active,
     createdAt: instantJson(et.createdAt),
   }

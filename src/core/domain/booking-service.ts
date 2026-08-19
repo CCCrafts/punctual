@@ -287,7 +287,14 @@ export function pickDeclaredAnswers(
   const out: Record<string, string> = {}
   for (const q of effectiveQuestions(et)) {
     const v = answers[q.id]
-    if (v !== undefined) out[q.id] = v
+    // Trimmed HERE, not just in validation: `validateAnswers` length-checks
+    // the trimmed value, so an answer of a few words padded with 200 KB of
+    // whitespace would pass the 2000-char cap and then be persisted raw —
+    // into D1, the queued email (Queues cap messages at 128 KB), and the
+    // host's calendar event. What gets validated must be what gets stored.
+    // Empty-after-trim optional answers are dropped rather than stored as
+    // "", so emails/ICS never render a labelled blank row.
+    if (v !== undefined && v.trim() !== '') out[q.id] = v.trim()
   }
   return out
 }

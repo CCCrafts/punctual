@@ -76,6 +76,21 @@ describe('agenda answers through the pipeline', () => {
     })
   })
 
+  it('what gets validated is what gets stored — whitespace padding cannot smuggle an oversized answer past the cap', () => {
+    // validateAnswers length-checks the TRIMMED value, so a short answer
+    // padded with 200 KB of whitespace passes the 2000-char cap; if
+    // pickDeclaredAnswers then kept the raw string, it would be persisted
+    // and pushed into the queued email (Queues cap messages at 128 KB) and
+    // the host's calendar event.
+    const padded = { agenda: 'Roadmap' + ' '.repeat(200_000) }
+    expect(validateAnswers(eventType(), padded)).toEqual({})
+    expect(pickDeclaredAnswers(eventType(), padded)).toEqual({ agenda: 'Roadmap' })
+  })
+
+  it('drops an empty-after-trim optional answer instead of storing ""', () => {
+    expect(pickDeclaredAnswers(eventType(), { agenda: '   ' })).toEqual({})
+  })
+
   it('validateAnswers treats agenda as optional but still caps its length', () => {
     expect(validateAnswers(eventType(), {})).toEqual({})
     expect(validateAnswers(eventType(), { agenda: 'a'.repeat(2001) })).toHaveProperty('agenda')

@@ -248,12 +248,15 @@ export function dashboardHome(d: DashboardHomeData): string {
  * One-tap copy for a `.pu-url` value. Inline handler, same minimal-island
  * policy as the timezone picker's `onchange` — no shared script to load, and
  * the page works without it (the input still select-alls on click).
- * `navigator.clipboard` needs a secure context; on plain-http dev the catch
- * falls back to selecting the input so the button never no-ops silently.
+ * `navigator.clipboard` only EXISTS in a secure context — on plain http from
+ * a non-localhost origin (a LAN IP, an untls'd proxy) it is `undefined` and
+ * calling it throws synchronously, before any promise a `.catch` could see —
+ * so the guard has to come first; both failure paths land on the same
+ * select-the-input fallback rather than a button that silently does nothing.
  */
 function copyButton(value: string): string {
   return `<button type="button" class="pu-btn pu-btn-ghost pu-copy" data-copy="${escapeHtml(value)}"
-    onclick="var b=this;navigator.clipboard.writeText(b.dataset.copy).then(function(){b.textContent='Copied';setTimeout(function(){b.textContent='Copy'},1500)}).catch(function(){var i=b.parentElement.querySelector('input');i.focus();i.select()})">Copy</button>`
+    onclick="var b=this,f=function(){var i=b.parentElement.querySelector('input');i.focus();i.select()};if(navigator.clipboard){navigator.clipboard.writeText(b.dataset.copy).then(function(){b.textContent='Copied';setTimeout(function(){b.textContent='Copy'},1500)}).catch(f)}else{f()}">Copy</button>`
 }
 
 function eventTypeCard(d: DashboardHomeData, et: EventType): string {
