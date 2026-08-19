@@ -160,6 +160,7 @@ export async function consumeMagicLink(
       name: defaultNameFrom(email),
       tz: input.timezone && input.timezone.length > 0 ? input.timezone : 'UTC',
       slug: await uniqueSlug(deps, email),
+      avatarKey: null,
     })
   }
 

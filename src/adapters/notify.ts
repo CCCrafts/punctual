@@ -104,6 +104,7 @@ export async function notifyBookingCreated(ctx: NotifyContext): Promise<void> {
     ...(ctx.hosts ? { hosts: ctx.hosts } : {}),
     brandName: ports.config.brandName,
     supportEmail: ports.config.supportEmail,
+    baseUrl: ports.config.baseUrl,
     ...(manageUrl ? { rescheduleUrl: manageUrl, cancelUrl: manageUrl } : {}),
     hasAttachment: Boolean(attachments),
   }

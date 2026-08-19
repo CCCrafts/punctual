@@ -19,6 +19,7 @@ import type {
 } from '../core/domain/types.js'
 import type {
   ApiKeyRepository,
+  BlobStorage,
   BookingRepository,
   CalendarConnectionRepository,
   EmailMessage,
@@ -220,6 +221,7 @@ export function createFakeRepositories(): FakeRepositories {
         name: 'Seed User',
         tz: 'UTC',
         slug: user.id,
+        avatarKey: null,
         createdAt: 0,
         ...user,
       }
@@ -279,6 +281,24 @@ export function createFakeEmailSender(): FakeEmailSender {
     sent,
     async send(message) {
       sent.push(message)
+    },
+  }
+}
+
+export interface FakeBlobStorage extends BlobStorage {
+  /** Direct access for assertions — what got stored, and under which key. */
+  readonly stored: Map<string, { bytes: Uint8Array; contentType: string }>
+}
+
+export function createFakeBlobStorage(): FakeBlobStorage {
+  const stored = new Map<string, { bytes: Uint8Array; contentType: string }>()
+  return {
+    stored,
+    async get(key) {
+      return stored.get(key) ?? null
+    },
+    async put(key, bytes, contentType) {
+      stored.set(key, { bytes, contentType })
     },
   }
 }

@@ -96,12 +96,13 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
     async create(user) {
       const row = { ...user, createdAt: Date.now() }
       await run(
-        'INSERT INTO users (id,email,name,tz,slug,created_at) VALUES (?,?,?,?,?,?)',
+        'INSERT INTO users (id,email,name,tz,slug,avatar_key,created_at) VALUES (?,?,?,?,?,?,?)',
         row.id,
         row.email.toLowerCase(),
         row.name,
         row.tz,
         row.slug,
+        row.avatarKey,
         row.createdAt,
       )
       return row
@@ -112,6 +113,7 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
       if (patch.name !== undefined) (sets.push('name = ?'), binds.push(patch.name))
       if (patch.tz !== undefined) (sets.push('tz = ?'), binds.push(patch.tz))
       if (patch.slug !== undefined) (sets.push('slug = ?'), binds.push(patch.slug))
+      if (patch.avatarKey !== undefined) (sets.push('avatar_key = ?'), binds.push(patch.avatarKey))
       if (sets.length === 0) return true
       binds.push(id)
       try {
@@ -166,6 +168,7 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
            COALESCE(u.name, ru.name) AS u_name,
            COALESCE(u.tz, ru.tz) AS u_tz,
            COALESCE(u.slug, ru.slug) AS u_slug,
+           COALESCE(u.avatar_key, ru.avatar_key) AS u_avatar_key,
            COALESCE(u.created_at, ru.created_at) AS u_created_at,
            et.*
          FROM event_types et
@@ -190,6 +193,7 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
         name: row['u_name'],
         tz: row['u_tz'],
         slug: row['u_slug'],
+        avatar_key: row['u_avatar_key'],
         created_at: row['u_created_at'],
       })
       const eventType = mapEventType(row)
@@ -552,8 +556,18 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
     },
     async create(team) {
       const row = { ...team, createdAt: Date.now() }
-      await run('INSERT INTO teams (id,name,slug,created_at) VALUES (?,?,?,?)', row.id, row.name, row.slug, row.createdAt)
+      await run(
+        'INSERT INTO teams (id,name,slug,logo_key,created_at) VALUES (?,?,?,?,?)',
+        row.id,
+        row.name,
+        row.slug,
+        row.logoKey,
+        row.createdAt,
+      )
       return row
+    },
+    async updateLogo(id, logoKey) {
+      await run('UPDATE teams SET logo_key = ? WHERE id = ?', logoKey, id)
     },
     async addMember(m) {
       await run(
@@ -879,6 +893,7 @@ function mapUser(row: Record<string, unknown> | null): User | null {
     name: String(row['name'] ?? ''),
     tz: String(row['tz'] ?? 'UTC'),
     slug: String(row['slug']),
+    avatarKey: row['avatar_key'] == null ? null : String(row['avatar_key']),
     createdAt: Number(row['created_at']),
   }
 }
@@ -889,6 +904,7 @@ function mapTeam(row: Record<string, unknown> | null): Team | null {
     id: String(row['id']),
     name: String(row['name']),
     slug: String(row['slug']),
+    logoKey: row['logo_key'] == null ? null : String(row['logo_key']),
     createdAt: Number(row['created_at']),
   }
 }

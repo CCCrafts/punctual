@@ -14,6 +14,7 @@ import { createD1Repositories } from './adapters/d1/repositories.js'
 import { createWebCrypto } from './adapters/crypto/webcrypto.js'
 import { createKvCache } from './adapters/cache/kv.js'
 import { createKvBlobCache } from './adapters/cache/kv-blob.js'
+import { createR2BlobStorage } from './adapters/storage/r2-blob.js'
 import { createBrevoSender, createConsoleSender, createResendSender } from './adapters/email/index.js'
 import { createEnvOAuthCredentials } from './adapters/oauth.js'
 import { createCalendarProviders } from './adapters/providers.js'
@@ -30,6 +31,8 @@ export { RateLimiter } from './do/rate-limiter.js'
 export interface Env {
   DB: D1Database
   CACHE: KVNamespace
+  /** Host avatars and team logos (CCC-543) — see `ports.ts`'s `BlobStorage` doc comment. */
+  AVATARS: R2Bucket
   HOST_CALENDAR: DurableObjectNamespace
   RATE_LIMITER: DurableObjectNamespace
   TASKS?: Queue
@@ -72,6 +75,7 @@ export function buildPorts(env: Env): EnginePorts {
   const oauth = createEnvOAuthCredentials(env, baseUrl)
   const cache = createKvCache(env.CACHE)
   const blobCache = createKvBlobCache(env.CACHE)
+  const blobStorage = createR2BlobStorage(env.AVATARS)
   const clock = { now: () => Date.now() }
 
   const repositories = (scope: RequestScope) => createD1Repositories(env.DB, scope)
@@ -126,6 +130,7 @@ export function buildPorts(env: Env): EnginePorts {
     crypto: crypto_,
     cache,
     blobCache,
+    blobStorage,
     clock,
     queue,
     rateLimiter,

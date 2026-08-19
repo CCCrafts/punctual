@@ -50,6 +50,15 @@ export interface BookingEmailContext {
   bookingUrl?: string
   supportEmail?: string
   /**
+   * The deployment's own origin (CCC-543) — needed to build an absolute
+   * `/avatars/:key` URL for the host's photo. Optional: absent, the guest
+   * confirmation simply renders without one, same as a host with no photo
+   * uploaded. Email images must always be absolute (unlike the booking page,
+   * which can use a relative `/avatars/:key`), because a mail client has no
+   * document base URL to resolve a relative one against.
+   */
+  baseUrl?: string
+  /**
    * Whether the .ics is actually attached to THIS send. Defaults to true —
    * every real call site passes it explicitly (notify.ts knows whether
    * `buildAttachment` produced one) — because a booking whose generated .ics
@@ -165,6 +174,17 @@ interface ShellInput {
   /** Small print under the divider — timezone caveats, security notes. */
   notes?: string[]
   accent?: string
+  /**
+   * The host's photo (CCC-543) — optional decorative content, unlike the
+   * text wordmark above it. A host photo failing to load leaves the
+   * confirmation fully legible (name, time, location are all still plain
+   * text), which is a different bar than the wordmark's "never an image at
+   * all" rule in this file's header comment: Outlook/Gmail blocking images
+   * by default would hide a load-bearing wordmark, but merely omits a nice-
+   * to-have photo here.
+   */
+  avatarUrl?: string
+  avatarAlt?: string
 }
 
 function detailRowHtml(row: DetailRow): string {
@@ -237,6 +257,16 @@ function shell(input: ShellInput): string {
     `<tr><td style="padding:24px 28px 8px 28px;font-family:${MONO};font-size:16px;font-weight:600;letter-spacing:-0.02em;color:${INK};">` +
     `${escapeHtml(input.brandName.toLowerCase())}<span style="color:${accent};">:</span>` +
     `</td></tr>` +
+    // The host photo, unlike the wordmark above: optional, decorative, an
+    // <img> with real alt text. If it fails to load the row still reserves
+    // no meaningful space and every fact below (name, time, location) is
+    // plain text, so the email stays fully legible either way.
+    (input.avatarUrl
+      ? `<tr><td style="padding:8px 28px 0 28px;">` +
+        `<img src="${escapeHtml(input.avatarUrl)}" width="40" height="40" alt="${escapeHtml(input.avatarAlt ?? '')}" ` +
+        `style="width:40px;height:40px;border-radius:50%;display:block;object-fit:cover;">` +
+        `</td></tr>`
+      : '') +
     `<tr><td style="padding:8px 28px 0 28px;font-family:${FONT};font-size:22px;line-height:30px;font-weight:700;color:${INK};">${escapeHtml(input.heading)}</td></tr>` +
     `<tr><td style="padding:12px 28px 0 28px;font-family:${FONT};font-size:15px;line-height:23px;color:${INK};">${escapeHtml(input.intro)}</td></tr>` +
     `<tr><td style="padding:20px 28px 0 28px;">` +
@@ -345,6 +375,12 @@ function brandOf(ctx: BookingEmailContext): string {
   return ctx.brandName ?? 'Punctual'
 }
 
+/** Absolute `/avatars/:key` URL for the primary host's photo, or `undefined` — same "no photo" degrade as everywhere else (CCC-543). */
+function hostAvatarUrl(ctx: BookingEmailContext): string | undefined {
+  if (!ctx.host.avatarKey || !ctx.baseUrl) return undefined
+  return `${ctx.baseUrl.replace(/\/$/, '')}/avatars/${ctx.host.avatarKey}`
+}
+
 // ---------------------------------------------------------------------------
 // Templates
 // ---------------------------------------------------------------------------
@@ -363,6 +399,8 @@ export function bookingConfirmationForGuest(ctx: BookingEmailContext): EmailCont
     rows: baseRows(ctx, 'guest', tz),
     ctas: manageCtas(ctx, 'guest'),
     notes: [tzNote(tz, ctx.booking.startUtc), ...supportNote(ctx)],
+    avatarUrl: hostAvatarUrl(ctx),
+    avatarAlt: hostNames(ctx),
   }
   return render(
     input,

@@ -41,6 +41,7 @@ npx wrangler login
 
 npx wrangler d1 create punctual          # put the id in wrangler.toml
 npx wrangler kv namespace create CACHE   # put the id in wrangler.toml
+npx wrangler r2 bucket create punctual-avatars   # put the name in wrangler.toml
 
 openssl rand -base64 32 | npx wrangler secret put ENCRYPTION_KEY_V1
 openssl rand -base64 32 | npx wrangler secret put SIGNING_KEY

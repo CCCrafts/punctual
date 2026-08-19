@@ -23,6 +23,7 @@ const host: User = {
   name: 'Grace Hopper',
   tz: 'America/New_York',
   slug: 'grace',
+  avatarKey: null,
   createdAt: 0,
 }
 
@@ -213,6 +214,39 @@ describe('email-client safety', () => {
     const html = bookingConfirmationForGuest(ctx()).html
     expect(html).toContain('<meta name="color-scheme" content="light">')
     expect(html).toContain('<meta name="supported-color-schemes" content="light">')
+  })
+})
+
+describe('host photo (CCC-543)', () => {
+  it('omits the <img> entirely when the host has no avatar', () => {
+    const html = bookingConfirmationForGuest(ctx({ baseUrl: 'https://punctual.example' })).html
+    expect(html).not.toContain('<img')
+  })
+
+  it('omits the <img> when a photo exists but baseUrl was not passed — a relative /avatars/:key is useless in an inbox', () => {
+    const html = bookingConfirmationForGuest(
+      ctx({ host: { ...host, avatarKey: 'a'.repeat(64) + '-thumb.webp' } }),
+    ).html
+    expect(html).not.toContain('<img')
+  })
+
+  it('renders an absolute /avatars/:key URL with real alt text when both are present', () => {
+    const key = 'a'.repeat(64) + '-thumb.webp'
+    const html = bookingConfirmationForGuest(
+      ctx({ host: { ...host, avatarKey: key }, baseUrl: 'https://punctual.example/' }),
+    ).html
+    expect(html).toContain(`<img src="https://punctual.example/avatars/${key}"`)
+    expect(html).toContain(`alt="${host.name}"`)
+  })
+
+  it('every fact in the email is still plain text — the photo is decorative, not load-bearing', () => {
+    const key = 'a'.repeat(64) + '-thumb.webp'
+    const mail = bookingConfirmationForGuest(
+      ctx({ host: { ...host, avatarKey: key }, baseUrl: 'https://punctual.example' }),
+    )
+    // The plain-text alternative has no <img> at all, and never could.
+    expect(mail.text).not.toContain('<img')
+    expect(mail.text).toContain(host.name)
   })
 })
 

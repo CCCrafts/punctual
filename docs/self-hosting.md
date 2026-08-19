@@ -15,14 +15,16 @@ npm install
 npx wrangler login
 ```
 
-## 2. Create the two resources
+## 2. Create the three resources
 
 ```bash
 npx wrangler d1 create punctual
 npx wrangler kv namespace create CACHE
+npx wrangler r2 bucket create punctual-avatars
 ```
 
-Both commands print an id. Put them in `wrangler.toml`:
+The first two commands print an id; `r2 bucket create` does not — R2 buckets
+are addressed by the name you gave them. Put them in `wrangler.toml`:
 
 ```toml
 [[d1_databases]]
@@ -33,11 +35,17 @@ database_id = "<the id from d1 create>"
 [[kv_namespaces]]
 binding = "CACHE"
 id = "<the id from kv namespace create>"
+
+[[r2_buckets]]
+binding = "AVATARS"
+bucket_name = "punctual-avatars"
 ```
 
 D1 stores everything durable. KV caches only external calendars' busy times —
 never your bookings, which are always read from D1 so you see your own writes
-immediately.
+immediately. R2 stores host avatars and team logos — durable, not a cache,
+but not gated behind a paid plan either: R2's free tier (10 GB storage, no
+egress fee) is part of the same $0-to-start deal as D1 and KV.
 
 ## 3. Set two secrets
 

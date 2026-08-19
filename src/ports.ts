@@ -77,7 +77,7 @@ export interface UserRepository {
    * most of that window, but not a concurrent write racing the same check.
    * True for any other patch, including one that changes nothing.
    */
-  update(id: string, patch: Partial<Pick<User, 'name' | 'tz' | 'slug'>>): Promise<boolean>
+  update(id: string, patch: Partial<Pick<User, 'name' | 'tz' | 'slug' | 'avatarKey'>>): Promise<boolean>
 }
 
 export interface EventTypeRepository {
@@ -206,6 +206,14 @@ export interface TeamRepository {
    * the opposite of what ADR-0004 §5 specifies.
    */
   recordAssignment(teamId: string, userId: string, at: number): Promise<void>
+  /**
+   * Rewrite only the logo key (CCC-543) — never name or slug. No dashboard
+   * route calls this yet: team self-service management (creating a team,
+   * renaming it) has no UI at all today, so wiring a logo-upload page ahead
+   * of it would have nowhere real to live. The method exists now, tested,
+   * so the next team-settings ticket is schema-and-port-complete already.
+   */
+  updateLogo(teamId: string, logoKey: string | null): Promise<void>
 }
 
 export interface CalendarConnectionRepository {
@@ -395,6 +403,30 @@ export interface BlobCache {
   put(key: string, value: Uint8Array, ttlSeconds: number): Promise<void>
 }
 
+/**
+ * User-uploaded binary content: host avatars and team logos (CCC-543).
+ * Deliberately a THIRD storage port, not a reuse of `Cache` or `BlobCache`
+ * above, because the trust category is different from both:
+ *
+ *  - Not `Cache` — not JSON, and not re-derivable from anything else the
+ *    engine has.
+ *  - Not `BlobCache` — not ephemeral or advisory. A host's uploaded photo is
+ *    authoritative content with no TTL; losing it is a real loss, the same
+ *    way losing a booking row would be, even though (unlike a booking) it
+ *    carries no freshness requirement and is fine to read from KV-speed
+ *    storage.
+ *
+ * Backed by R2 in the default adapter — durable object storage, not the KV
+ * namespace `Cache`/`BlobCache` share, and not gated behind a paid plan
+ * (R2's free tier is part of the same "$0 to start" pledge as D1 and KV).
+ * Keys are content-addressed (`core/domain/media.ts`), so `put` is naturally
+ * idempotent and needs no separate existence check to avoid duplicate writes.
+ */
+export interface BlobStorage {
+  get(key: string): Promise<{ bytes: Uint8Array; contentType: string } | null>
+  put(key: string, value: Uint8Array, contentType: string): Promise<void>
+}
+
 // ---------------------------------------------------------------------------
 // Clock
 // ---------------------------------------------------------------------------
@@ -540,6 +572,7 @@ export interface EnginePorts {
   crypto: Crypto
   cache: Cache
   blobCache: BlobCache
+  blobStorage: BlobStorage
   clock: Clock
   queue: QueuePort
   coordinator: HostCoordinator

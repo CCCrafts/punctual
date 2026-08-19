@@ -8,6 +8,7 @@ const host: User = {
   name: 'Grace Hopper',
   tz: 'America/New_York',
   slug: 'grace',
+  avatarKey: null,
   createdAt: 0,
 }
 

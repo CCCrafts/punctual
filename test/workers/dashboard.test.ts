@@ -21,6 +21,7 @@ import {
   SESSION_TTL_MS,
 } from '../../src/core/domain/auth-service.js'
 import {
+  createFakeBlobStorage,
   createFakeEmailSender,
   createFakeRateLimiter,
   fakeConfig,
@@ -95,6 +96,8 @@ const queue: QueuePort = {
   async sendBatch() {},
 }
 
+const blobStorage = createFakeBlobStorage()
+
 const coordinator = new Proxy({} as HostCoordinator, {
   get(_target, prop) {
     return () => {
@@ -114,6 +117,7 @@ const ports: EnginePorts = {
   crypto: crypto_,
   cache,
   blobCache,
+  blobStorage,
   clock: { now: () => Date.now() },
   queue,
   coordinator,

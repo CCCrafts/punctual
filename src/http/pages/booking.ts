@@ -138,11 +138,30 @@ export interface BookingPageData {
   embed?: boolean
 }
 
+/**
+ * A `size`×`size` circle: the uploaded avatar/logo thumbnail (CCC-543) if the
+ * user or team has one, otherwise a CSS-only initials badge so the layout
+ * never depends on whether a photo has been uploaded. Shared between the
+ * booking page header and the dashboard settings page — the same key served
+ * by the same `/avatars/:key` route either way.
+ */
+export function avatarHtml(opts: { key: string | null; name: string; size?: number; alt?: string }): string {
+  const size = opts.size ?? 40
+  if (opts.key) {
+    return `<img src="/avatars/${encodeURIComponent(opts.key)}" alt="${escapeHtml(opts.alt ?? opts.name)}" width="${size}" height="${size}" style="width:${size}px;height:${size}px;border-radius:50%;object-fit:cover;display:block;flex:none" loading="lazy">`
+  }
+  const initial = (opts.name.trim().charAt(0) || '?').toUpperCase()
+  return `<div aria-hidden="true" style="width:${size}px;height:${size}px;border-radius:50%;background:var(--pu-green-700);color:var(--pu-paper);display:flex;align-items:center;justify-content:center;font-family:var(--pu-font-mono);font-weight:600;font-size:${Math.round(size * 0.42)}px;flex:none">${escapeHtml(initial)}</div>`
+}
+
 export function eventHeader(d: BookingPageData): string {
   const durationLabel = `${d.eventType.durationMinutes} min`
   const location = locationLabel(d.eventType)
   return `<header class="pu-event-header">
-  <p class="pu-kicker">${escapeHtml(d.host.name || d.host.slug)}</p>
+  <p class="pu-kicker" style="display:flex;align-items:center;gap:.5rem">
+    ${avatarHtml({ key: d.host.avatarKey, name: d.host.name || d.host.slug, size: 28 })}
+    ${escapeHtml(d.host.name || d.host.slug)}
+  </p>
   <h1>${escapeHtml(d.eventType.title)}</h1>
   ${d.eventType.description ? `<p class="pu-muted">${escapeHtml(d.eventType.description)}</p>` : ''}
   <ul class="pu-meta">

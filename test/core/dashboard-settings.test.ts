@@ -8,6 +8,7 @@ const user: User = {
   name: 'Grace Hopper',
   tz: 'America/New_York',
   slug: 'grace',
+  avatarKey: null,
   createdAt: 0,
 }
 
@@ -31,5 +32,32 @@ describe('settingsPage slug-change caution', () => {
   it('still names the current slug in the warning text', () => {
     const html = settingsPage({ brandName: 'Punctual', user, csrf: 'tok' })
     expect(html).toContain('<code>grace</code>')
+  })
+})
+
+describe('settingsPage photo section (CCC-543)', () => {
+  it('shows an initials badge and no Remove button when nothing is uploaded', () => {
+    const html = settingsPage({ brandName: 'Punctual', user, csrf: 'tok' })
+    expect(html).toContain('>G<') // initial of "Grace Hopper"
+    expect(html).not.toContain('/dashboard/settings/avatar/delete')
+    expect(html).toContain('action="/dashboard/settings/avatar"')
+    expect(html).toContain('enctype="multipart/form-data"')
+  })
+
+  it('shows the uploaded photo and a Remove button once avatarKey is set', () => {
+    const withAvatar = { ...user, avatarKey: 'abc123-thumb.webp' }
+    const html = settingsPage({ brandName: 'Punctual', user: withAvatar, csrf: 'tok' })
+    expect(html).toContain('/avatars/abc123-thumb.webp')
+    expect(html).toContain('action="/dashboard/settings/avatar/delete"')
+  })
+
+  it('renders the avatar field error under the photo form', () => {
+    const html = settingsPage({
+      brandName: 'Punctual',
+      user,
+      csrf: 'tok',
+      errors: { avatar: 'PNG, JPEG or WebP images only' },
+    })
+    expect(html).toContain('PNG, JPEG or WebP images only')
   })
 })

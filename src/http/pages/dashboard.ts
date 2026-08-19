@@ -40,7 +40,7 @@ import type {
 import type { CalendarProviderName } from '../../ports.js'
 import { slotStateClassName } from '../../core/slot-state.js'
 import { formatInZone, localDateString, offsetLabel } from '../../core/time/zone.js'
-import { escapeHtml, shellFoot, shellHead } from './booking.js'
+import { avatarHtml, escapeHtml, shellFoot, shellHead } from './booking.js'
 
 // ---------------------------------------------------------------------------
 // Chrome
@@ -792,8 +792,33 @@ export function settingsPage(d: SettingsPageData): string {
   return (
     shellTop(d, 'Settings', 'settings') +
     (d.notice ? notice(d.notice) : '') +
-    `<section class="pu-card" aria-label="Account settings">
+    `<section class="pu-card" aria-label="Your photo" style="margin-bottom:1.25rem">
   <h1>Settings</h1>
+  <h2>Your photo</h2>
+  <p class="pu-muted">Shown on your booking page and in confirmation emails. PNG, JPEG or WebP, up to 5&nbsp;MB.</p>
+  <div style="display:flex;align-items:center;gap:1rem;margin:.75rem 0">
+    ${avatarHtml({ key: d.user.avatarKey, name: d.user.name || d.user.slug, size: 56 })}
+    <div style="display:flex;flex-wrap:wrap;align-items:center;gap:.5rem">
+      <form method="post" action="/dashboard/settings/avatar" enctype="multipart/form-data"
+            style="display:flex;flex-wrap:wrap;align-items:center;gap:.5rem">
+        ${csrfField(d.csrf)}
+        <input type="file" name="avatar" accept="image/png,image/jpeg,image/webp" required
+               aria-label="Choose a photo"${describedBy('avatar', errors)}>
+        <button class="pu-btn" type="submit">Upload</button>
+      </form>
+      ${
+        d.user.avatarKey
+          ? `<form method="post" action="/dashboard/settings/avatar/delete">
+        ${csrfField(d.csrf)}
+        <button class="pu-btn pu-btn-ghost" type="submit">Remove</button>
+      </form>`
+          : ''
+      }
+    </div>
+  </div>
+  ${fieldError('avatar', errors)}
+</section>
+<section class="pu-card" aria-label="Account settings">
   <h2>Your booking page slug</h2>
   <p class="pu-muted">Every one of your event types is published at
     <code>/${escapeHtml(d.user.slug)}/&lt;event&gt;</code>. Changing your slug moves the address of

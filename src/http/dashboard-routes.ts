@@ -69,6 +69,14 @@ import { OAUTH_ENDPOINTS, scopesFor, type OAuthPurpose } from '../adapters/oauth
 import { dayRange } from '../engine.js'
 import { isValidTimeZone, localDateString } from '../core/time/zone.js'
 import { validateSlug } from '../core/domain/slugs.js'
+import {
+  MAX_UPLOAD_BYTES,
+  THUMB_CONTENT_TYPE,
+  deriveBlobKey,
+  isAllowedImageType,
+  thumbKeyFor,
+} from '../core/domain/media.js'
+import { resizeToSquareThumbnail } from '../adapters/image/resize.js'
 import { errorPage, shellFoot, shellHead } from './pages/booking.js'
 import {
   CSRF_FIELD,
@@ -888,6 +896,77 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
         user: { ...user, slug: raw },
         csrf: c.get('csrf'),
         notice: 'Slug updated. Links using the old address now show "not found".',
+      }),
+    )
+  })
+
+  /**
+   * Avatar upload (CCC-543).
+   *
+   * Validation order matters: type and size are checked BEFORE anything
+   * touches R2 or the resizer, so a bad upload is a clean 400 with no wasted
+   * work. The resize happens here, at upload time — never on the booking-page
+   * request path, which has its own <100 ms budget (ADR-0007 §3).
+   */
+  app.post('/dashboard/settings/avatar', requireSession, async (c) => {
+    const form = await c.req.formData()
+    if (!(await csrfOk(c, form))) return csrfRejected(c)
+
+    const user = c.get('user')
+    const file = form.get('avatar')
+    const fail = (message: string) =>
+      c.html(settingsPage({ brandName, user, csrf: c.get('csrf'), errors: { avatar: message } }), 400)
+
+    if (!(file instanceof File) || file.size === 0) return fail('Choose an image to upload')
+    if (file.size > MAX_UPLOAD_BYTES) return fail('That file is larger than 5 MB')
+    if (!isAllowedImageType(file.type)) return fail('PNG, JPEG or WebP images only')
+
+    const bytes = new Uint8Array(await file.arrayBuffer())
+    const originalKey = await deriveBlobKey(bytes, file.type)
+    const thumbKey = thumbKeyFor(originalKey)
+
+    // Content-addressed, so an identical re-upload (the common case: a host
+    // re-saving the same photo) is a cache hit here and skips both the R2
+    // write and the resize entirely.
+    if (!(await ports.blobStorage.get(thumbKey))) {
+      const thumb = resizeToSquareThumbnail(bytes)
+      if (!thumb) return fail('Could not process that image. Try a different file.')
+      await ports.blobStorage.put(originalKey, bytes, file.type)
+      await ports.blobStorage.put(thumbKey, thumb, THUMB_CONTENT_TYPE)
+    }
+
+    const repos = c.get('repos')
+    await repos.users.update(user.id, { avatarKey: thumbKey })
+    await advanceBookmark(c)
+
+    return c.html(
+      settingsPage({
+        brandName,
+        user: { ...user, avatarKey: thumbKey },
+        csrf: c.get('csrf'),
+        notice: 'Photo updated.',
+      }),
+    )
+  })
+
+  app.post('/dashboard/settings/avatar/delete', requireSession, async (c) => {
+    const form = await c.req.formData()
+    if (!(await csrfOk(c, form))) return csrfRejected(c)
+
+    const user = c.get('user')
+    const repos = c.get('repos')
+    // The R2 object is left in place — it is content-addressed and may be
+    // shared with another user's identical upload, so nothing here can prove
+    // it is safe to delete. Only the reference is cleared.
+    await repos.users.update(user.id, { avatarKey: null })
+    await advanceBookmark(c)
+
+    return c.html(
+      settingsPage({
+        brandName,
+        user: { ...user, avatarKey: null },
+        csrf: c.get('csrf'),
+        notice: 'Photo removed.',
       }),
     )
   })

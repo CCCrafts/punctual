@@ -23,6 +23,15 @@ export interface User {
   /** IANA zone. The schedule below is interpreted in it. */
   tz: string
   slug: string
+  /**
+   * Content-addressed R2 key of the resized avatar thumbnail (CCC-543), or
+   * null when nothing has been uploaded — every renderer falls back to an
+   * initials badge in that case. Points at the DERIVED thumbnail, not the
+   * original: the original lives in R2 under a related key (see
+   * `thumbKeyFor` in `core/domain/media.ts`) but nothing on this row needs to
+   * address it directly, because nothing serves it in this pass.
+   */
+  avatarKey: string | null
   createdAt: number
 }
 
@@ -30,6 +39,8 @@ export interface Team {
   id: string
   name: string
   slug: string
+  /** Same convention as `User.avatarKey` — the resized logo thumbnail's key. */
+  logoKey: string | null
   createdAt: number
 }
 

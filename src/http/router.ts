@@ -18,6 +18,7 @@ import { buildMcpRoutes } from './mcp/server.js'
 import { buildEmbedRoutes } from './embed.js'
 import { buildDashboardRoutes } from './dashboard-routes.js'
 import { buildOgRoutes } from './og/route.js'
+import { buildAvatarRoutes } from './avatars/route.js'
 import { privacyPage, termsPage } from './pages/legal.js'
 import { calendlyAlternativePage, landingPage } from './pages/landing.js'
 import { docsApiPage, docsIndexPage, docsMcpPage, docsSelfHostingPage } from './pages/docs.js'
@@ -160,6 +161,11 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
   // collides with the two-segment catch-all below regardless of mount order —
   // registered here anyway for the same reason as everything else above it.
   app.route('/', buildOgRoutes(ports))
+
+  // /avatars/:key (CCC-543) — single segment under a reserved first path
+  // component, so it never collides with the two-segment catch-all below
+  // either. `avatars` is reserved in `core/domain/slugs.ts` for this reason.
+  app.route('/', buildAvatarRoutes(ports))
 
   // -------------------------------------------------------------------------
   // Booking page: /:userSlug/:eventSlug
