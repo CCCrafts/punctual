@@ -494,11 +494,10 @@ export function bookedConfirmation(opts: {
     minute: '2-digit',
   })
   return `<section class="pu-card pu-confirm" aria-label="Booking confirmed">
-  <svg class="pu-confirm-icon" width="56" height="56" viewBox="0 0 56 56" aria-hidden="true">
-    <circle class="pu-ring-track" cx="28" cy="28" r="24" stroke-width="2"></circle>
-    <circle class="pu-ring-fill" cx="28" cy="28" r="24" stroke-width="2.5" stroke-linecap="round"
-      transform="rotate(-90 28 28)"></circle>
-    <circle class="pu-ring-dot" cx="28" cy="4" r="4"></circle>
+  <svg class="pu-confirm-icon" width="56" height="56" viewBox="0 0 96 96" aria-hidden="true">
+    <path class="pu-ring-arc" d="M 69.2 30.8 A 30 30 0 1 1 26.8 30.8"
+      fill="none" stroke-width="9" stroke-linecap="round"></path>
+    <circle class="pu-ring-dot" cx="48" cy="22" r="11"></circle>
   </svg>
   <p><span class="pu-badge">Confirmed</span></p>
   <h1>You're booked</h1>

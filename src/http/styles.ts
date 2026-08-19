@@ -235,8 +235,10 @@ export const TOKENS = `
  *   a navigation, not a client-side selection (no JS on this page).
  * - input/select/textarea get a red border via :has(+ .pu-err) — CSS-only,
  *   no per-field error class needed from the route.
- * - .pu-confirm-icon is the brand's "dot at twelve" ring, landed: the ring
- *   has finished drawing and the dot sits at 12, i.e. arrived on time.
+ * - .pu-confirm-icon is the brand mark verbatim (the "dot at twelve" ring
+ *   from docs' mark.svg: bold arc open at twelve, the dot landed in the
+ *   gap = arrived on time). Same geometry, not a redraw — the ring is
+ *   currentColor so it flips with the theme; only the dot is green.
  */
 export const BASE_CSS = `
 *,*::before,*::after{box-sizing:border-box}
@@ -379,9 +381,8 @@ input:has(+ .pu-err),select:has(+ .pu-err),textarea:has(+ .pu-err){border-color:
 .pu-tz-select:focus-visible{outline:2px solid var(--pu-border-focus);outline-offset:2px;border-radius:4px}
 
 .pu-confirm{text-align:center;padding:2rem 1.5rem}
-.pu-confirm-icon{display:block;margin:0 auto .75rem}
-.pu-ring-track{fill:none;stroke:var(--pu-line)}
-.pu-ring-fill{fill:none;stroke:var(--pu-green-700);stroke-dasharray:151;stroke-dashoffset:0}
+.pu-confirm-icon{display:block;margin:0 auto .75rem;color:var(--pu-text-primary)}
+.pu-ring-arc{stroke:currentColor}
 .pu-ring-dot{fill:var(--pu-signal)}
 .pu-confirm h1{margin:.15rem 0 .35rem}
 .pu-confirm-details{text-align:left;list-style:none;margin:1.25rem 0;padding:1rem 1.25rem;
