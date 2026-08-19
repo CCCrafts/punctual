@@ -162,6 +162,7 @@ export async function consumeMagicLink(
       slug: await uniqueSlug(deps, email),
       avatarKey: null,
       company: null,
+      jobTitle: null,
     })
   }
 

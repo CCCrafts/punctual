@@ -25,6 +25,7 @@ const host: User = {
   slug: 'grace',
   avatarKey: null,
   company: null,
+  jobTitle: null,
   createdAt: 0,
 }
 
@@ -267,6 +268,13 @@ describe('host company', () => {
   it('the Host row appends the company, comma-separated', () => {
     const html = bookingConfirmationForGuest(ctx({ host: { ...host, company: 'Acme Inc' } })).html
     expect(rowValue(html, 'Host')).toBe(`${host.name}, Acme Inc`)
+  })
+
+  it('the Host row reads like a signature with a position set: name, title, company', () => {
+    const html = bookingConfirmationForGuest(
+      ctx({ host: { ...host, jobTitle: 'CEO', company: 'Acme Inc' } }),
+    ).html
+    expect(rowValue(html, 'Host')).toBe(`${host.name}, CEO, Acme Inc`)
   })
 
   it('a team event with multiple hosts never attaches one host company to the whole list', () => {

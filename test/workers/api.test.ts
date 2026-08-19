@@ -92,6 +92,7 @@ async function seedHost(ports: EnginePorts, scopes: string[] = ['*']): Promise<S
     slug: `host${n}`,
     avatarKey: null,
     company: null,
+    jobTitle: null,
   })
 
   const workday = [{ startMinute: 9 * 60, endMinute: 17 * 60 }]

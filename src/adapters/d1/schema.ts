@@ -23,6 +23,8 @@ export const users = sqliteTable(
     avatarKey: text('avatar_key'),
     // Free-text company/organisation, shown next to the name; null until set.
     company: text('company'),
+    // Free-text job title/position; same convention as `company`.
+    jobTitle: text('job_title'),
     createdAt: integer('created_at').notNull(),
   },
   (t) => [uniqueIndex('users_email_idx').on(t.email), uniqueIndex('users_slug_idx').on(t.slug)],

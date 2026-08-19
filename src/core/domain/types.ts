@@ -34,6 +34,8 @@ export interface User {
   avatarKey: string | null
   /** Free-text company/organisation, shown next to the name on the booking page and in confirmation emails. Null until set — never required. */
   company: string | null
+  /** Free-text job title/position, shown with the company ("CEO, Acme Inc"). Null until set — never required. */
+  jobTitle: string | null
   createdAt: number
 }
 

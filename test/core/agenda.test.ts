@@ -24,6 +24,7 @@ const host: User = {
   slug: 'grace',
   avatarKey: null,
   company: null,
+  jobTitle: null,
   createdAt: 0,
 }
 

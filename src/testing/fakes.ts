@@ -223,6 +223,7 @@ export function createFakeRepositories(): FakeRepositories {
         slug: user.id,
         avatarKey: null,
         company: null,
+        jobTitle: null,
         createdAt: 0,
         ...user,
       }

@@ -800,6 +800,8 @@ export interface SettingsPageData extends DashboardChrome {
   slugValue?: string
   /** Same reasoning as `slugValue`, for the profile form's Name field. */
   nameValue?: string
+  /** Same reasoning as `slugValue`, for the profile form's Position field. */
+  jobTitleValue?: string
   /** Same reasoning as `slugValue`, for the profile form's Company field. */
   companyValue?: string
   errors?: Record<string, string>
@@ -810,52 +812,60 @@ export function settingsPage(d: SettingsPageData): string {
   const errors = d.errors ?? {}
   const slugValue = d.slugValue ?? d.user.slug
   const nameValue = d.nameValue ?? d.user.name
+  const jobTitleValue = d.jobTitleValue ?? d.user.jobTitle ?? ''
   const companyValue = d.companyValue ?? d.user.company ?? ''
 
   return (
     shellTop(d, 'Settings', 'settings') +
     (d.notice ? notice(d.notice) : '') +
-    `<section class="pu-card" aria-label="Your photo" style="margin-bottom:1.25rem">
+    // One panel, one identity: the photo IS part of the profile, and the
+    // split cards read as two unrelated features. Photo column left (the
+    // file input is visually hidden — the styled label is the whole control,
+    // and choosing a file submits immediately, so there is no separate
+    // Upload step to explain), fields right.
+    `<section class="pu-card" aria-label="Your profile" style="margin-bottom:1.25rem">
   <h1>Settings</h1>
-  <h2>Your photo</h2>
-  <p class="pu-muted">Shown on your booking page and in confirmation emails. PNG, JPEG or WebP, up to 5&nbsp;MB.</p>
-  <div style="display:flex;align-items:center;gap:1rem;margin:.75rem 0">
-    ${avatarHtml({ key: d.user.avatarKey, name: d.user.name || d.user.slug, size: 56 })}
-    <div style="display:flex;flex-wrap:wrap;align-items:center;gap:.5rem">
-      <form method="post" action="/dashboard/settings/avatar" enctype="multipart/form-data"
-            style="display:flex;flex-wrap:wrap;align-items:center;gap:.5rem">
+  <h2>Your profile</h2>
+  <p class="pu-muted">Shown on your booking page and in confirmation emails.</p>
+  <div class="pu-profile">
+    <div class="pu-profile-photo">
+      ${avatarHtml({ key: d.user.avatarKey, name: d.user.name || d.user.slug, size: 88 })}
+      <form method="post" action="/dashboard/settings/avatar" enctype="multipart/form-data">
         ${csrfField(d.csrf)}
-        <input type="file" name="avatar" accept="image/png,image/jpeg,image/webp" required
-               aria-label="Choose a photo"${describedBy('avatar', errors)}>
-        <button class="pu-btn" type="submit">Upload</button>
+        <label class="pu-btn pu-btn-ghost pu-file-btn">Upload photo
+          <input type="file" name="avatar" accept="image/png,image/jpeg,image/webp" class="pu-sr"
+                 aria-label="Choose a photo" onchange="this.form.submit()"${describedBy('avatar', errors)}>
+        </label>
+        <noscript><button class="pu-btn" type="submit" style="margin-top:.5rem">Upload</button></noscript>
       </form>
       ${
         d.user.avatarKey
           ? `<form method="post" action="/dashboard/settings/avatar/delete">
         ${csrfField(d.csrf)}
-        <button class="pu-btn pu-btn-ghost" type="submit">Remove</button>
+        <button class="pu-btn-plain" type="submit">Remove</button>
       </form>`
           : ''
       }
+      <p class="pu-muted" style="font-size:.75rem;margin:0;text-align:center">PNG, JPEG or WebP,<br>up to 5&nbsp;MB</p>
+      ${fieldError('avatar', errors)}
     </div>
+    <form method="post" action="/dashboard/settings/profile" class="pu-profile-fields">
+      ${csrfField(d.csrf)}
+      <label for="name">Name</label>
+      <input id="name" name="name" required aria-required="true" maxlength="120"
+             value="${escapeHtml(nameValue)}"${describedBy('name', errors)}>
+      ${fieldError('name', errors)}
+      <label for="job_title">Position</label>
+      <input id="job_title" name="job_title" maxlength="120" placeholder="Optional"
+             value="${escapeHtml(jobTitleValue)}"${describedBy('job_title', errors)}>
+      ${fieldError('job_title', errors)}
+      <label for="company">Company</label>
+      <input id="company" name="company" maxlength="120" placeholder="Optional"
+             value="${escapeHtml(companyValue)}"${describedBy('company', errors)}>
+      ${fieldError('company', errors)}
+      <div style="margin-top:1.25rem"><button class="pu-btn" type="submit">Save profile</button></div>
+    </form>
   </div>
-  ${fieldError('avatar', errors)}
-</section>
-<section class="pu-card" aria-label="Your profile" style="margin-bottom:1.25rem">
-  <h2>Your profile</h2>
-  <p class="pu-muted">Shown on your booking page and in confirmation emails.</p>
-  <form method="post" action="/dashboard/settings/profile">
-    ${csrfField(d.csrf)}
-    <label for="name">Name</label>
-    <input id="name" name="name" required aria-required="true" maxlength="120"
-           value="${escapeHtml(nameValue)}"${describedBy('name', errors)}>
-    ${fieldError('name', errors)}
-    <label for="company">Company</label>
-    <input id="company" name="company" maxlength="120" placeholder="Optional"
-           value="${escapeHtml(companyValue)}"${describedBy('company', errors)}>
-    ${fieldError('company', errors)}
-    <div style="margin-top:1.25rem"><button class="pu-btn" type="submit">Save profile</button></div>
-  </form>
 </section>
 <section class="pu-card" aria-label="Account settings">
   <h2>Your booking page slug</h2>

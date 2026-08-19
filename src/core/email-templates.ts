@@ -325,15 +325,16 @@ function hostNames(ctx: BookingEmailContext): string {
 }
 
 /**
- * `hostNames` plus a company, ONLY for the single-host case — a team event's
- * "Host: Alice, Bob" row has nowhere unambiguous to attach one person's
- * company, so this deliberately doesn't attempt it there.
+ * `hostNames` plus a job title and company, ONLY for the single-host case —
+ * a team event's "Host: Alice, Bob" row has nowhere unambiguous to attach
+ * one person's identity, so this deliberately doesn't attempt it there.
+ * Signature style: "Grace Hopper, CEO, Acme Inc", either half optional.
  */
 function hostNamesWithCompany(ctx: BookingEmailContext): string {
   const all = ctx.hosts && ctx.hosts.length > 0 ? ctx.hosts : [ctx.host]
   if (all.length !== 1) return hostNames(ctx)
   const host = all[0]!
-  return host.company ? `${host.name}, ${host.company}` : host.name
+  return [host.name, host.jobTitle, host.company].filter((p): p is string => !!p).join(', ')
 }
 
 function answerRows(ctx: BookingEmailContext): DetailRow[] {

@@ -914,11 +914,13 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
 
     const user = c.get('user')
     const name = String(form.get('name') ?? '').trim()
+    const jobTitleRaw = String(form.get('job_title') ?? '').trim()
     const companyRaw = String(form.get('company') ?? '').trim()
     const errors: Record<string, string> = {}
 
     if (name.length === 0) errors['name'] = 'Name is required'
     else if (name.length > 120) errors['name'] = 'Must be 120 characters or fewer'
+    if (jobTitleRaw.length > 120) errors['job_title'] = 'Must be 120 characters or fewer'
     if (companyRaw.length > 120) errors['company'] = 'Must be 120 characters or fewer'
 
     if (Object.keys(errors).length > 0) {
@@ -928,6 +930,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
           user,
           csrf: c.get('csrf'),
           nameValue: name,
+          jobTitleValue: jobTitleRaw,
           companyValue: companyRaw,
           errors,
         }),
@@ -935,16 +938,17 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
       )
     }
 
-    // Empty company clears the field (null), same "unset" convention as avatarKey.
+    // Empty fields clear (null), same "unset" convention as avatarKey.
     const company = companyRaw.length > 0 ? companyRaw : null
+    const jobTitle = jobTitleRaw.length > 0 ? jobTitleRaw : null
     const repos = c.get('repos')
-    await repos.users.update(user.id, { name, company })
+    await repos.users.update(user.id, { name, company, jobTitle })
     await advanceBookmark(c)
 
     return c.html(
       settingsPage({
         brandName,
-        user: { ...user, name, company },
+        user: { ...user, name, company, jobTitle },
         csrf: c.get('csrf'),
         notice: 'Profile updated.',
       }),

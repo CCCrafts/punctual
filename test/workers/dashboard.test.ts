@@ -648,7 +648,7 @@ describe('settings — profile (name and company)', () => {
 
   async function resetProfileHost(): Promise<void> {
     await db
-      .prepare('UPDATE users SET name = ?, company = NULL WHERE id = ?')
+      .prepare('UPDATE users SET name = ?, company = NULL, job_title = NULL WHERE id = ?')
       .bind('Original Name', PROFILE_HOST_ID)
       .run()
   }
@@ -658,24 +658,25 @@ describe('settings — profile (name and company)', () => {
     return /name="csrf" value="([^"]+)"/.exec(await page.text())?.[1] ?? ''
   }
 
-  it('saves a new name and company', async () => {
+  it('saves a new name, position and company', async () => {
     await resetProfileHost()
     const cookie = await seedSession(PROFILE_HOST_ID)
     const csrf = await settingsCsrf(cookie)
 
     const res = await post(
       '/dashboard/settings/profile',
-      { name: 'New Name', company: 'Acme Inc', csrf },
+      { name: 'New Name', job_title: 'CEO', company: 'Acme Inc', csrf },
       cookie,
     )
     expect(res.status).toBe(200)
     expect(await res.text()).toContain('Profile updated')
 
     const row = await db
-      .prepare('SELECT name, company FROM users WHERE id = ?')
+      .prepare('SELECT name, job_title, company FROM users WHERE id = ?')
       .bind(PROFILE_HOST_ID)
-      .first<{ name: string; company: string | null }>()
+      .first<{ name: string; job_title: string | null; company: string | null }>()
     expect(row?.name).toBe('New Name')
+    expect(row?.job_title).toBe('CEO')
     expect(row?.company).toBe('Acme Inc')
   })
 

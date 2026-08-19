@@ -79,7 +79,7 @@ export interface UserRepository {
    */
   update(
     id: string,
-    patch: Partial<Pick<User, 'name' | 'tz' | 'slug' | 'avatarKey' | 'company'>>,
+    patch: Partial<Pick<User, 'name' | 'tz' | 'slug' | 'avatarKey' | 'company' | 'jobTitle'>>,
   ): Promise<boolean>
 }
 

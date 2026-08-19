@@ -10,6 +10,7 @@ const host: User = {
   slug: 'grace',
   avatarKey: null,
   company: null,
+  jobTitle: null,
   createdAt: 0,
 }
 
@@ -65,6 +66,23 @@ describe('eventHeader host identity', () => {
     const html = eventHeader(pageData({ host: { ...host, company: 'Acme Inc' } }))
     expect(hostBlockText(html, 'pu-host-name')).toBe('Grace Hopper')
     expect(hostBlockText(html, 'pu-host-org')).toBe('Acme Inc')
+  })
+
+  it('joins position and company on the identity line, either half optional', () => {
+    const both = eventHeader(pageData({ host: { ...host, jobTitle: 'CEO', company: 'Acme Inc' } }))
+    expect(hostBlockText(both, 'pu-host-org')).toBe('CEO, Acme Inc')
+    const titleOnly = eventHeader(pageData({ host: { ...host, jobTitle: 'CEO' } }))
+    expect(hostBlockText(titleOnly, 'pu-host-org')).toBe('CEO')
+  })
+
+  it('never shows a position on a team-owned event, same rule as company', () => {
+    const html = eventHeader(
+      pageData({
+        host: { ...host, jobTitle: 'CEO' },
+        eventType: { ...eventType, ownerUserId: null, ownerTeamId: 'team_1', schedulingType: 'round_robin' },
+      }),
+    )
+    expect(hostBlockText(html, 'pu-host-org')).toBeNull()
   })
 
   it('escapes an attacker-controlled company the same as the name', () => {

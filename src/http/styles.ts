@@ -449,6 +449,27 @@ input:has(+ .pu-err),select:has(+ .pu-err),textarea:has(+ .pu-err){border-color:
 /* Fixed width, so "Copy" -> "Copied" feedback doesn't shift the layout. */
 .pu-copy{flex:none;min-width:4.5rem;padding:.4rem .6rem;font-size:.8125rem}
 
+/* Settings: one profile panel — photo column left, identity fields right.
+   The photo column is a fixed rail so the fields column defines the card's
+   rhythm; on narrow screens the rail stacks on top, centred. */
+.pu-profile{display:flex;gap:2rem;align-items:flex-start;margin-top:1rem}
+.pu-profile-photo{flex:none;display:flex;flex-direction:column;align-items:center;gap:.6rem;width:8.5rem}
+.pu-profile-fields{flex:1;min-width:0}
+.pu-profile-fields label:first-of-type{margin-top:0}
+@media(max-width:540px){.pu-profile{flex-direction:column;align-items:center}
+  .pu-profile-fields{width:100%}}
+/* A <label> acting as the file-picker's whole visible control (the input
+   itself is .pu-sr-hidden inside it) — button look, real keyboard path via
+   the focused input within. */
+.pu-file-btn{position:relative;cursor:pointer;text-align:center;white-space:nowrap}
+.pu-file-btn:has(input:focus-visible){outline:2px solid var(--pu-border-focus);outline-offset:2px}
+/* De-emphasised destructive text action ("Remove") — a full ghost button
+   next to Upload would give deleting the photo equal billing with adding
+   one. */
+.pu-btn-plain{border:0;background:none;padding:0;font:inherit;font-size:.8125rem;
+  color:var(--pu-text-secondary);text-decoration:underline;text-underline-offset:.2rem;cursor:pointer}
+.pu-btn-plain:hover{color:var(--pu-status-danger)}
+
 .pu-skeleton{height:2.4rem;border-radius:var(--pu-radius);background:var(--pu-surface-sunken);
   animation:pu-pulse 1.2s ease-in-out infinite}
 @keyframes pu-pulse{50%{opacity:.55}}
