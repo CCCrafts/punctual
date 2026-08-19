@@ -1,6 +1,18 @@
 /**
  * D1 schema (spec §9, ADR-0002, ADR-0005).
  *
+ * DOCUMENTATION ONLY — nothing imports this file. Every repository in
+ * `adapters/d1/repositories.ts` reads and writes D1 with raw SQL, so this is
+ * Drizzle's table-builder syntax used purely as a typed, readable mirror of
+ * `migrations/*.sql`, not a runtime query layer. There is deliberately no
+ * `drizzle-kit generate` script: migrations here have always been hand-written
+ * SQL (there is no `drizzle.config.ts` and never has been), so wiring up
+ * generation now would mean reverse-engineering a migration history
+ * drizzle-kit never produced — real risk to `npm run migrate` against a live
+ * database for a convenience nothing in this repo has ever used. When you add
+ * a column or table, write the migration by hand and update this file to
+ * match, in the same commit.
+ *
  * Conventions:
  *  - timestamps are UTC epoch milliseconds in INTEGER columns
  *  - JSON-shaped values are TEXT holding JSON, parsed at the repository edge
