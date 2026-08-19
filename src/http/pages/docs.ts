@@ -250,6 +250,31 @@ ${pre(`npx wrangler secret put RESEND_API_KEY\n# or\nnpx wrangler secret put BRE
   configured &mdash; booking confirmations that land in spam are worse than
   no email at all.</p>
 
+<h2>7. Make it yours</h2>
+<p><strong>Sign in first, then close the door.</strong> The first visit to
+  <code>/login</code> creates your account. When everyone who should have an
+  account has one:</p>
+${pre(`printf '%s' 'closed' | npx wrangler secret put SIGNUPS`)}
+<p class="pu-muted">Existing users keep signing in; nobody new can register.
+  To invite someone later, set an allowlist instead &mdash;
+  <code>'jo@acme.com, @acme.com'</code> admits one address and one whole
+  domain &mdash; then back to <code>closed</code>.</p>
+<p><strong>Fill in your profile</strong> at Dashboard &rarr; Settings: photo,
+  name, position, company, and a company link. They render on your booking
+  pages and in guest confirmation emails, and your company anchors the
+  booking page's footer.</p>
+<p><strong>Name the operator.</strong> <code>BRAND_NAME</code> is the product
+  name in the footer and emails; <code>LEGAL_OPERATOR</code> is the legal
+  entity named on <code>/privacy</code> and <code>/terms</code>.</p>
+<p><strong>Put a live demo on your landing page.</strong> Once you have a
+  real event type, set <code>DEMO_BOOKING_PATH</code> (e.g.
+  <code>/jo/30min</code>) and your home page embeds that booking page live.</p>
+<p class="pu-muted">Every booking form also asks one built-in optional
+  question &mdash; &ldquo;What would you like to discuss?&rdquo; &mdash; whose
+  answer flows to the calendar event and both confirmation emails. To reword
+  it or make it required, add your own <code>Agenda | textarea | required</code>
+  line to the event type's questions; your version replaces the built-in one.</p>
+
 <h2>Upgrading</h2>
 ${pre(`git pull\nnpm run migrate\nnpm run deploy`)}
 <p class="pu-muted">Migrations are forward-only and additive, so skipping
@@ -279,6 +304,8 @@ ${pre(`git pull\nnpm run migrate\nnpm run deploy`)}
 <tr><td class="pu-time">FROM_EMAIL / FROM_NAME</td><td>[vars]</td><td>Sender identity</td></tr>
 <tr><td class="pu-time">SUPPORT_EMAIL</td><td>[vars]</td><td>Reply-to on outbound mail</td></tr>
 <tr><td class="pu-time">TELEMETRY_ENABLED</td><td>[vars]</td><td>0 by default &mdash; see below</td></tr>
+<tr><td class="pu-time">SIGNUPS</td><td>secret or [vars]</td><td>Who may create an account: unset/open (default), closed, or a comma list of emails and @domains. Register your own account first, then close it &mdash; existing users always sign in</td></tr>
+<tr><td class="pu-time">DEMO_BOOKING_PATH</td><td>[vars]</td><td>A live booking page on this deployment (e.g. /jo/30min), embedded on the landing page</td></tr>
 <tr><td class="pu-time">ENCRYPTION_KEY_V1</td><td>secret</td><td>AES-GCM key for calendar tokens</td></tr>
 <tr><td class="pu-time">SIGNING_KEY</td><td>secret</td><td>HMAC key for guest manage links</td></tr>
 <tr><td class="pu-time">GOOGLE_CLIENT_ID / _SECRET</td><td>secret</td><td>Your Google OAuth app</td></tr>

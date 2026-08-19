@@ -148,6 +148,43 @@ on a domain you have verified with your provider. Configure SPF, DKIM and
 DMARC on that domain — booking confirmations that land in spam are worse than
 no email at all.
 
+## 7. Make it yours
+
+Everything a guest sees can carry your identity instead of the defaults.
+
+1. **Sign in first, then close the door.** The first visit to `/login` on
+   your deployment creates your account (magic link, or Google/Microsoft once
+   OAuth is set up). When everyone who should have an account has one, set
+
+   ```bash
+   printf '%s' 'closed' | npx wrangler secret put SIGNUPS
+   ```
+
+   Existing users keep signing in; nobody new can register. To invite
+   someone later, set it to an allowlist instead — `'jo@acme.com, @acme.com'`
+   admits one address and one whole domain — then back to `closed`.
+
+2. **Fill in your profile** at Dashboard → Settings: photo, name, position,
+   company, and a company link. The photo and identity line ("CEO, Acme Inc",
+   with the company linking to your site) render on your booking pages and in
+   guest confirmation emails; your company also anchors the booking page's
+   footer.
+
+3. **Name the operator.** `BRAND_NAME` in `[vars]` is the product name shown
+   in the footer and emails; `LEGAL_OPERATOR` is the legal entity named on
+   `/privacy` and `/terms`. Set the latter to your actual company if this
+   goes past internal use.
+
+4. **Put a live demo on your landing page.** Once you have a real event
+   type, set `DEMO_BOOKING_PATH` in `[vars]` (e.g. `/jo/30min`) and your
+   deployment's home page embeds that booking page live.
+
+Every booking form also asks one built-in optional question — "What would
+you like to discuss?" — whose answer flows to the calendar event and both
+confirmation emails. To reword it or make it required, add your own line
+starting with `Agenda |` to the event type's questions (e.g.
+`Agenda | textarea | required`); your version replaces the built-in one.
+
 ## Upgrading
 
 ```bash
@@ -185,6 +222,7 @@ Two features need a paid plan, and both degrade gracefully:
 | `SUPPORT_EMAIL` | `[vars]` | Reply-to on outbound mail |
 | `TELEMETRY_ENABLED` | `[vars]` | `0` by default. See below |
 | `SIGNUPS` | secret or `[vars]` | Who may create an account: unset/`open` (default), `closed` (existing users only), or a comma list of emails and `@domains` (`serge@acme.com, @acme.com`). Register your own account first, then close it — existing users always sign in |
+| `DEMO_BOOKING_PATH` | `[vars]` | A live booking page on this deployment (e.g. `/jo/30min`), embedded on the landing page. Unset: no demo section |
 | `ENCRYPTION_KEY_V1` | secret | AES-GCM key for calendar tokens |
 | `SIGNING_KEY` | secret | HMAC key for guest manage links |
 | `GOOGLE_CLIENT_ID` / `_SECRET` | secret | Your Google OAuth app |
