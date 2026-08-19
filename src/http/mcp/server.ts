@@ -34,7 +34,7 @@ import { z } from 'zod'
 import type { EnginePorts, RequestScope } from '../../ports.js'
 import type { SlotService } from '../../engine.js'
 import type { Booking, EventType, User } from '../../core/domain/types.js'
-import { validateAnswers } from '../../core/domain/booking-service.js'
+import { effectiveQuestions, validateAnswers } from '../../core/domain/booking-service.js'
 import { formatInZone, isValidTimeZone, localDateString } from '../../core/time/zone.js'
 import {
   API_SCOPE_READ,
@@ -577,7 +577,9 @@ async function listEventTypes(
       minNoticeMinutes: et.minNoticeMinutes,
       maxHorizonDays: et.maxHorizonDays,
       active: et.active,
-      questions: et.questions.map((q) => ({ id: q.id, label: q.label, type: q.type, required: q.required, options: q.options })),
+      // Effective, not declared: an agent filling the booking form needs to
+      // see the built-in agenda question too, or it can never answer it.
+      questions: effectiveQuestions(et).map((q) => ({ id: q.id, label: q.label, type: q.type, required: q.required, options: q.options })),
       bookingUrl: `${trimSlash(deps.ports.config.baseUrl)}/${user.slug}/${et.slug}`,
     })),
   })

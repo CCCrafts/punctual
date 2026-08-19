@@ -24,6 +24,7 @@
  */
 
 import type { Booking, EventType, User } from './domain/types.js'
+import { effectiveQuestions } from './domain/booking-service.js'
 import { describeLocation } from './ics.js'
 import { formatInZone, offsetLabel } from './time/zone.js'
 
@@ -337,7 +338,7 @@ function hostNamesWithCompany(ctx: BookingEmailContext): string {
 
 function answerRows(ctx: BookingEmailContext): DetailRow[] {
   const rows: DetailRow[] = []
-  for (const q of ctx.eventType.questions) {
+  for (const q of effectiveQuestions(ctx.eventType)) {
     const value = ctx.booking.answers[q.id]
     if (value === undefined || value.trim() === '') continue
     rows.push({ label: q.label, value: value.trim() })

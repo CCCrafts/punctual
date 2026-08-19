@@ -375,10 +375,21 @@ input:has(+ .pu-err),select:has(+ .pu-err),textarea:has(+ .pu-err){border-color:
 .pu-meta{display:flex;flex-wrap:wrap;gap:.5rem 1rem;font-size:.875rem;color:var(--pu-text-secondary);
   list-style:none;padding:0;margin:.5rem 0 0}
 .pu-tz-form{display:inline-flex;align-items:center;gap:.35rem}
-.pu-tz-select{width:auto;padding:.15rem 1.5rem .15rem .1rem;border:none;border-radius:0;
-  background:transparent;color:inherit;font:inherit;font-size:.875rem;
-  text-decoration:underline;text-decoration-style:dotted;text-underline-offset:.2rem;cursor:pointer}
-.pu-tz-select:focus-visible{outline:2px solid var(--pu-border-focus);outline-offset:2px;border-radius:4px}
+/* A real control, not dotted-underline text a guest never notices is
+   interactive: bordered pill, globe at the left, chevron at the right. The
+   chevron is a CSS-drawn corner (not a data-URI image) so it takes its color
+   from a token and stays correct in both themes. */
+.pu-tz-wrap{position:relative;display:inline-flex;align-items:center;max-width:100%}
+.pu-tz-globe{position:absolute;left:.6rem;color:var(--pu-text-secondary);pointer-events:none}
+.pu-tz-wrap::after{content:"";position:absolute;right:.7rem;top:50%;width:.4rem;height:.4rem;
+  border-right:1.5px solid var(--pu-text-secondary);border-bottom:1.5px solid var(--pu-text-secondary);
+  transform:translateY(-70%) rotate(45deg);pointer-events:none}
+.pu-tz-select{appearance:none;-webkit-appearance:none;width:auto;max-width:100%;
+  padding:.35rem 1.8rem .35rem 2.1rem;border:1px solid var(--pu-border-subtle);border-radius:99px;
+  background:var(--pu-surface-raised);color:var(--pu-text-primary);font:inherit;font-size:.875rem;
+  cursor:pointer;transition:border-color .12s ease;text-overflow:ellipsis}
+.pu-tz-select:hover{border-color:var(--pu-border-strong)}
+.pu-tz-select:focus-visible{outline:2px solid var(--pu-border-focus);outline-offset:2px}
 
 .pu-confirm{text-align:center;padding:2rem 1.5rem}
 .pu-confirm-icon{display:block;margin:0 auto .75rem;color:var(--pu-text-primary)}
@@ -410,7 +421,9 @@ input:has(+ .pu-err),select:has(+ .pu-err),textarea:has(+ .pu-err){border-color:
 .pu-url{display:flex;align-items:center;gap:.5rem;background:var(--pu-surface-sunken);
   border:1px solid var(--pu-line);border-radius:var(--pu-radius);padding:.15rem .15rem .15rem .8rem}
 .pu-url-input{flex:1;min-width:0;border:0;background:none;padding:.5rem 0;
-  font-family:var(--pu-font-mono);font-size:.8125rem;color:var(--pu-text-primary)}
+  font-family:var(--pu-font-mono);font-size:.8125rem;color:var(--pu-text-primary);cursor:pointer}
+/* Fixed width, so "Copy" -> "Copied" feedback doesn't shift the layout. */
+.pu-copy{flex:none;min-width:4.5rem;padding:.4rem .6rem;font-size:.8125rem}
 
 .pu-skeleton{height:2.4rem;border-radius:var(--pu-radius);background:var(--pu-surface-sunken);
   animation:pu-pulse 1.2s ease-in-out infinite}

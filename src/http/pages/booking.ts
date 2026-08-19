@@ -16,6 +16,7 @@
  */
 
 import type { EventType, Slot, User } from '../../core/domain/types.js'
+import { effectiveQuestions } from '../../core/domain/booking-service.js'
 import { slotStateClassName } from '../../core/slot-state.js'
 import { formatInZone, localDateString, offsetLabel } from '../../core/time/zone.js'
 import { embedResizeScriptTag } from '../embed.js'
@@ -270,7 +271,14 @@ function timezonePicker(d: BookingPageData): string {
     ${hiddenFields}
     ${d.embed ? '<input type="hidden" name="embed" value="1">' : ''}
     <label class="pu-sr" for="pu-tz">Timezone</label>
-    <select id="pu-tz" name="tz" class="pu-tz-select" onchange="this.form.submit()">${options}</select>
+    <span class="pu-tz-wrap">
+      <svg class="pu-tz-globe" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"
+        fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+        <circle cx="12" cy="12" r="9"></circle>
+        <path d="M3.6 9h16.8M3.6 15h16.8M12 3a13.5 13.5 0 0 1 0 18M12 3a13.5 13.5 0 0 0 0 18"></path>
+      </svg>
+      <select id="pu-tz" name="tz" class="pu-tz-select" onchange="this.form.submit()">${options}</select>
+    </span>
     <noscript><button type="submit" class="pu-btn pu-btn-ghost" style="padding:.15rem .5rem">Set</button></noscript>
   </form>`
 }
@@ -421,7 +429,7 @@ export function confirmForm(
     minute: '2-digit',
   })
 
-  const questions = et.questions
+  const questions = effectiveQuestions(et)
     .map((q) => {
       const err = errors[q.id]
       const val = escapeHtml(values[q.id] ?? '')

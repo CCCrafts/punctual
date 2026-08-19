@@ -15,7 +15,14 @@
  * booking we already promised the guest.
  */
 
-import type { Booking, CalendarConnection, EventType, Interval, TeamMember } from './types.js'
+import type {
+  Booking,
+  CalendarConnection,
+  EventType,
+  EventTypeQuestion,
+  Interval,
+  TeamMember,
+} from './types.js'
 import type { BucketClaim } from '../../ports.js'
 import { bookingFootprint, isSlotStillValid, type HostAvailabilityInput } from '../slots/engine.js'
 import { intervalToBuckets } from '../slots/intervals.js'
@@ -240,17 +247,45 @@ export function combineBusy(
  * inline; a booking page that just says "invalid" is a booking page people
  * abandon.
  */
+/**
+ * The one question every booking form asks without the host configuring
+ * anything: what the meeting is about. Optional on purpose — a required
+ * agenda is a form guests abandon.
+ */
+export const AGENDA_QUESTION: EventTypeQuestion = {
+  id: 'agenda',
+  label: 'What would you like to discuss?',
+  type: 'textarea',
+  required: false,
+}
+
+/**
+ * The questions a booking form actually asks: the host's own, plus the
+ * built-in agenda question. A host who declares a question of their own with
+ * this id — the dashboard editor derives ids from labels, so a line starting
+ * with "Agenda |" does it — replaces the builtin entirely (their label,
+ * their required flag), which is the customisation escape hatch without a
+ * separate setting. Every consumer of the answers pipeline (form render,
+ * validation, calendar description, emails, MCP listing) goes through this,
+ * so an answer can never be collected that the other side won't display.
+ */
+export function effectiveQuestions(et: EventType): EventTypeQuestion[] {
+  return et.questions.some((q) => q.id === AGENDA_QUESTION.id)
+    ? et.questions
+    : [...et.questions, AGENDA_QUESTION]
+}
+
 export function pickDeclaredAnswers(
   et: EventType,
   answers: Record<string, string>,
 ): Record<string, string> {
-  // Only keys the event type actually declares. Anything else bypasses the
-  // required/select checks and the length cap below, and `buildDescription`
-  // writes every key into the event on the host's real calendar — so an
-  // unauthenticated guest could otherwise put arbitrary text of arbitrary
-  // size there.
+  // Only keys the event type actually declares (plus the builtin above).
+  // Anything else bypasses the required/select checks and the length cap
+  // below, and `buildDescription` writes every key into the event on the
+  // host's real calendar — so an unauthenticated guest could otherwise put
+  // arbitrary text of arbitrary size there.
   const out: Record<string, string> = {}
-  for (const q of et.questions) {
+  for (const q of effectiveQuestions(et)) {
     const v = answers[q.id]
     if (v !== undefined) out[q.id] = v
   }
@@ -262,7 +297,7 @@ export function validateAnswers(
   answers: Record<string, string>,
 ): Record<string, string> {
   const errors: Record<string, string> = {}
-  for (const q of et.questions) {
+  for (const q of effectiveQuestions(et)) {
     const v = (answers[q.id] ?? '').trim()
     if (q.required && v === '') {
       errors[q.id] = 'This field is required'

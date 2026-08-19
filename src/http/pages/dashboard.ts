@@ -244,6 +244,18 @@ export function dashboardHome(d: DashboardHomeData): string {
   )
 }
 
+/**
+ * One-tap copy for a `.pu-url` value. Inline handler, same minimal-island
+ * policy as the timezone picker's `onchange` — no shared script to load, and
+ * the page works without it (the input still select-alls on click).
+ * `navigator.clipboard` needs a secure context; on plain-http dev the catch
+ * falls back to selecting the input so the button never no-ops silently.
+ */
+function copyButton(value: string): string {
+  return `<button type="button" class="pu-btn pu-btn-ghost pu-copy" data-copy="${escapeHtml(value)}"
+    onclick="var b=this;navigator.clipboard.writeText(b.dataset.copy).then(function(){b.textContent='Copied';setTimeout(function(){b.textContent='Copy'},1500)}).catch(function(){var i=b.parentElement.querySelector('input');i.focus();i.select()})">Copy</button>`
+}
+
 function eventTypeCard(d: DashboardHomeData, et: EventType): string {
   const url = `${trimSlash(d.baseUrl)}/${encodeURIComponent(d.user.slug)}/${encodeURIComponent(et.slug)}`
   const inputId = `url-${escapeHtml(et.id)}`
@@ -259,7 +271,8 @@ function eventTypeCard(d: DashboardHomeData, et: EventType): string {
   </ul>
   <label for="${inputId}">Public link</label>
   <div class="pu-url">
-    <input id="${inputId}" class="pu-url-input" readonly value="${escapeHtml(url)}">
+    <input id="${inputId}" class="pu-url-input" readonly value="${escapeHtml(url)}" onclick="this.select()">
+    ${copyButton(url)}
   </div>
   <div style="margin-top:.75rem;display:flex;gap:.75rem;flex-wrap:wrap">
     <a class="pu-btn pu-btn-ghost" href="/dashboard/event-types/${encodeURIComponent(et.id)}">Edit</a>
@@ -722,7 +735,8 @@ export function apiKeysPage(d: ApiKeysPageData): string {
      you will have to create a new one.</p>
   <label for="new-key">New API key</label>
   <div class="pu-url">
-    <input id="new-key" class="pu-url-input" readonly value="${escapeHtml(d.newKey)}">
+    <input id="new-key" class="pu-url-input" readonly value="${escapeHtml(d.newKey)}" onclick="this.select()">
+    ${copyButton(d.newKey)}
   </div>
 </section>`
       : '') +
