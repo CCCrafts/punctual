@@ -101,8 +101,26 @@ function shellTop(chrome: DashboardChrome, title: string, active: NavKey | null)
 }
 
 function shellBottom(brandName: string): string {
-  // No "powered by" on an authenticated surface: the host already knows.
-  return shellFoot(brandName, false)
+  // A utility footer, not the marketing one: the host already knows what
+  // powers this — what they reach for down here is the documentation. The
+  // wordmark links home; every other link is a page the engine serves
+  // unconditionally, so this needs no per-deployment config.
+  return (
+    `</div>
+<footer class="pu-dash-foot">
+  <div class="pu-wrap pu-dash-foot-row">
+    <a class="pu-mark" href="/">${escapeHtml(brandName.toLowerCase())}<span>:</span></a>
+    <nav aria-label="Dashboard footer">
+      <a href="/docs">Docs</a>
+      <a href="/docs/api">API</a>
+      <a href="/docs/mcp">MCP</a>
+      <a href="/privacy">Privacy</a>
+      <a href="/terms">Terms</a>
+    </nav>
+  </div>
+</footer>
+</body></html>`
+  )
 }
 
 /** A dismissible-looking status strip. Not an error — errors use `.pu-err`. */

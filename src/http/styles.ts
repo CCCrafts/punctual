@@ -482,6 +482,17 @@ input:has(+ .pu-err),select:has(+ .pu-err),textarea:has(+ .pu-err){border-color:
   clip:rect(0 0 0 0);white-space:nowrap;border:0}
 .pu-foot{margin-top:2.5rem;font-size:.8125rem;color:var(--pu-text-secondary);text-align:center}
 
+/* Dashboard footer: utility navigation, not the marketing tagline — a
+   hairline above, wordmark left, doc/legal links right, wrapping as one
+   centred column on narrow screens. Sits OUTSIDE .pu-wrap's bottom padding
+   so it reads as the page's floor rather than another card. */
+.pu-dash-foot{border-top:1px solid var(--pu-border-subtle);margin-top:2.5rem}
+.pu-dash-foot-row{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;
+  gap:.5rem 1.5rem;padding-top:1.1rem;padding-bottom:1.5rem;font-size:.8125rem}
+.pu-dash-foot nav{display:flex;flex-wrap:wrap;gap:1rem}
+.pu-dash-foot nav a{color:var(--pu-text-secondary);text-decoration:none}
+.pu-dash-foot nav a:hover{color:var(--pu-text-primary)}
+
 @media(prefers-reduced-motion:reduce){
   *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;
     transition-duration:.01ms!important;scroll-behavior:auto!important}
