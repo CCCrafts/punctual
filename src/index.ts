@@ -60,6 +60,19 @@ export interface Env {
 
 export function buildPorts(env: Env): EnginePorts {
   const baseUrl = env.BASE_URL ?? 'http://localhost:8787'
+  // Fail fast on the template's placeholder rather than quietly building
+  // every magic-link, OAuth callback and manage URL against it — a deploy
+  // whose links all dead-end is far harder to diagnose than this error.
+  // The first deploy is when the real URL becomes known, so the guide's
+  // flow is: deploy, copy the URL wrangler printed, set BASE_URL, deploy
+  // again.
+  if (baseUrl.includes('YOUR-SUBDOMAIN')) {
+    throw new Error(
+      'BASE_URL in wrangler.toml is still the template placeholder. Set it to the URL ' +
+        '`wrangler deploy` printed (or your custom domain) and deploy again — every link in ' +
+        'emails, OAuth callbacks and manage pages is built from it.',
+    )
+  }
 
   // Key material. A missing key is a hard failure rather than a silent
   // fallback: silently encrypting refresh tokens with a default key would be

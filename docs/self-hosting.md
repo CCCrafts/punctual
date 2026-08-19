@@ -68,7 +68,10 @@ npm run migrate
 npm run deploy
 ```
 
-Your booking page is live at the URL wrangler prints.
+`wrangler deploy` prints your Worker's URL. Put it in `wrangler.toml`'s
+`BASE_URL` (every link the engine writes into emails, OAuth callbacks and
+manage pages is built from it) and deploy once more. Until you do, the
+Worker refuses to serve rather than quietly generating dead links.
 
 ## 5. Connect a calendar
 

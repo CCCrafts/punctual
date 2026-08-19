@@ -183,7 +183,11 @@ ${pre(`openssl rand -base64 32 | npx wrangler secret put ENCRYPTION_KEY_V1\nopen
 
 <h2>4. Create the schema and deploy</h2>
 ${pre(`npm run migrate\nnpm run deploy`)}
-<p class="pu-muted">Your booking page is live at the URL wrangler prints.</p>
+<p class="pu-muted"><code>wrangler deploy</code> prints your Worker's URL. Put
+  it in <code>wrangler.toml</code>'s <code>BASE_URL</code> (every link the
+  engine writes into emails, OAuth callbacks and manage pages is built from
+  it) and deploy once more. Until you do, the Worker refuses to serve rather
+  than quietly generating dead links.</p>
 
 <h2>5. Connect a calendar</h2>
 <p>Punctual talks to Google Calendar and Microsoft 365 using

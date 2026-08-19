@@ -47,7 +47,8 @@ openssl rand -base64 32 | npx wrangler secret put ENCRYPTION_KEY_V1
 openssl rand -base64 32 | npx wrangler secret put SIGNING_KEY
 
 npm run migrate
-npm run deploy
+npm run deploy   # prints your Worker URL — put it in wrangler.toml's BASE_URL
+npm run deploy   # again, so emailed links point at the real URL
 ```
 
 Full walkthrough, including connecting Google and Microsoft calendars:

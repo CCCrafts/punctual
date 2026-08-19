@@ -942,3 +942,19 @@ describe('toInstant', () => {
     expect(toInstant('not a date')).toBeNull()
   })
 })
+
+describe('placeholder BASE_URL', () => {
+  it('refuses to build ports rather than quietly generating dead links', () => {
+    // The template ships BASE_URL as a placeholder; a self-hoster who
+    // replaces only the resource ids and deploys must hit a clear error,
+    // not an instance whose every emailed link points at the placeholder.
+    expect(() =>
+      buildPorts({
+        ...env,
+        BASE_URL: 'https://punctual.YOUR-SUBDOMAIN.workers.dev',
+        ENCRYPTION_KEY_V1: keyMaterial(1),
+        SIGNING_KEY: keyMaterial(9),
+      } as Env),
+    ).toThrow(/BASE_URL/)
+  })
+})
