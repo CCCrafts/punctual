@@ -18,3 +18,7 @@ dist/
 # OS / editor
 .DS_Store
 wrangler.production.toml
+# Any other real deployment's config (this repo is the template; a real
+# deployment's ids/vars/domain never belong in the public repo — see the
+# workspace CLAUDE.md hard rule 1).
+wrangler.*.toml
