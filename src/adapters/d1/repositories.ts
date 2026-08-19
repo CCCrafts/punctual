@@ -609,6 +609,22 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
       )
       return row
     },
+    async createWithFirstMember(team, member) {
+      const row = { ...team, createdAt: Date.now() }
+      // One batch: D1 rolls the whole thing back if either insert fails, so
+      // a memberless (unmanageable, slug-squatting) team can never exist.
+      await session.batch([
+        q(
+          'INSERT INTO teams (id,name,slug,logo_key,created_at) VALUES (?,?,?,?,?)',
+          row.id, row.name, row.slug, row.logoKey, row.createdAt,
+        ),
+        q(
+          'INSERT INTO team_members (team_id,user_id,role,rr_weight) VALUES (?,?,?,?)',
+          row.id, member.userId, member.role, member.rrWeight,
+        ),
+      ])
+      return row
+    },
     async updateLogo(id, logoKey) {
       await run('UPDATE teams SET logo_key = ? WHERE id = ?', logoKey, id)
     },
@@ -621,6 +637,18 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
     },
     async removeMember(teamId, userId) {
       await run('DELETE FROM team_members WHERE team_id = ? AND user_id = ?', teamId, userId)
+    },
+    async removeMemberGuarded(teamId, userId) {
+      // One statement, same discipline as `demoteAdmin`: the member count is
+      // evaluated inside the delete, so concurrent removals cannot both pass
+      // a separate check and leave the team with zero members.
+      const res = await q(
+        `DELETE FROM team_members
+         WHERE team_id = ? AND user_id = ?
+           AND (SELECT COUNT(*) FROM team_members WHERE team_id = ?) > 1`,
+        teamId, userId, teamId,
+      ).run()
+      return (res.meta.changes ?? 0) > 0
     },
     async recordAssignment(teamId, userId, at) {
       await run(

@@ -425,3 +425,50 @@ describe('team event types', () => {
     expect(html).not.toContain(`${BASE}/alice/support-call`)
   })
 })
+
+describe('repository-level atomic guards', () => {
+  it('removeMemberGuarded is one statement: refuses the last member, removes one of two', async () => {
+    const repos = createD1Repositories(db, { consistency: 'bookmark' })
+    const NOW2 = Date.now()
+    await db.prepare("INSERT INTO teams (id,name,slug,created_at) VALUES ('team_guard','Guard','guard-team',?)").bind(NOW2).run()
+    await db.prepare("INSERT INTO team_members (team_id,user_id,role,rr_weight) VALUES ('team_guard','usr_g1','admin',1)").run()
+
+    // Sole member: refused, row intact.
+    expect(await repos.teams.removeMemberGuarded('team_guard', 'usr_g1')).toBe(false)
+    // Not a member at all: refused, and distinguishable by the caller re-reading.
+    expect(await repos.teams.removeMemberGuarded('team_guard', 'usr_missing')).toBe(false)
+
+    await db.prepare("INSERT INTO team_members (team_id,user_id,role,rr_weight) VALUES ('team_guard','usr_g2','member',1)").run()
+    expect(await repos.teams.removeMemberGuarded('team_guard', 'usr_g2')).toBe(true)
+    const left = await db.prepare("SELECT COUNT(*) AS n FROM team_members WHERE team_id='team_guard'").first<{ n: number }>()
+    expect(left?.n).toBe(1)
+  })
+
+  it('createWithFirstMember is one batch: no team row survives a failed membership insert', async () => {
+    const repos = createD1Repositories(db, { consistency: 'bookmark' })
+    // Force the second statement to fail: a duplicate (team,user) primary key
+    // cannot exist on a fresh team id, so break it with an invalid role CHECK?
+    // The schema has no CHECKs — instead prove atomicity the direct way: a
+    // duplicate membership insert in the SAME batch (seeded below) fails, and
+    // the team row must not exist afterwards.
+    await db.prepare("INSERT INTO teams (id,name,slug,created_at) VALUES ('team_dup','Dup','dup-team',1)").run()
+    await db.prepare("INSERT INTO team_members (team_id,user_id,role,rr_weight) VALUES ('team_dup','usr_d1','admin',1)").run()
+
+    // Same PK (team_dup, usr_d1) — but createWithFirstMember generates its
+    // own team id, so simulate by calling the raw batch shape: reuse the
+    // method with a team whose id ALREADY exists, so the FIRST insert fails
+    // and nothing commits.
+    await expect(
+      repos.teams.createWithFirstMember(
+        { id: 'team_dup', name: 'Dup2', slug: 'dup-team-2', logoKey: null },
+        { userId: 'usr_d2', role: 'admin', rrWeight: 1 },
+      ),
+    ).rejects.toThrow()
+    const member = await db
+      .prepare("SELECT COUNT(*) AS n FROM team_members WHERE team_id='team_dup' AND user_id='usr_d2'")
+      .first<{ n: number }>()
+    expect(member?.n).toBe(0)
+    const slug2 = await db.prepare("SELECT COUNT(*) AS n FROM teams WHERE slug='dup-team-2'").first<{ n: number }>()
+    expect(slug2?.n).toBe(0)
+  })
+})

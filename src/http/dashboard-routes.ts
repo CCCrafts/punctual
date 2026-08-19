@@ -849,15 +849,14 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     // check above and hit the teams_slug_idx UNIQUE constraint instead. That
     // window is a form re-submit away from fixed, so it stays a constraint
     // error rather than growing the repository a compare-and-swap for it.
-    const team = await repos.teams.create({
-      id: `team_${ports.crypto.randomToken(12)}`,
-      name,
-      slug: raw,
-      logoKey: null,
-    })
-    // The creator is the first member — a team with no members can be seen
-    // and managed by nobody, so creation and first membership are one action.
-    await repos.teams.addMember({ teamId: team.id, userId: user.id, role: 'admin', rrWeight: 1 })
+    // The creator is the first member, in the SAME atomic write as the team
+    // row — a team with no members can be seen and managed by nobody, and a
+    // transient failure between two separate inserts would strand exactly
+    // that, with the slug squatted forever.
+    await repos.teams.createWithFirstMember(
+      { id: `team_${ports.crypto.randomToken(12)}`, name, slug: raw, logoKey: null },
+      { userId: user.id, role: 'admin', rrWeight: 1 },
+    )
     await advanceBookmark(c)
     return c.redirect('/dashboard/teams?created=1', 302)
   })
@@ -929,11 +928,18 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
 
     // A team must keep at least one member — with zero, nobody's memberships
     // resolve it, so it becomes unmanageable by everyone forever (deleting
-    // teams is out of scope this pass). Read-then-write, acknowledged: two
-    // concurrent removals of a two-member team can race past this check. The
-    // page hides the button on the only member as well, but this check is
-    // what the copy promises.
-    if (members.length <= 1) {
+    // teams is out of scope this pass). The guard lives INSIDE the delete
+    // statement (removeMemberGuarded), so two concurrent removals on a
+    // two-member team cannot both pass a separate count and zero the team
+    // out. The page hides the button on the only member as well.
+    const removed = await repos.teams.removeMemberGuarded(team.id, target.userId)
+    if (!removed) {
+      // Refused for one of two reasons, and only one is an error: the target
+      // being the last member. Already-gone (a concurrent removal or a stale
+      // page's double submit) is a no-op — same distinction as admin
+      // demotion.
+      const still = (await repos.teams.members(team.id)).some((m) => m.userId === target.userId)
+      if (!still) return c.html(teamsPage(await teamsData(c)))
       return c.html(
         teamsPage({
           ...(await teamsData(c)),
@@ -942,8 +948,6 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
         400,
       )
     }
-
-    await repos.teams.removeMember(team.id, target.userId)
     await advanceBookmark(c)
     // Removing YOURSELF is allowed — the page after the write simply no
     // longer lists that team, which is the honest rendering of what happened.

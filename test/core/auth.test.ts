@@ -796,3 +796,23 @@ describe('admin bootstrap', () => {
     expect(res.ok && res.user.role).toBe('member')
   })
 })
+
+describe('signup slug allocation shares the namespace with teams', () => {
+  it('never assigns a slug an existing team already holds', async () => {
+    const h = harness()
+    // bookingPageContext resolves an owner slug against users OR teams with
+    // LIMIT 1 and no precedence — a user claiming a team's slug makes both
+    // parties' public pages ambiguous, permanently.
+    h.repos.seedTeam({ id: 'team_1', slug: 'sales' })
+
+    await requestMagicLink(h, { email: 'sales@example.com', ip: '1.1.1.1', userAgent: 'UA', now: NOW })
+    const token = tokenFromEmail(h.email.sent[h.email.sent.length - 1]!.text)
+    const res = await consumeMagicLink(h, { token, now: NOW + 1000 })
+
+    expect(res.ok).toBe(true)
+    if (res.ok) {
+      expect(res.user.slug).not.toBe('sales')
+      expect(res.user.slug.startsWith('sales-')).toBe(true)
+    }
+  })
+})

@@ -15,10 +15,12 @@ import type {
   CalendarConnection,
   MagicLinkToken,
   Session,
+  Team,
   User,
 } from '../core/domain/types.js'
 import type {
   ApiKeyRepository,
+  TeamRepository,
   BlobStorage,
   BookingRepository,
   CalendarConnectionRepository,
@@ -60,6 +62,7 @@ export interface FakeRepositories extends Repositories {
     connections: Map<string, CalendarConnection>
   }
   seedUser(user: Partial<User> & Pick<User, 'id' | 'email'>): User
+  seedTeam(team: Partial<Team> & Pick<Team, 'id' | 'slug'>): Team
   seedBooking(booking: Booking): Booking
   /** How many times the session row was rewritten — the sliding-window budget. */
   touchCount(): number
@@ -71,6 +74,7 @@ export function createFakeRepositories(): FakeRepositories {
   const magicLinks = new Map<string, MagicLinkToken>()
   const apiKeys = new Map<string, ApiKey>()
   const bookings = new Map<string, Booking>()
+  const teams = new Map<string, Team>()
   const connections = new Map<string, CalendarConnection>()
   let touches = 0
   let lastBookmark: string | null = null
@@ -223,7 +227,21 @@ export function createFakeRepositories(): FakeRepositories {
     eventTypes: unimplemented('eventTypes'),
     availability: unimplemented('availability'),
     slotLocks: unimplemented('slotLocks'),
-    teams: unimplemented('teams'),
+    // Enough of a real teams repo for the flows core tests exercise —
+    // signup's slug allocation reads teams.bySlug on every candidate, so a
+    // throwing stub would fail every login test.
+    teams: unimplemented<TeamRepository>('teams', {
+      async bySlug(slug: string) {
+        for (const t of teams.values()) if (t.slug === slug) return t
+        return null
+      },
+      async byId(id: string) {
+        return teams.get(id) ?? null
+      },
+      async memberships() {
+        return []
+      },
+    }),
     connections: connectionRepo,
     webhooks: unimplemented('webhooks'),
     idempotency: unimplemented('idempotency'),
@@ -246,6 +264,11 @@ export function createFakeRepositories(): FakeRepositories {
         ...user,
       }
       users.set(full.id, full)
+      return full
+    },
+    seedTeam(team) {
+      const full: Team = { name: 'Seed Team', logoKey: null, createdAt: 0, ...team }
+      teams.set(full.id, full)
       return full
     },
     seedBooking(booking) {

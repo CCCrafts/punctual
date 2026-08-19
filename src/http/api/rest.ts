@@ -458,10 +458,35 @@ export function buildApiRoutes(ports: EnginePorts, slots: SlotService): Hono<Api
   // -------------------------------------------------------------------------
   // Event types
   // -------------------------------------------------------------------------
+
+  /**
+   * Resolve the slug an event type's public URL hangs off. Team lookups are
+   * memoised per request — the list endpoint serialises many rows that
+   * usually share a team.
+   */
+  const ownerSlugCache = new WeakMap<object, Map<string, string>>()
+  async function ownerSlugFor(
+    repos: Repositories,
+    user: User,
+    et: EventType,
+  ): Promise<string> {
+    if (!et.ownerTeamId) return user.slug
+    let cache = ownerSlugCache.get(repos)
+    if (!cache) ownerSlugCache.set(repos, (cache = new Map()))
+    const hit = cache.get(et.ownerTeamId)
+    if (hit !== undefined) return hit
+    const team = await repos.teams.byId(et.ownerTeamId)
+    const slug = team?.slug ?? user.slug
+    cache.set(et.ownerTeamId, slug)
+    return slug
+  }
+
   app.get('/event-types', async (c) => {
     const { repos, user } = c.get('auth')
     const list = await repos.eventTypes.listForUser(user.id)
-    return c.json({ data: list.map((et) => eventTypeJson(et, ports, user)) })
+    const data = []
+    for (const et of list) data.push(eventTypeJson(et, ports, await ownerSlugFor(repos, user, et)))
+    return c.json({ data })
   })
 
   app.post('/event-types', async (c) => {
@@ -497,14 +522,14 @@ export function buildApiRoutes(ports: EnginePorts, slots: SlotService): Hono<Api
       active: body.active,
     })
 
-    return c.json({ data: eventTypeJson(created, ports, user) }, 201)
+    return c.json({ data: eventTypeJson(created, ports, await ownerSlugFor(repos, user, created)) }, 201)
   })
 
   app.get('/event-types/:id', async (c) => {
     const { repos, user } = c.get('auth')
     const et = await repos.eventTypes.byId(c.req.param('id'))
     if (!et || !(await ownsEventType(repos, user, et))) return notFound('event type')
-    return c.json({ data: eventTypeJson(et, ports, user) })
+    return c.json({ data: eventTypeJson(et, ports, await ownerSlugFor(repos, user, et)) })
   })
 
   app.patch('/event-types/:id', async (c) => {
@@ -521,7 +546,7 @@ export function buildApiRoutes(ports: EnginePorts, slots: SlotService): Hono<Api
     // row as stored rather than the patch echoed back.
     const updated = await repos.eventTypes.byId(id)
     if (!updated) return notFound('event type')
-    return c.json({ data: eventTypeJson(updated, ports, user) })
+    return c.json({ data: eventTypeJson(updated, ports, await ownerSlugFor(repos, user, updated)) })
   })
 
   app.delete('/event-types/:id', async (c) => {
@@ -981,11 +1006,16 @@ function instantJson(ts: number): { iso: string; epochMs: number } {
   return { iso: new Date(ts).toISOString(), epochMs: ts }
 }
 
-export function eventTypeJson(et: EventType, ports: EnginePorts, owner: User): Record<string, unknown> {
+/**
+ * The public URL's first segment is the OWNER's slug — the team's for a
+ * team-owned event type, never the calling user's, whose personal slug would
+ * make a dead link for anything a team owns.
+ */
+export function eventTypeJson(et: EventType, ports: EnginePorts, ownerSlug: string): Record<string, unknown> {
   return {
     id: et.id,
     slug: et.slug,
-    url: `${trimSlash(ports.config.baseUrl)}/${owner.slug}/${et.slug}`,
+    url: `${trimSlash(ports.config.baseUrl)}/${ownerSlug}/${et.slug}`,
     title: et.title,
     description: et.description,
     schedulingType: et.schedulingType,

@@ -225,8 +225,23 @@ export interface TeamRepository {
   members(teamId: string): Promise<TeamMember[]>
   memberships(userId: string): Promise<TeamMember[]>
   create(team: Omit<Team, 'createdAt'>): Promise<Team>
+  /**
+   * Team row and its first membership in ONE atomic write. Creating them as
+   * two statements lets a transient failure between the two strand a
+   * memberless team — unmanageable by everyone, its slug squatted forever.
+   */
+  createWithFirstMember(team: Omit<Team, 'createdAt'>, member: Omit<TeamMember, 'teamId'>): Promise<Team>
   addMember(member: TeamMember): Promise<void>
   removeMember(teamId: string, userId: string): Promise<void>
+  /**
+   * Atomically remove a member, refusing when they are the team's LAST one.
+   * Same shape as `UserRepository.demoteAdmin`, for the same reason: the
+   * guard and the delete are ONE statement, so two concurrent removals on a
+   * two-member team cannot both pass a separate count and zero the team out
+   * — a zero-member team is unmanageable by everyone forever.
+   * @returns false when refused: not a member, or the last member.
+   */
+  removeMemberGuarded(teamId: string, userId: string): Promise<boolean>
   /** Round-robin tie-break: last booking time per member (ADR-0004 §5). */
   lastAssignedAt(teamId: string, userIds: string[]): Promise<Map<string, number>>
   /**

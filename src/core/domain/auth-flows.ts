@@ -498,14 +498,19 @@ function defaultNameFrom(email: string): string {
  */
 async function uniqueSlug(deps: SessionDeps, email: string): Promise<string> {
   const base = suggestSlug(email)
-  // A slug is the first path segment of the booking page, so it shares a
-  // namespace with every system route. Someone signing up as dashboard@ or
-  // login@ would otherwise get a page shadowed by those routes.
+  // A slug is the first path segment of the booking page, so it shares ONE
+  // namespace with every system route, every other user AND every team —
+  // `bookingPageContext` resolves an owner slug against either table with a
+  // LIMIT 1 and no precedence, so a user claiming an existing team's slug
+  // (someone signing up as sales@ where a "sales" team exists) makes both
+  // parties' public pages ambiguous, with no way to reclaim either side.
+  const taken = async (slug: string) =>
+    (await deps.repos.users.bySlug(slug)) !== null || (await deps.repos.teams.bySlug(slug)) !== null
   const candidate = validateSlug(base).ok ? base : `${base}-1`
-  if (!(await deps.repos.users.bySlug(candidate))) return candidate
+  if (!(await taken(candidate))) return candidate
   for (let i = 0; i < 5; i++) {
     const suffixed = `${candidate}-${deps.crypto.randomToken(3).toLowerCase().replace(/[^a-z0-9]/g, '')}`
-    if (!(await deps.repos.users.bySlug(suffixed))) return suffixed
+    if (!(await taken(suffixed))) return suffixed
   }
   // Effectively unreachable, but a login must not fail on a slug collision.
   return `${candidate}-${deps.crypto.randomToken(8).toLowerCase().replace(/[^a-z0-9]/g, '')}`
