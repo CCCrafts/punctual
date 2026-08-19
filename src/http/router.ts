@@ -18,7 +18,8 @@ import { buildMcpRoutes } from './mcp/server.js'
 import { buildEmbedRoutes } from './embed.js'
 import { buildDashboardRoutes } from './dashboard-routes.js'
 import { privacyPage, termsPage } from './pages/legal.js'
-import { calendlyAlternativePage, docsIndexPage, landingPage } from './pages/landing.js'
+import { calendlyAlternativePage, landingPage } from './pages/landing.js'
+import { docsApiPage, docsIndexPage, docsMcpPage, docsSelfHostingPage } from './pages/docs.js'
 import type { EnginePorts, RequestScope } from '../ports.js'
 import type { SlotService } from '../engine.js'
 import { daysWithSlots, monthRange } from '../engine.js'
@@ -61,6 +62,33 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
   app.get('/docs', (c) =>
     c.html(
       docsIndexPage({
+        brandName: ports.config.brandName,
+        baseUrl: ports.config.baseUrl,
+        ...(ports.config.legalOperator ? { operator: ports.config.legalOperator } : {}),
+      }),
+    ),
+  )
+  app.get('/docs/self-hosting', (c) =>
+    c.html(
+      docsSelfHostingPage({
+        brandName: ports.config.brandName,
+        baseUrl: ports.config.baseUrl,
+        ...(ports.config.legalOperator ? { operator: ports.config.legalOperator } : {}),
+      }),
+    ),
+  )
+  app.get('/docs/api', (c) =>
+    c.html(
+      docsApiPage({
+        brandName: ports.config.brandName,
+        baseUrl: ports.config.baseUrl,
+        ...(ports.config.legalOperator ? { operator: ports.config.legalOperator } : {}),
+      }),
+    ),
+  )
+  app.get('/docs/mcp', (c) =>
+    c.html(
+      docsMcpPage({
         brandName: ports.config.brandName,
         baseUrl: ports.config.baseUrl,
         ...(ports.config.legalOperator ? { operator: ports.config.legalOperator } : {}),

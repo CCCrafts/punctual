@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { calendlyAlternativePage, docsIndexPage, landingPage } from '../../src/http/pages/landing.js'
+import { calendlyAlternativePage, landingPage } from '../../src/http/pages/landing.js'
+import { docsIndexPage } from '../../src/http/pages/docs.js'
 
 /**
  * Regression: a fresh or self-hosted deployment has no host/event type
