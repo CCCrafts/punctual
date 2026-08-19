@@ -35,6 +35,8 @@ import type {
   EventType,
   EventTypeQuestion,
   Slot,
+  Team,
+  TeamMember,
   User,
 } from '../../core/domain/types.js'
 import type { CalendarProviderName } from '../../ports.js'
@@ -49,11 +51,12 @@ import { avatarHtml, escapeHtml, shellFoot, shellHead } from './booking.js'
 /** Form field carrying the double-submit token. Routes read the same name. */
 export const CSRF_FIELD = 'csrf'
 
-export type NavKey = 'events' | 'availability' | 'connections' | 'keys' | 'settings' | 'admin'
+export type NavKey = 'events' | 'availability' | 'teams' | 'connections' | 'keys' | 'settings' | 'admin'
 
 const NAV: ReadonlyArray<{ key: NavKey; href: string; label: string }> = [
   { key: 'events', href: '/dashboard', label: 'Event types' },
   { key: 'availability', href: '/dashboard/availability', label: 'Availability' },
+  { key: 'teams', href: '/dashboard/teams', label: 'Teams' },
   { key: 'connections', href: '/dashboard/connections', label: 'Calendars' },
   { key: 'keys', href: '/dashboard/api-keys', label: 'API keys' },
   { key: 'settings', href: '/dashboard/settings', label: 'Settings' },
@@ -226,8 +229,22 @@ export interface UpcomingBooking {
   eventTitle: string
 }
 
+/**
+ * One row of the home list. The owner slug travels WITH the event type rather
+ * than being derived from the signed-in user, because a team-owned event's
+ * public link starts with the TEAM's slug — using the user's slug there would
+ * print a URL that 404s.
+ */
+export interface EventTypeListItem {
+  eventType: EventType
+  /** First path segment of the public link: the user's slug, or the owning team's. */
+  ownerSlug: string
+  /** Set for team-owned rows, so the card can say whose event this is. */
+  teamName?: string
+}
+
 export interface DashboardHomeData extends DashboardChrome {
-  eventTypes: EventType[]
+  eventTypes: EventTypeListItem[]
   upcomingBookings: UpcomingBooking[]
   /** Public origin, so the copyable URL is the one a guest would receive. */
   baseUrl: string
@@ -238,7 +255,7 @@ export function dashboardHome(d: DashboardHomeData): string {
   const events =
     d.eventTypes.length === 0
       ? `<p class="pu-muted">No event types yet. Create one and your booking page is live.</p>`
-      : d.eventTypes.map((et) => eventTypeCard(d, et)).join('\n')
+      : d.eventTypes.map((item) => eventTypeCard(d, item)).join('\n')
 
   const upcoming =
     d.upcomingBookings.length === 0
@@ -283,13 +300,17 @@ function copyButton(value: string): string {
     onclick="var b=this,f=function(){var i=b.parentElement.querySelector('input');i.focus();i.select()};if(navigator.clipboard){navigator.clipboard.writeText(b.dataset.copy).then(function(){b.textContent='Copied';setTimeout(function(){b.textContent='Copy'},1500)}).catch(f)}else{f()}">Copy</button>`
 }
 
-function eventTypeCard(d: DashboardHomeData, et: EventType): string {
-  const url = `${trimSlash(d.baseUrl)}/${encodeURIComponent(d.user.slug)}/${encodeURIComponent(et.slug)}`
+function eventTypeCard(d: DashboardHomeData, item: EventTypeListItem): string {
+  const et = item.eventType
+  const url = `${trimSlash(d.baseUrl)}/${encodeURIComponent(item.ownerSlug)}/${encodeURIComponent(et.slug)}`
   const inputId = `url-${escapeHtml(et.id)}`
   return `<article class="pu-card">
   <div style="display:flex;align-items:baseline;justify-content:space-between;gap:1rem;flex-wrap:wrap">
     <h2 style="margin:0">${escapeHtml(et.title)}</h2>
-    ${et.active ? '' : '<span class="pu-badge" style="background:var(--pu-paper-dim);color:var(--pu-ink-500)">Hidden</span>'}
+    <div style="display:flex;gap:.5rem">
+      ${item.teamName ? `<span class="pu-badge">${escapeHtml(item.teamName)}</span>` : ''}
+      ${et.active ? '' : '<span class="pu-badge" style="background:var(--pu-paper-dim);color:var(--pu-ink-500)">Hidden</span>'}
+    </div>
   </div>
   <ul class="pu-meta">
     <li><span class="pu-dot"></span> ${et.durationMinutes} min</li>
@@ -355,6 +376,12 @@ export interface EventTypeFormData extends DashboardChrome {
   /** Absent for a create. On a failed create the route passes the draft back. */
   eventType?: EventType
   /**
+   * Teams the host belongs to — the owner choices beside "Me (personal)".
+   * When empty the owner/scheduling selects are not rendered at all, and the
+   * route forces a personal event: a host with no teams has nothing to choose.
+   */
+  teams?: Team[]
+  /**
    * The raw question text as typed. Set when it failed to parse — the draft's
    * `questions` are empty in that case, and re-rendering from them would erase
    * exactly the text the host has to correct.
@@ -373,6 +400,7 @@ const LOCATION_OPTIONS: ReadonlyArray<{ value: EventType['locationType']; label:
 export function eventTypeForm(d: EventTypeFormData): string {
   const et = d.eventType
   const errors = d.errors ?? {}
+  const teams = d.teams ?? []
   // An id is what separates "edit this row" from "create a row"; a draft handed
   // back after a failed create has none, so it correctly re-posts as a create.
   const editing = Boolean(et && et.id !== '')
@@ -401,6 +429,8 @@ export function eventTypeForm(d: EventTypeFormData): string {
     <p class="pu-muted" style="font-size:.8125rem;margin:.25rem 0 0">
       Lowercase letters, numbers and hyphens. It becomes /${escapeHtml(d.user.slug)}/&lt;slug&gt;.</p>
     ${fieldError('slug', errors)}
+
+    ${ownershipFields(d, teams, errors)}
 
     <label for="description">Description</label>
     <textarea id="description" name="description" maxlength="2000"${describedBy('description', errors)}>${escapeHtml(et?.description ?? '')}</textarea>
@@ -504,6 +534,49 @@ ${
   )
 }
 
+/**
+ * The owner and scheduling selects, rendered only when the host has a team to
+ * offer. Both selects are always visible when rendered — no client JS shows
+ * or hides anything — and the SERVER is the source of truth: with owner "me"
+ * the scheduling value is ignored and forced to 'personal' (readEventTypeForm),
+ * so a stale or crafted scheduling value cannot make a personal event
+ * round-robin.
+ */
+function ownershipFields(d: EventTypeFormData, teams: Team[], errors: Record<string, string>): string {
+  // No teams, no selects — but a crafted POST naming a team the user is not
+  // in still needs its refusal VISIBLE, or the 400 renders with no explanation.
+  if (teams.length === 0) return fieldError('owner', errors)
+  const et = d.eventType
+  const teamOptions = teams
+    .map(
+      (t) =>
+        `<option value="${escapeHtml(t.id)}"${et?.ownerTeamId === t.id ? ' selected' : ''}>${escapeHtml(t.name)}</option>`,
+    )
+    .join('\n      ')
+  return `<div class="pu-grid" style="grid-template-columns:repeat(auto-fit,minmax(11rem,1fr));gap:0 1rem">
+      <div>
+        <label for="owner">Owner</label>
+        <select id="owner" name="owner"${describedBy('owner', errors)}>
+      <option value=""${et?.ownerTeamId ? '' : ' selected'}>Me (personal)</option>
+      ${teamOptions}
+    </select>
+        <p class="pu-muted" style="font-size:.8125rem;margin:.25rem 0 0">
+          A team-owned event is booked at /&lt;team-slug&gt;/&lt;slug&gt;.</p>
+        ${fieldError('owner', errors)}
+      </div>
+      <div>
+        <label for="schedulingType">Scheduling</label>
+        <select id="schedulingType" name="schedulingType"${describedBy('schedulingType', errors)}>
+      <option value="round_robin"${et?.schedulingType === 'collective' ? '' : ' selected'}>Round robin — one member takes each booking</option>
+      <option value="collective"${et?.schedulingType === 'collective' ? ' selected' : ''}>Collective — every member attends</option>
+    </select>
+        <p class="pu-muted" style="font-size:.8125rem;margin:.25rem 0 0">
+          Applies when a team owns the event. Ignored for a personal one.</p>
+        ${fieldError('schedulingType', errors)}
+      </div>
+    </div>`
+}
+
 // ---------------------------------------------------------------------------
 // Availability
 // ---------------------------------------------------------------------------
@@ -599,6 +672,135 @@ export function availabilityPage(d: AvailabilityPageData): string {
 </section>` +
     shellBottom(d.brandName)
   )
+}
+
+// ---------------------------------------------------------------------------
+// Teams
+// ---------------------------------------------------------------------------
+
+export interface TeamMemberView {
+  member: TeamMember
+  /** Null when the user row is gone; the id is then the only label left. */
+  user: User | null
+}
+
+export interface TeamView {
+  team: Team
+  members: TeamMemberView[]
+}
+
+export interface TeamsPageData extends DashboardChrome {
+  /** Teams the signed-in user belongs to, with their full member lists. */
+  teams: TeamView[]
+  /** Echo of a failed create, same reasoning as settingsPage's slugValue. */
+  nameValue?: string
+  slugValue?: string
+  /** Echo of a failed add-member submit, scoped to one team's form. */
+  addValues?: { teamId: string; email: string; weight: string }
+  errors?: Record<string, string>
+  notice?: string
+}
+
+export function teamsPage(d: TeamsPageData): string {
+  const errors = d.errors ?? {}
+  const cards =
+    d.teams.length === 0
+      ? `<p class="pu-muted">No teams yet. A team owns round-robin and collective event types —
+       create one below, then pick it as the owner on an event type.</p>`
+      : d.teams.map((view) => teamCard(d, view)).join('\n')
+
+  return (
+    shellTop(d, 'Teams', 'teams') +
+    (d.notice ? notice(d.notice) : '') +
+    `<section aria-label="Teams">
+  <h1>Teams</h1>
+  <p class="pu-muted">A team owns round-robin and collective event types, booked at
+    /&lt;team-slug&gt;/&lt;event&gt;. Any member can manage the team's members.
+    Deleting a team is not supported here yet.</p>
+  <div style="display:grid;gap:1rem">${cards}</div>
+  <form class="pu-card" method="post" action="/dashboard/teams" style="margin-top:1.5rem">
+    ${csrfField(d.csrf)}
+    <h2>Create a team</h2>
+    <label for="team-name">Name</label>
+    <input id="team-name" name="name" required aria-required="true" maxlength="120"
+           value="${escapeHtml(d.nameValue ?? '')}"${describedBy('team-name', errors)}>
+    ${fieldError('team-name', errors)}
+    <label for="team-slug">URL slug</label>
+    <input id="team-slug" name="slug" required aria-required="true" maxlength="40" pattern="[a-z0-9\-]+"
+           value="${escapeHtml(d.slugValue ?? '')}"${describedBy('team-slug', errors)}>
+    <p class="pu-muted" style="font-size:.8125rem;margin:.25rem 0 0">
+      Lowercase letters, numbers and hyphens, 2&ndash;40 characters. It becomes the first part of the
+      team's booking links: /&lt;slug&gt;/&lt;event&gt;. You join as the first member.</p>
+    ${fieldError('team-slug', errors)}
+    <div style="margin-top:1.25rem"><button class="pu-btn" type="submit">Create team</button></div>
+  </form>
+</section>` +
+    shellBottom(d.brandName)
+  )
+}
+
+function teamCard(d: TeamsPageData, view: TeamView): string {
+  const team = view.team
+  const teamId = encodeURIComponent(team.id)
+  const errors = d.errors ?? {}
+  const add = d.addValues?.teamId === team.id ? d.addValues : { teamId: team.id, email: '', weight: '1' }
+
+  const rows = view.members
+    .map((m) => {
+      const label = m.user ? m.user.name || m.user.slug : m.member.userId
+      const email = m.user?.email ?? ''
+      // The only member gets no remove button at all — the server refuses it
+      // too, but offering a button that can only fail is UI lying (same
+      // reasoning as the admin page's last-admin row).
+      const action =
+        view.members.length <= 1
+          ? '<span class="pu-muted">Only member</span>'
+          : `<form method="post" style="margin:0"
+            action="/dashboard/teams/${teamId}/members/${encodeURIComponent(m.member.userId)}/remove">
+            ${csrfField(d.csrf)}
+            <button class="pu-btn pu-btn-ghost" type="submit" style="padding:.3rem .6rem;font-size:.8125rem">Remove</button>
+          </form>`
+      return `<tr>
+        <td>${escapeHtml(label)}${email ? `<br><span class="pu-muted" style="font-size:.8125rem">${escapeHtml(email)}</span>` : ''}</td>
+        <td>${m.member.rrWeight}</td>
+        <td>${action}</td>
+      </tr>`
+    })
+    .join('\n')
+
+  return `<article class="pu-card">
+  <div style="display:flex;align-items:baseline;justify-content:space-between;gap:1rem;flex-wrap:wrap">
+    <h2 style="margin:0">${escapeHtml(team.name)}</h2>
+    <span class="pu-time pu-muted">/${escapeHtml(team.slug)}</span>
+  </div>
+  ${fieldError(`members-${team.id}`, errors)}
+  <div class="pu-docs-table-wrap"><table style="width:100%">
+    <thead><tr><th scope="col" style="text-align:left">Member</th>
+      <th scope="col" style="text-align:left">Weight</th><th scope="col" style="text-align:left"></th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table></div>
+  <form method="post" action="/dashboard/teams/${teamId}/members" style="margin-top:1rem">
+    ${csrfField(d.csrf)}
+    <div class="pu-grid" style="grid-template-columns:repeat(auto-fit,minmax(11rem,1fr));gap:0 1rem">
+      <div>
+        <label for="email-${escapeHtml(team.id)}">Add a member by email</label>
+        <input id="email-${escapeHtml(team.id)}" name="email" type="email" required aria-required="true"
+               inputmode="email" value="${escapeHtml(add.email)}"${describedBy(`email-${team.id}`, errors)}>
+        ${fieldError(`email-${team.id}`, errors)}
+      </div>
+      <div>
+        <label for="weight-${escapeHtml(team.id)}">Round-robin weight</label>
+        <input id="weight-${escapeHtml(team.id)}" name="weight" type="number" min="1" max="100"
+               value="${escapeHtml(add.weight)}"${describedBy(`weight-${team.id}`, errors)}>
+        ${fieldError(`weight-${team.id}`, errors)}
+      </div>
+    </div>
+    <p class="pu-muted" style="font-size:.8125rem;margin:.25rem 0 0">
+      Anyone with an account on this instance. A higher weight takes a proportionally larger share of
+      round-robin bookings. Adding someone already on the team updates their weight.</p>
+    <div style="margin-top:.75rem"><button class="pu-btn" type="submit">Add member</button></div>
+  </form>
+</article>`
 }
 
 // ---------------------------------------------------------------------------

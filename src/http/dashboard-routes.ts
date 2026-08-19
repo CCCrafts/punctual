@@ -45,6 +45,7 @@ import type {
   CalendarConnection,
   EventType,
   Session,
+  Team,
   User,
   WeeklySchedule,
 } from '../core/domain/types.js'
@@ -98,7 +99,11 @@ import {
   adminPage,
   settingsPage,
   slugify,
+  teamsPage,
   type ConnectionView,
+  type EventTypeListItem,
+  type TeamView,
+  type TeamsPageData,
   type UpcomingBooking,
 } from './pages/dashboard.js'
 
@@ -536,12 +541,23 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     const user = c.get('user')
     const now = ports.clock.now()
 
-    const eventTypes = await repos.eventTypes.listForUser(user.id)
+    // Personal event types first, then each team's — with the OWNER slug on
+    // every row, because a team event's public link starts with the team's
+    // slug, not the signed-in user's.
+    const eventTypes: EventTypeListItem[] = (await repos.eventTypes.listForUser(user.id)).map(
+      (eventType) => ({ eventType, ownerSlug: user.slug }),
+    )
+    for (const team of await userTeams(c)) {
+      for (const eventType of await repos.eventTypes.listForTeam(team.id)) {
+        eventTypes.push({ eventType, ownerSlug: team.slug, teamName: team.name })
+      }
+    }
+
     const bookings = await repos.bookings.listForHost(user.id, {
       start: now,
       end: now + UPCOMING_WINDOW_MS,
     })
-    const titles = new Map(eventTypes.map((et) => [et.id, et.title]))
+    const titles = new Map(eventTypes.map((item) => [item.eventType.id, item.eventType.title]))
     const upcomingBookings: UpcomingBooking[] = bookings
       .filter((b) => b.status === 'confirmed' && b.startUtc >= now)
       .map((booking) => ({ booking, eventTitle: titles.get(booking.eventTypeId) ?? 'Meeting' }))
@@ -563,14 +579,24 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
   // ===========================================================================
 
   // Registered before `/:id`, or Hono would read "new" as an id.
-  app.get('/dashboard/event-types/new', requireSession, (c) =>
-    c.html(eventTypeForm({ brandName, user: c.get('user'), csrf: c.get('csrf') })),
+  app.get('/dashboard/event-types/new', requireSession, async (c) =>
+    c.html(
+      eventTypeForm({ brandName, user: c.get('user'), csrf: c.get('csrf'), teams: await userTeams(c) }),
+    ),
   )
 
   app.get('/dashboard/event-types/:id', requireSession, async (c) => {
     const eventType = await ownedEventType(c)
     if (!eventType) return notFound(c)
-    return c.html(eventTypeForm({ brandName, user: c.get('user'), csrf: c.get('csrf'), eventType }))
+    return c.html(
+      eventTypeForm({
+        brandName,
+        user: c.get('user'),
+        csrf: c.get('csrf'),
+        eventType,
+        teams: await userTeams(c),
+      }),
+    )
   })
 
   app.post('/dashboard/event-types', requireSession, async (c) => {
@@ -583,7 +609,15 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     const errors = await validateEventType(repos, user, draft, questionsText, null)
     if (Object.keys(errors).length > 0) {
       return c.html(
-        eventTypeForm({ brandName, user, csrf: c.get('csrf'), eventType: draft, questionsText, errors }),
+        eventTypeForm({
+          brandName,
+          user,
+          csrf: c.get('csrf'),
+          eventType: draft,
+          questionsText,
+          errors,
+          teams: await userTeams(c),
+        }),
         400,
       )
     }
@@ -614,6 +648,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
           eventType: draft,
           questionsText: read.questionsText,
           errors,
+          teams: await userTeams(c),
         }),
         400,
       )
@@ -634,10 +669,33 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     return c.redirect('/dashboard', 302)
   })
 
-  /** Ownership is checked here, once, rather than trusted from the URL. */
+  /**
+   * Ownership is checked here, once, rather than trusted from the URL.
+   * A team-owned event type is "owned" by every member of that team — the
+   * same any-member-manages model as the teams page.
+   */
   async function ownedEventType(c: Ctx): Promise<EventType | null> {
     const found = await c.get('repos').eventTypes.byId(c.req.param('id') ?? '')
-    return found && found.ownerUserId === c.get('user').id ? found : null
+    if (!found) return null
+    const user = c.get('user')
+    if (found.ownerUserId === user.id) return found
+    if (found.ownerTeamId) {
+      const memberships = await c.get('repos').teams.memberships(user.id)
+      if (memberships.some((m) => m.teamId === found.ownerTeamId)) return found
+    }
+    return null
+  }
+
+  /** The signed-in user's teams, resolved from their memberships. */
+  async function userTeams(c: Ctx): Promise<Team[]> {
+    const repos = c.get('repos')
+    const memberships = await repos.teams.memberships(c.get('user').id)
+    const teams: Team[] = []
+    for (const membership of memberships) {
+      const team = await repos.teams.byId(membership.teamId)
+      if (team) teams.push(team)
+    }
+    return teams
   }
 
   // ===========================================================================
@@ -700,6 +758,196 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
         notice: 'Availability saved.',
       }),
     )
+  })
+
+  // ===========================================================================
+  // Dashboard — teams
+  //
+  // Permission model for this pass, stated rather than implied: ANY member of
+  // a team can manage that team's members. No owner/admin gradient inside a
+  // team, and instance admins get no special power here — a 10-person
+  // self-hosted team is peers, and the roles column exists for a later pass
+  // that actually needs it. Deleting a whole team is deliberately out of
+  // scope; the page copy says so.
+  // ===========================================================================
+
+  /** Everything the teams page renders, from the signed-in user's memberships. */
+  async function teamsData(c: Ctx): Promise<Pick<TeamsPageData, 'brandName' | 'user' | 'csrf' | 'teams'>> {
+    const repos = c.get('repos')
+    const views: TeamView[] = []
+    for (const team of await userTeams(c)) {
+      const members = []
+      for (const member of await repos.teams.members(team.id)) {
+        members.push({ member, user: await repos.users.byId(member.userId) })
+      }
+      views.push({ team, members })
+    }
+    return { brandName, user: c.get('user'), csrf: c.get('csrf'), teams: views }
+  }
+
+  /**
+   * The team the URL names, IF the signed-in user is one of its members.
+   * A non-member gets the same 404 as a wrong id — confirming the team
+   * exists would leak instance structure to anyone with an account.
+   */
+  async function memberManagedTeam(c: Ctx): Promise<Team | null> {
+    const teamId = c.req.param('id') ?? ''
+    const memberships = await c.get('repos').teams.memberships(c.get('user').id)
+    if (!memberships.some((m) => m.teamId === teamId)) return null
+    return c.get('repos').teams.byId(teamId)
+  }
+
+  app.get('/dashboard/teams', requireSession, async (c) =>
+    c.html(
+      teamsPage({
+        ...(await teamsData(c)),
+        ...(c.req.query('created') ? { notice: 'Team created. You are its first member.' } : {}),
+      }),
+    ),
+  )
+
+  app.post('/dashboard/teams', requireSession, async (c) => {
+    const form = await c.req.formData()
+    if (!(await csrfOk(c, form))) return csrfRejected(c)
+
+    const user = c.get('user')
+    const repos = c.get('repos')
+    const name = String(form.get('name') ?? '').trim()
+    const raw = String(form.get('slug') ?? '').trim()
+    const errors: Record<string, string> = {}
+
+    if (name === '' || name.length > 120) errors['team-name'] = 'Give the team a name (up to 120 characters)'
+
+    // Same slug rules and the same TWO-table collision check as the settings
+    // slug-change route, for the same reason: `bookingPageContext` resolves a
+    // public page's owner slug against users OR teams, so a team slug
+    // colliding with an existing user's slug makes /that-slug/<event>
+    // ambiguous. Case is refused rather than folded, as in settings.
+    if (raw !== raw.toLowerCase()) {
+      errors['team-slug'] = 'Lowercase letters, numbers and hyphens only'
+    } else {
+      const validation = validateSlug(raw)
+      if (!validation.ok) {
+        errors['team-slug'] = validation.message ?? 'Not a valid slug'
+      } else {
+        const [existingUser, existingTeam] = await Promise.all([
+          repos.users.bySlug(raw),
+          repos.teams.bySlug(raw),
+        ])
+        if (existingUser || existingTeam) errors['team-slug'] = 'That slug is already taken'
+      }
+    }
+
+    if (Object.keys(errors).length > 0) {
+      return c.html(
+        teamsPage({ ...(await teamsData(c)), nameValue: name, slugValue: raw, errors }),
+        400,
+      )
+    }
+
+    // Read-then-write: a concurrent create of the same slug can slip past the
+    // check above and hit the teams_slug_idx UNIQUE constraint instead. That
+    // window is a form re-submit away from fixed, so it stays a constraint
+    // error rather than growing the repository a compare-and-swap for it.
+    const team = await repos.teams.create({
+      id: `team_${ports.crypto.randomToken(12)}`,
+      name,
+      slug: raw,
+      logoKey: null,
+    })
+    // The creator is the first member — a team with no members can be seen
+    // and managed by nobody, so creation and first membership are one action.
+    await repos.teams.addMember({ teamId: team.id, userId: user.id, role: 'admin', rrWeight: 1 })
+    await advanceBookmark(c)
+    return c.redirect('/dashboard/teams?created=1', 302)
+  })
+
+  app.post('/dashboard/teams/:id/members', requireSession, async (c) => {
+    const form = await c.req.formData()
+    if (!(await csrfOk(c, form))) return csrfRejected(c)
+
+    const team = await memberManagedTeam(c)
+    if (!team) return notFound(c)
+
+    const repos = c.get('repos')
+    const email = String(form.get('email') ?? '').trim().toLowerCase()
+    const weightRaw = String(form.get('weight') ?? '').trim()
+    const weight = weightRaw === '' ? 1 : Number(weightRaw)
+    const errors: Record<string, string> = {}
+
+    const target = email === '' ? null : await repos.users.byEmail(email)
+    if (email === '') errors[`email-${team.id}`] = 'Enter an email address'
+    else if (!target) errors[`email-${team.id}`] = 'No user with that email on this instance'
+    if (!Number.isInteger(weight) || weight < 1 || weight > 100) {
+      errors[`weight-${team.id}`] = 'A whole number from 1 to 100'
+    }
+
+    if (Object.keys(errors).length > 0 || !target) {
+      return c.html(
+        teamsPage({
+          ...(await teamsData(c)),
+          addValues: { teamId: team.id, email, weight: weightRaw },
+          errors,
+        }),
+        400,
+      )
+    }
+
+    // `addMember` upserts on (team, user), which is how a weight is changed
+    // without JS: re-add the same email with the new weight. Preserve the
+    // existing role on that path — the form has no opinion about roles, and
+    // silently rewriting one would be a surprise waiting for the pass that
+    // makes roles mean something.
+    const existing = (await repos.teams.members(team.id)).find((m) => m.userId === target.id)
+    await repos.teams.addMember({
+      teamId: team.id,
+      userId: target.id,
+      role: existing?.role ?? 'member',
+      rrWeight: weight,
+    })
+    await advanceBookmark(c)
+    return c.html(
+      teamsPage({
+        ...(await teamsData(c)),
+        notice: `${target.email} is on ${team.name}.`,
+      }),
+    )
+  })
+
+  app.post('/dashboard/teams/:id/members/:userId/remove', requireSession, async (c) => {
+    const form = await c.req.formData()
+    if (!(await csrfOk(c, form))) return csrfRejected(c)
+
+    const team = await memberManagedTeam(c)
+    if (!team) return notFound(c)
+
+    const repos = c.get('repos')
+    const members = await repos.teams.members(team.id)
+    const target = members.find((m) => m.userId === c.req.param('userId'))
+    // A stale page double-submit: the member is already gone, nothing to do.
+    if (!target) return c.html(teamsPage(await teamsData(c)))
+
+    // A team must keep at least one member — with zero, nobody's memberships
+    // resolve it, so it becomes unmanageable by everyone forever (deleting
+    // teams is out of scope this pass). Read-then-write, acknowledged: two
+    // concurrent removals of a two-member team can race past this check. The
+    // page hides the button on the only member as well, but this check is
+    // what the copy promises.
+    if (members.length <= 1) {
+      return c.html(
+        teamsPage({
+          ...(await teamsData(c)),
+          errors: { [`members-${team.id}`]: 'A team must keep at least one member.' },
+        }),
+        400,
+      )
+    }
+
+    await repos.teams.removeMember(team.id, target.userId)
+    await advanceBookmark(c)
+    // Removing YOURSELF is allowed — the page after the write simply no
+    // longer lists that team, which is the honest rendering of what happened.
+    return c.html(teamsPage({ ...(await teamsData(c)), notice: 'Member removed.' }))
   })
 
   // ===========================================================================
@@ -1739,11 +1987,19 @@ function readEventTypeForm(
 
   const title = text('title')
   const questionsText = String(form.get('questions') ?? '')
+  // Exactly one owner is ever set. The scheduling select is always rendered
+  // (no JS hides it), so its value is IGNORED for a personal event — the
+  // server forces 'personal', and a crafted round_robin on owner=me cannot
+  // land. Whether the user may act for the named team is validateEventType's
+  // job, not this reader's.
+  const ownerTeamId = text('owner') || null
+  const schedulingType: EventType['schedulingType'] =
+    ownerTeamId === null ? 'personal' : text('schedulingType') === 'collective' ? 'collective' : 'round_robin'
   const draft: EventType = {
     id: '',
-    ownerUserId,
-    ownerTeamId: null,
-    schedulingType: 'personal',
+    ownerUserId: ownerTeamId === null ? ownerUserId : null,
+    ownerTeamId,
+    schedulingType,
     slug: text('slug') || slugify(title),
     title,
     description: text('description'),
@@ -1802,6 +2058,16 @@ async function validateEventType(
 
   if (draft.title === '' || draft.title.length > 120) errors['title'] = 'Give it a title (up to 120 characters)'
 
+  // Team ownership requires the submitter to BE a member — the owner id
+  // arrives from a form field, and without this check any signed-in user
+  // could publish event types under any team's slug.
+  if (draft.ownerTeamId !== null) {
+    const memberships = await repos.teams.memberships(user.id)
+    if (!memberships.some((m) => m.teamId === draft.ownerTeamId)) {
+      errors['owner'] = 'You are not a member of that team'
+    }
+  }
+
   if (!/^[a-z0-9-]{1,60}$/.test(draft.slug)) {
     errors['slug'] = 'Lowercase letters, numbers and hyphens only'
   } else if (RESERVED_SLUGS.has(draft.slug)) {
@@ -1810,9 +2076,17 @@ async function validateEventType(
     // Checked against every event type, not just the visible ones: the unique
     // index does not care whether a row is active, and a duplicate would
     // otherwise surface as a database error instead of a form message.
-    const mine = await repos.eventTypes.listForUser(user.id)
-    if (mine.some((et) => et.slug === draft.slug && et.id !== currentId)) {
-      errors['slug'] = 'You already have an event type with this slug'
+    // Uniqueness is per OWNER (the schema's two unique indexes), so the check
+    // runs in whichever namespace the draft is headed for.
+    const siblings =
+      draft.ownerTeamId !== null && !errors['owner']
+        ? await repos.eventTypes.listForTeam(draft.ownerTeamId)
+        : await repos.eventTypes.listForUser(user.id)
+    if (siblings.some((et) => et.slug === draft.slug && et.id !== currentId)) {
+      errors['slug'] =
+        draft.ownerTeamId !== null
+          ? 'That team already has an event type with this slug'
+          : 'You already have an event type with this slug'
     }
   }
 

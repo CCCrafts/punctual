@@ -270,6 +270,14 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
       const put = (col: string, v: unknown) => {
         map[col] = [col, v]
       }
+      // Owner and scheduling move TOGETHER through the dashboard's edit form
+      // (exactly one owner column non-null, scheduling forced to match) —
+      // this method just persists what validation approved. Before these
+      // three lines an edit that reassigned an event type to a team silently
+      // kept the old owner.
+      if (patch.ownerUserId !== undefined) put('owner_user_id', patch.ownerUserId)
+      if (patch.ownerTeamId !== undefined) put('owner_team_id', patch.ownerTeamId)
+      if (patch.schedulingType !== undefined) put('scheduling_type', patch.schedulingType)
       if (patch.title !== undefined) put('title', patch.title)
       if (patch.description !== undefined) put('description', patch.description)
       if (patch.slug !== undefined) put('slug', patch.slug)
