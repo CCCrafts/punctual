@@ -27,6 +27,10 @@ export const users = sqliteTable(
     jobTitle: text('job_title'),
     // Optional https URL wrapped around the company name; null until set.
     companyUrl: text('company_url'),
+    // Instance administration, not team membership (see team_members.role
+    // for that). A fresh instance's first user bootstraps as admin in code;
+    // everyone else defaults to 'member'.
+    role: text('role').notNull().default('member'),
     createdAt: integer('created_at').notNull(),
   },
   (t) => [uniqueIndex('users_email_idx').on(t.email), uniqueIndex('users_slug_idx').on(t.slug)],
@@ -296,6 +300,13 @@ export const rrAssignments = sqliteTable(
   (t) => [primaryKey({ columns: [t.teamId, t.userId] })],
 )
 
+/** Operator-editable instance config (e.g. the sign-up policy) set from the dashboard's Admin page. */
+export const instanceSettings = sqliteTable('instance_settings', {
+  key: text('key').primaryKey(),
+  value: text('value').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+})
+
 export const schema = {
   users,
   teams,
@@ -312,6 +323,7 @@ export const schema = {
   webhooks,
   idempotencyKeys,
   rrAssignments,
+  instanceSettings,
 }
 
 export const CURRENT_TIMESTAMP = sql`(unixepoch() * 1000)`
