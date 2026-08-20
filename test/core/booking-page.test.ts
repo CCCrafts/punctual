@@ -36,6 +36,7 @@ const eventType: EventType = {
   questions: [],
   active: true,
   createdAt: 0,
+  scheduleId: null,
 }
 
 function pageData(patch: Partial<BookingPageData> = {}): BookingPageData {

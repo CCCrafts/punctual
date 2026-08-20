@@ -636,6 +636,165 @@ describe('settings — change slug', () => {
   })
 })
 
+describe('availability — named schedules (CCC-581)', () => {
+  const AVAIL_HOST_ID = 'usr_avail_dash_host'
+  const DEFAULT_SCHEDULE_ID = 'sch_avail_dash_default'
+  const AVAIL_EVENT_ID = 'evt_avail_dash'
+
+  beforeAll(async () => {
+    await db
+      .prepare('INSERT INTO users (id,email,name,tz,slug,created_at) VALUES (?,?,?,?,?,?)')
+      .bind(AVAIL_HOST_ID, 'avail-dash@example.test', 'Avail Host', 'UTC', 'avail-dash-host', NOW)
+      .run()
+    await db
+      .prepare(
+        `INSERT INTO schedules (id,user_id,name,is_default,timezone,weekly_json,overrides_json,updated_at)
+         VALUES (?,?,?,?,?,?,?,?)`,
+      )
+      .bind(DEFAULT_SCHEDULE_ID, AVAIL_HOST_ID, 'Working hours', 1, 'UTC', '[[],[],[],[],[],[],[]]', '[]', NOW)
+      .run()
+    await db
+      .prepare(
+        `INSERT INTO event_types
+         (id,owner_user_id,owner_team_id,scheduling_type,slug,title,description,duration_minutes,
+          slot_interval_minutes,buffer_before_minutes,buffer_after_minutes,min_notice_minutes,
+          max_horizon_days,max_per_day,location_type,location_value,questions_json,active,created_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      )
+      .bind(AVAIL_EVENT_ID, AVAIL_HOST_ID, null, 'personal', 'avail-chat', 'Avail chat', '', 30, null, 0, 0, 0,
+        60, null, 'google_meet', null, '[]', 1, NOW)
+      .run()
+  })
+
+  async function availCsrf(cookie: string): Promise<string> {
+    const page = await get('/dashboard/availability', cookie)
+    return /name="csrf" value="([^"]+)"/.exec(await page.text())?.[1] ?? ''
+  }
+
+  it('lists the default schedule', async () => {
+    const cookie = await seedSession(AVAIL_HOST_ID)
+    const res = await get('/dashboard/availability', cookie)
+    expect(res.status).toBe(200)
+    const text = await res.text()
+    expect(text).toContain('Working hours')
+    expect(text).toContain('Default')
+  })
+
+  it('creates a new schedule as a copy of the default and redirects to its edit page', async () => {
+    const cookie = await seedSession(AVAIL_HOST_ID)
+    const csrf = await availCsrf(cookie)
+
+    const res = await post('/dashboard/availability/new', { name: 'Evenings', csrf }, cookie)
+    expect(res.status).toBe(302)
+    const location = res.headers.get('location') ?? ''
+    expect(location).toMatch(/^\/dashboard\/availability\/sch_/)
+
+    const edit = await app.fetch(new Request(`${BASE}${location}`, { headers: { cookie } }))
+    expect(edit.status).toBe(200)
+    expect(await edit.text()).toContain('Evenings')
+  })
+
+  it('rejects an empty name', async () => {
+    const cookie = await seedSession(AVAIL_HOST_ID)
+    const csrf = await availCsrf(cookie)
+    const res = await post('/dashboard/availability/new', { name: '', csrf }, cookie)
+    expect(res.status).toBe(400)
+  })
+
+  it('saves weekly hours and overrides for a specific schedule', async () => {
+    const cookie = await seedSession(AVAIL_HOST_ID)
+    const csrf = await availCsrf(cookie)
+
+    const res = await post(
+      `/dashboard/availability/${DEFAULT_SCHEDULE_ID}`,
+      {
+        name: 'Working hours',
+        timezone: 'UTC',
+        'day-1': '09:00-17:00',
+        'day-2': '09:00-17:00',
+        'day-3': '09:00-17:00',
+        'day-4': '09:00-17:00',
+        'day-5': '09:00-17:00',
+        overrides: '',
+        csrf,
+      },
+      cookie,
+    )
+    expect(res.status).toBe(200)
+    expect(await res.text()).toContain('Schedule saved')
+
+    const row = await db
+      .prepare('SELECT weekly_json FROM schedules WHERE id = ?')
+      .bind(DEFAULT_SCHEDULE_ID)
+      .first<{ weekly_json: string }>()
+    expect(JSON.parse(row!.weekly_json)[1]).toEqual([{ startMinute: 540, endMinute: 1020 }])
+  })
+
+  it('duplicates a schedule, sets a new default, then refuses to delete the new default', async () => {
+    const cookie = await seedSession(AVAIL_HOST_ID)
+    let csrf = await availCsrf(cookie)
+
+    const dup = await post(`/dashboard/availability/${DEFAULT_SCHEDULE_ID}/duplicate`, { csrf }, cookie)
+    expect(dup.status).toBe(200)
+    expect(await dup.text()).toContain('Schedule duplicated')
+
+    const row = await db
+      .prepare("SELECT id FROM schedules WHERE user_id = ? AND name = 'Working hours copy'")
+      .bind(AVAIL_HOST_ID)
+      .first<{ id: string }>()
+    expect(row).toBeTruthy()
+    const copyId = row!.id
+
+    csrf = await availCsrf(cookie)
+    const setDefault = await post(`/dashboard/availability/${copyId}/set-default`, { csrf }, cookie)
+    expect(setDefault.status).toBe(200)
+    expect(await setDefault.text()).toContain('is now your default')
+
+    const defaults = await db
+      .prepare('SELECT id FROM schedules WHERE user_id = ? AND is_default = 1')
+      .bind(AVAIL_HOST_ID)
+      .first<{ id: string }>()
+    expect(defaults?.id).toBe(copyId)
+
+    csrf = await availCsrf(cookie)
+    const deleteDefault = await post(`/dashboard/availability/${copyId}/delete`, { csrf }, cookie)
+    expect(deleteDefault.status).toBe(400)
+    expect(await deleteDefault.text()).toContain('Cannot delete your default schedule')
+  })
+
+  it('refuses to delete a schedule an event type still uses, then allows it once unassigned', async () => {
+    const cookie = await seedSession(AVAIL_HOST_ID)
+    let csrf = await availCsrf(cookie)
+
+    const create = await post('/dashboard/availability/new', { name: 'In use', csrf }, cookie)
+    const scheduleId = (create.headers.get('location') ?? '').split('/').pop()!
+
+    await db.prepare('UPDATE event_types SET schedule_id = ? WHERE id = ?').bind(scheduleId, AVAIL_EVENT_ID).run()
+
+    csrf = await availCsrf(cookie)
+    const blocked = await post(`/dashboard/availability/${scheduleId}/delete`, { csrf }, cookie)
+    expect(blocked.status).toBe(400)
+    expect(await blocked.text()).toContain('an event type is still using')
+
+    await db.prepare('UPDATE event_types SET schedule_id = NULL WHERE id = ?').bind(AVAIL_EVENT_ID).run()
+
+    csrf = await availCsrf(cookie)
+    const allowed = await post(`/dashboard/availability/${scheduleId}/delete`, { csrf }, cookie)
+    expect(allowed.status).toBe(200)
+    expect(await allowed.text()).toContain('Schedule deleted')
+  })
+
+  it('offers the schedule on the event type editor once more than the default exists', async () => {
+    const cookie = await seedSession(AVAIL_HOST_ID)
+    const res = await get(`/dashboard/event-types/${AVAIL_EVENT_ID}`, cookie)
+    expect(res.status).toBe(200)
+    // At least one non-default schedule survives the previous tests in this
+    // block (set-default swapped the default; "In use" was deleted again) —
+    // the select must be present either way, and named schedules listed.
+    expect(await res.text()).toContain('Availability schedule')
+  })
+})
+
 describe('settings — profile (name and company)', () => {
   const PROFILE_HOST_ID = 'usr_profile_host'
 

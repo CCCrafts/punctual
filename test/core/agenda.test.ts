@@ -53,6 +53,7 @@ function eventType(patch: Partial<EventType> = {}): EventType {
     questions: [],
     active: true,
     createdAt: 0,
+    scheduleId: null,
     ...patch,
   }
 }

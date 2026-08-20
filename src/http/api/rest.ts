@@ -342,6 +342,15 @@ const eventTypeFields = {
   locationValue: z.string().max(500).nullable(),
   questions: z.array(questionSchema).max(20),
   active: z.boolean(),
+  // Null = the owner's default schedule. Every event type POST /event-types
+  // creates is personal (schedulingType is hardcoded 'personal' below), so
+  // it's always meaningful there; PATCH can also reach a team-owned event
+  // type via team membership (see `ownsEventType`) and rejects this field
+  // for one — a team event type has multiple hosts and no single schedule
+  // fits all of them (engine.ts's forEventType). Existence/ownership is
+  // checked at each call site with `repos.availability.byId(user.id, ...)`,
+  // not by this schema.
+  scheduleId: z.string().min(1).max(64).nullable(),
 }
 
 const eventTypeBody = z.object({
@@ -357,6 +366,7 @@ const eventTypeBody = z.object({
   locationValue: eventTypeFields.locationValue.default(null),
   questions: eventTypeFields.questions.default([]),
   active: eventTypeFields.active.default(true),
+  scheduleId: eventTypeFields.scheduleId.default(null),
 })
 
 const eventTypePatchBody = z.object(eventTypeFields).partial()
@@ -506,6 +516,10 @@ export function buildApiRoutes(ports: EnginePorts, slots: SlotService): Hono<Api
     const clash = await repos.eventTypes.bySlug(user.slug, body.slug)
     if (clash) return problem(409, 'Slug taken', `You already have an event type at /${user.slug}/${body.slug}.`)
 
+    if (body.scheduleId && !(await repos.availability.byId(user.id, body.scheduleId))) {
+      return problem(400, 'Invalid request', 'scheduleId does not exist or is not yours.')
+    }
+
     // Owned by the key's user, always. A team event type is created through the
     // team surface, because an API key carries one user's authority and nothing
     // here can decide which of their teams was meant.
@@ -528,6 +542,7 @@ export function buildApiRoutes(ports: EnginePorts, slots: SlotService): Hono<Api
       locationValue: body.locationValue,
       questions: body.questions as EventTypeQuestion[],
       active: body.active,
+      scheduleId: body.scheduleId,
     })
 
     return c.json({ data: eventTypeJson(created, ports, await ownerSlugFor(repos, user, created)) }, 201)
@@ -548,6 +563,19 @@ export function buildApiRoutes(ports: EnginePorts, slots: SlotService): Hono<Api
 
     const parsed = await readBody(c.req.raw, eventTypePatchBody)
     if (!parsed.ok) return parsed.response
+
+    if (parsed.data.scheduleId !== undefined) {
+      // A team event type (round_robin/collective) has multiple hosts and no
+      // single schedule fits all of them — see engine.ts's forEventType.
+      // Reject rather than silently ignore: the caller explicitly asked for
+      // something this event type cannot express.
+      if (et.ownerTeamId) {
+        return problem(400, 'Invalid request', 'scheduleId only applies to a personal event type.')
+      }
+      if (parsed.data.scheduleId && !(await repos.availability.byId(user.id, parsed.data.scheduleId))) {
+        return problem(400, 'Invalid request', 'scheduleId does not exist or is not yours.')
+      }
+    }
 
     await repos.eventTypes.update(id, parsed.data as Partial<EventType>)
     // Read-after-write on the same bookmarked session, so the response is the
@@ -582,23 +610,39 @@ export function buildApiRoutes(ports: EnginePorts, slots: SlotService): Hono<Api
     const parsed = await readBody(c.req.raw, availabilityBody)
     if (!parsed.ok) return parsed.response
 
-    const availability: Availability = {
-      userId: user.id,
+    const patch = {
       timezone: parsed.data.timezone,
       weekly: parsed.data.weekly as unknown as WeeklySchedule,
       overrides: parsed.data.overrides,
     }
-    await repos.availability.save(user.id, availability)
+    // This endpoint's contract is unchanged (CCC-581): it always writes the
+    // caller's DEFAULT schedule, never a specific one — schedule CRUD is
+    // dashboard-only for now. `forUser` should never be null for an
+    // authenticated caller (the login backfill guarantees a default
+    // schedule exists), but a fresh `create` covers it defensively rather
+    // than throwing.
+    const existing = await repos.availability.forUser(user.id)
+    if (existing) {
+      await repos.availability.update(user.id, existing.id, patch)
+    } else {
+      await repos.availability.create(user.id, {
+        id: `sch_${ports.crypto.randomToken(12)}`,
+        userId: user.id,
+        name: 'Working hours',
+        isDefault: true,
+        ...patch,
+      })
+    }
     // GET /slots (and the public booking page) default their render
     // timezone to `users.tz` when the caller doesn't pass one explicitly —
     // leaving the two to drift means every unqualified request after this
     // still renders in the OLD timezone. Same fix as the dashboard's
     // availability route.
-    if (availability.timezone !== user.tz) {
-      await repos.users.update(user.id, { tz: availability.timezone })
+    if (patch.timezone !== user.tz) {
+      await repos.users.update(user.id, { tz: patch.timezone })
     }
     const stored = await repos.availability.forUser(user.id)
-    return c.json({ data: availabilityJson(stored ?? availability) })
+    return c.json({ data: availabilityJson(stored ?? { userId: user.id, ...patch }) })
   })
 
   // -------------------------------------------------------------------------
@@ -1051,6 +1095,9 @@ export function eventTypeJson(et: EventType, ports: EnginePorts, ownerSlug: stri
     questions: effectiveQuestions(et),
     active: et.active,
     createdAt: instantJson(et.createdAt),
+    // Null = the owner's default schedule; only ever non-null for a
+    // personal event type (see EventType.scheduleId's doc comment).
+    scheduleId: et.scheduleId,
   }
 }
 

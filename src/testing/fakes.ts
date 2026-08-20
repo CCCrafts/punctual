@@ -10,11 +10,11 @@
  */
 
 import type {
-  Availability,
   ApiKey,
   Booking,
   CalendarConnection,
   MagicLinkToken,
+  Schedule,
   Session,
   Team,
   User,
@@ -78,19 +78,54 @@ export function createFakeRepositories(): FakeRepositories {
   const bookings = new Map<string, Booking>()
   const teams = new Map<string, Team>()
   const connections = new Map<string, CalendarConnection>()
-  const availability = new Map<string, Availability>()
+  /** Keyed by schedule id, not userId — a host can have more than one (CCC-581). */
+  const schedules = new Map<string, Schedule>()
   let touches = 0
   let lastBookmark: string | null = null
 
   const availabilityRepo: AvailabilityRepository = {
     async forUser(userId) {
-      return availability.get(userId) ?? null
+      for (const s of schedules.values()) if (s.userId === userId && s.isDefault) return s
+      return null
     },
-    async save(userId, av) {
-      availability.set(userId, av)
+    async listForUser(userId) {
+      return [...schedules.values()].filter((s) => s.userId === userId)
     },
-    async saveIfAbsent(userId, av) {
-      if (!availability.has(userId)) availability.set(userId, av)
+    async byId(userId, scheduleId) {
+      const s = schedules.get(scheduleId)
+      return s && s.userId === userId ? s : null
+    },
+    async create(userId, schedule) {
+      schedules.set(schedule.id, { ...schedule, userId })
+      return schedule
+    },
+    async update(userId, scheduleId, patch) {
+      const existing = schedules.get(scheduleId)
+      if (!existing || existing.userId !== userId) return
+      schedules.set(scheduleId, { ...existing, ...patch })
+    },
+    async delete(userId, scheduleId) {
+      const existing = schedules.get(scheduleId)
+      if (!existing || existing.userId !== userId || existing.isDefault) return false
+      const ownedByUser = [...schedules.values()].filter((s) => s.userId === userId)
+      // Unlike the real D1 repo, this fake never checks whether an event
+      // type still references the schedule — `eventTypes` is unimplemented
+      // here (auth-flow tests don't touch it). The real guard is covered
+      // against the actual D1 adapter in the Workers test project.
+      if (ownedByUser.length <= 1) return false
+      schedules.delete(scheduleId)
+      return true
+    },
+    async setDefault(userId, scheduleId) {
+      const target = schedules.get(scheduleId)
+      if (!target || target.userId !== userId) return false
+      for (const s of schedules.values()) if (s.userId === userId) s.isDefault = false
+      target.isDefault = true
+      return true
+    },
+    async saveIfAbsent(userId, schedule) {
+      const hasDefault = [...schedules.values()].some((s) => s.userId === userId && s.isDefault)
+      if (!hasDefault) schedules.set(schedule.id, { ...schedule, userId, isDefault: true })
     },
   }
 

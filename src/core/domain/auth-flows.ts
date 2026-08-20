@@ -15,7 +15,7 @@
  */
 
 import { suggestSlug, validateSlug } from './slugs.js'
-import type { ApiKey, Availability, Booking, MagicLinkToken, Session, User, WeeklySchedule } from './types.js'
+import type { ApiKey, Availability, Booking, MagicLinkToken, Schedule, Session, User, WeeklySchedule } from './types.js'
 import type {
   Crypto,
   EmailSender,
@@ -240,7 +240,10 @@ export async function consumeMagicLink(
   // backfill's default would silently win. Only the database can arbitrate
   // that, the same reasoning as every other race closed with a constraint
   // rather than an application-level check (`slot_locks`, `demoteAdmin`).
-  await deps.repos.availability.saveIfAbsent(user.id, defaultAvailability(user))
+  await deps.repos.availability.saveIfAbsent(
+    user.id,
+    defaultSchedule(user, `sch_${deps.crypto.randomToken(12)}`),
+  )
 
   const created = await createSession(deps, user.id, input.now)
   return { ok: true, sessionToken: created.token, session: created.session, user, createdUser: !existing }
@@ -519,6 +522,11 @@ export function defaultAvailability(user: User): Availability {
   const weekly: WeeklySchedule = [[], [], [], [], [], [], []]
   for (let day = 1; day <= 5; day++) weekly[day] = [{ startMinute: 9 * 60, endMinute: 17 * 60 }]
   return { userId: user.id, timezone: user.tz, weekly, overrides: [] }
+}
+
+/** The backfilled default schedule a fresh or legacy (pre-CCC-581) user gets — see the login backfill above. */
+export function defaultSchedule(user: User, id: string): Schedule {
+  return { ...defaultAvailability(user), id, name: 'Working hours', isDefault: true }
 }
 
 /**

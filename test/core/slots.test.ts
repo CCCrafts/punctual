@@ -55,6 +55,7 @@ function eventType(over: Partial<EventType> = {}): EventType {
     questions: [],
     active: true,
     createdAt: 0,
+    scheduleId: null,
     ...over,
   }
 }

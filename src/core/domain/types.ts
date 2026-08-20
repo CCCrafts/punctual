@@ -105,6 +105,16 @@ export interface EventType {
   questions: EventTypeQuestion[]
   active: boolean
   createdAt: number
+  /**
+   * Which of the owner's schedules this event type draws hours from. Null
+   * means "the owner's default schedule" — today's exact behavior, so every
+   * pre-existing row reads correctly with no backfill needed. Only
+   * meaningful for a personal event type (single `ownerUserId`); a team
+   * event type (`round_robin`/`collective`) has multiple hosts and no
+   * single schedule fits all of them, so this is ignored there and each
+   * host keeps using their own default (see `engine.ts`'s `forEventType`).
+   */
+  scheduleId: string | null
 }
 
 // ---------------------------------------------------------------------------
@@ -134,6 +144,21 @@ export interface Availability {
   timezone: string
   weekly: WeeklySchedule
   overrides: DateOverride[]
+}
+
+/**
+ * A named, storable schedule — what `Availability` becomes once a host can
+ * have more than one (CCC-581). Extends rather than replaces `Availability`
+ * on purpose: the slot engine's `HostAvailabilityInput.availability:
+ * Availability` (core/slots/engine.ts) keeps typechecking unchanged when
+ * handed a `Schedule`, so the best-tested code in the repo is untouched by
+ * this feature.
+ */
+export interface Schedule extends Availability {
+  id: string
+  name: string
+  /** At most one per user — enforced by a partial unique index in D1. */
+  isDefault: boolean
 }
 
 // ---------------------------------------------------------------------------

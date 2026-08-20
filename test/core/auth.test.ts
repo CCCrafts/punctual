@@ -36,7 +36,7 @@ import {
   createFakeRepositories,
   fakeConfig,
 } from '../../src/testing/fakes.js'
-import type { Availability, Booking, Session } from '../../src/core/domain/types.js'
+import type { Booking, Schedule, Session } from '../../src/core/domain/types.js'
 
 /**
  * The auth path in plain Node (ADR-0003 §5): the flows take ports as
@@ -841,13 +841,16 @@ describe('admin bootstrap', () => {
   it('never overwrites a host who deliberately cleared their week to all-empty', async () => {
     const h = harness()
     h.repos.seedUser({ id: 'usr_cleared', email: 'cleared@example.com' })
-    const cleared: Availability = {
+    const cleared: Schedule = {
+      id: 'sch_cleared',
       userId: 'usr_cleared',
+      name: 'Working hours',
+      isDefault: true,
       timezone: 'UTC',
       weekly: [[], [], [], [], [], [], []],
       overrides: [],
     }
-    await h.repos.availability.save('usr_cleared', cleared)
+    await h.repos.availability.create('usr_cleared', cleared)
 
     await consumeMagicLink(h, {
       token: await requestAndGetToken(h, 'cleared@example.com'),

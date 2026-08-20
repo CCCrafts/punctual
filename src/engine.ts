@@ -88,8 +88,16 @@ export function createSlotService(ports: EnginePorts): SlotService {
       // on (ADR-0007, and the measurement in EventTypeRepository).
       const built: Array<HostAvailabilityInput | null> = await Promise.all(
         hostUsers.map(async (user) => {
+          // `scheduleId` is only ever written for a personal event type
+          // (dashboard-routes.ts/rest.ts refuse it on a team-owned one), so
+          // this needs no `schedulingType` branch here: for a team event
+          // it's always null and every host falls through to their own
+          // default, unchanged. Scoped by `user.id` (not just the id) so an
+          // assigned schedule can never resolve to a different host's row.
           const [availability, external] = await Promise.all([
-            repos.availability.forUser(user.id),
+            eventType.scheduleId
+              ? repos.availability.byId(user.id, eventType.scheduleId).then((s) => s ?? repos.availability.forUser(user.id))
+              : repos.availability.forUser(user.id),
             externalBusyFor(ports, repos, user.id, busyRange),
           ])
           if (!availability) return null

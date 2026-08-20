@@ -223,7 +223,7 @@ describe('busy time actually removes slots', () => {
       slotIntervalMinutes: null, bufferBeforeMinutes: 0, bufferAfterMinutes: 0,
       minNoticeMinutes: 0, maxHorizonDays: 365, maxPerDay: null,
       locationType: 'google_meet', locationValue: null, questions: [],
-      active: true, createdAt: 0,
+      active: true, createdAt: 0, scheduleId: null,
     }
 
     const hosts = [

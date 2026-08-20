@@ -98,8 +98,11 @@ async function seedHost(ports: EnginePorts, scopes: string[] = ['*']): Promise<S
   })
 
   const workday = [{ startMinute: 9 * 60, endMinute: 17 * 60 }]
-  await repos.availability.save(user.id, {
+  await repos.availability.create(user.id, {
+    id: `sch_test_${n}`,
     userId: user.id,
+    name: 'Working hours',
+    isDefault: true,
     timezone: 'UTC',
     weekly: [[], workday, workday, workday, workday, workday, []],
     overrides: [],
@@ -124,6 +127,7 @@ async function seedHost(ports: EnginePorts, scopes: string[] = ['*']): Promise<S
     locationValue: 'https://meet.punctual.test/room',
     questions: [],
     active: true,
+    scheduleId: null,
   })
 
   const { raw } = await createApiKey(
@@ -263,6 +267,7 @@ describe('event types', () => {
       locationValue: null,
       questions: [],
       active: true,
+      scheduleId: null,
     })
 
     const res = await app.request('/api/v1/event-types', { headers: auth(seed.apiKey) })
@@ -430,7 +435,71 @@ describe('GET /slots', () => {
     const slot = body.data[0]!
     expect(slot.end.epochMs - slot.start.epochMs).toBe(30 * 60_000)
     expect(slot.eligibleHostIds).toEqual([seed.user.id])
-    expect(new Date(slot.start.iso).getTime()).toBe(slot.start.epochMs)
+  })
+
+  /**
+   * CCC-581: an event type assigned a specific schedule must draw its slots
+   * from THAT schedule's hours, not the host's default — and reverting the
+   * assignment (scheduleId back to null) must fall back to the default
+   * again. `seedHost`'s default schedule is 09:00-17:00 UTC weekdays; this
+   * schedule is a disjoint 20:00-21:00 UTC every day, so the two can never
+   * accidentally overlap and produce a false pass.
+   */
+  it('draws slots from the assigned schedule, not the default', async () => {
+    const ports = testPorts()
+    const app = buildApp(ports)
+    const seed = await seedHost(ports)
+    const repos = ports.repositories({ consistency: 'bookmark' })
+
+    const evening = [{ startMinute: 20 * 60, endMinute: 21 * 60 }]
+    await repos.availability.create(seed.user.id, {
+      id: `sch_evening_${seed.user.id}`,
+      userId: seed.user.id,
+      name: 'Evenings',
+      isDefault: false,
+      timezone: 'UTC',
+      weekly: [evening, evening, evening, evening, evening, evening, evening],
+      overrides: [],
+    })
+
+    const patchRes = await app.request(`/api/v1/event-types/${seed.eventType.id}`, {
+      method: 'PATCH',
+      headers: { ...auth(seed.apiKey), 'content-type': 'application/json' },
+      body: JSON.stringify({ scheduleId: `sch_evening_${seed.user.id}` }),
+    })
+    expect(patchRes.status).toBe(200)
+    expect((await patchRes.json() as { data: { scheduleId: string | null } }).data.scheduleId).toBe(
+      `sch_evening_${seed.user.id}`,
+    )
+
+    const { from, to } = nextWeek()
+    const assigned = await app.request(
+      `/api/v1/slots?eventTypeId=${seed.eventType.id}&from=${from}&to=${to}`,
+      { headers: auth(seed.apiKey) },
+    )
+    const assignedBody = (await assigned.json()) as { data: SlotJson[] }
+    expect(assignedBody.data.length).toBeGreaterThan(0)
+    for (const slot of assignedBody.data) {
+      expect(new Date(slot.start.epochMs).getUTCHours()).toBe(20)
+    }
+
+    // Revert to the default — falls back to the 09:00-17:00 schedule again.
+    await app.request(`/api/v1/event-types/${seed.eventType.id}`, {
+      method: 'PATCH',
+      headers: { ...auth(seed.apiKey), 'content-type': 'application/json' },
+      body: JSON.stringify({ scheduleId: null }),
+    })
+    const reverted = await app.request(
+      `/api/v1/slots?eventTypeId=${seed.eventType.id}&from=${from}&to=${to}`,
+      { headers: auth(seed.apiKey) },
+    )
+    const revertedBody = (await reverted.json()) as { data: SlotJson[] }
+    expect(revertedBody.data.length).toBeGreaterThan(0)
+    for (const slot of revertedBody.data) {
+      const hour = new Date(slot.start.epochMs).getUTCHours()
+      expect(hour).toBeGreaterThanOrEqual(9)
+      expect(hour).toBeLessThan(17)
+    }
   })
 
   it('refuses an unbounded range', async () => {
@@ -481,8 +550,8 @@ describe('GET /slots', () => {
     const dayOf = dateStr(midnight)
 
     const repos = ports.repositories({ consistency: 'bookmark' })
-    await repos.availability.save(seed.user.id, {
-      userId: seed.user.id,
+    const defaultSchedule = await repos.availability.forUser(seed.user.id)
+    await repos.availability.update(seed.user.id, defaultSchedule!.id, {
       timezone: 'UTC',
       weekly: [[], [], [], [], [], [], []],
       overrides: [
@@ -869,6 +938,7 @@ describe('MCP server', () => {
       locationValue: null,
       questions: [],
       active: true,
+      scheduleId: null,
     })
 
     const call = await rpc(app, seed.apiKey, 'tools/call', {

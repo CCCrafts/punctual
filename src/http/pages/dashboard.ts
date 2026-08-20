@@ -27,13 +27,13 @@
 
 import type {
   ApiKey,
-  Availability,
   Booking,
   CalendarConnection,
   DateOverride,
   DayWindow,
   EventType,
   EventTypeQuestion,
+  Schedule,
   Slot,
   Team,
   TeamMember,
@@ -388,6 +388,13 @@ export interface EventTypeFormData extends DashboardChrome {
    * exactly the text the host has to correct.
    */
   questionsText?: string
+  /**
+   * The host's own schedules — the "Availability schedule" choices beside
+   * "Default". Same precedent as `teams` above: when there's only the one
+   * default, the select is not rendered at all, since a one-option dropdown
+   * offers nothing a host with no other schedule could meaningfully choose.
+   */
+  schedules?: Schedule[]
   errors?: Record<string, string>
 }
 
@@ -485,6 +492,8 @@ export function eventTypeForm(d: EventTypeFormData): string {
       </div>
     </div>
 
+    ${scheduleField(d, errors)}
+
     <label for="locationType">Location</label>
     <select id="locationType" name="locationType"${describedBy('locationType', errors)}>
       ${LOCATION_OPTIONS.map(
@@ -578,6 +587,35 @@ function ownershipFields(d: EventTypeFormData, teams: Team[], errors: Record<str
     </div>`
 }
 
+/**
+ * Same discipline as `ownershipFields`'s scheduling select: always visible
+ * when rendered, no client JS involved, and the value is ignored server-side
+ * (readEventTypeForm) for a team-owned draft — a team event type has
+ * multiple hosts and no single schedule fits all of them (engine.ts).
+ * Rendered only when the host has more than their one default schedule to
+ * choose from, same "nothing meaningful to choose" precedent as `teams`
+ * having none.
+ */
+function scheduleField(d: EventTypeFormData, errors: Record<string, string>): string {
+  const schedules = d.schedules ?? []
+  if (schedules.length <= 1) return fieldError('scheduleId', errors)
+  const et = d.eventType
+  const options = schedules
+    .map(
+      (s) =>
+        `<option value="${escapeHtml(s.id)}"${et?.scheduleId === s.id ? ' selected' : ''}>${escapeHtml(s.name)}${s.isDefault ? ' (default)' : ''}</option>`,
+    )
+    .join('\n      ')
+  return `<label for="scheduleId">Availability schedule</label>
+    <select id="scheduleId" name="scheduleId"${describedBy('scheduleId', errors)}>
+      <option value=""${et?.scheduleId ? '' : ' selected'}>Default</option>
+      ${options}
+    </select>
+    <p class="pu-muted" style="font-size:.8125rem;margin:.25rem 0 0">
+      Which hours this event type draws from. Ignored for a team-owned event.</p>
+    ${fieldError('scheduleId', errors)}`
+}
+
 // ---------------------------------------------------------------------------
 // Availability
 // ---------------------------------------------------------------------------
@@ -616,38 +654,134 @@ const COMMON_ZONES: readonly string[] = [
   'America/Sao_Paulo',
 ]
 
-export interface AvailabilityPageData extends DashboardChrome {
-  availability: Availability
+/** A short, honest readout — not a redesign; the visual widget itself is CCC-582. */
+function scheduleSummary(s: Schedule): string {
+  const activeDays = s.weekly.filter((day) => day.length > 0).length
+  if (activeDays === 0) return 'No hours set'
+  const totalMinutes = s.weekly.reduce(
+    (sum, day) => sum + day.reduce((daySum, w) => daySum + (w.endMinute - w.startMinute), 0),
+    0,
+  )
+  const hours = Math.round(totalMinutes / 6) / 10 // one decimal, e.g. "37.5h"
+  return `${activeDays} day${activeDays === 1 ? '' : 's'}/week &middot; ~${hours}h total &middot; ${escapeHtml(s.timezone)}`
+}
+
+export interface SchedulesPageData extends DashboardChrome {
+  schedules: Schedule[]
+  /** Echo of a failed "new schedule" submit. */
+  nameValue?: string
   errors?: Record<string, string>
   notice?: string
 }
 
-export function availabilityPage(d: AvailabilityPageData): string {
+export function schedulesPage(d: SchedulesPageData): string {
   const errors = d.errors ?? {}
-  const rows = DAY_NAMES.map((name, index) => {
-    const id = `day-${index}`
-    const windows = d.availability.weekly[index] ?? []
-    return `<div>
-      <label for="${id}">${escapeHtml(name)}</label>
-      <input id="${id}" name="${id}" value="${escapeHtml(formatWindows(windows))}"
-             placeholder="09:00-17:00" autocomplete="off"${describedBy(id, errors)}>
-      ${fieldError(id, errors)}
-    </div>`
-  }).join('\n    ')
-
-  const zones = [...new Set([d.availability.timezone, ...COMMON_ZONES])]
+  const cards = d.schedules
+    .map((s) => {
+      const id = encodeURIComponent(s.id)
+      // A schedule that's the default, or the host's only one, has nothing
+      // a Delete button could do but fail — hiding it here matches the
+      // "only member" precedent on the Teams page rather than offering a
+      // control that can only 400.
+      const canDelete = !s.isDefault && d.schedules.length > 1
+      return `<article class="pu-card">
+  <div style="display:flex;align-items:baseline;justify-content:space-between;gap:1rem;flex-wrap:wrap">
+    <h2 style="margin:0">${escapeHtml(s.name)}${s.isDefault ? ' <span class="pu-badge">Default</span>' : ''}</h2>
+    <a href="/dashboard/availability/${id}" class="pu-btn pu-btn-ghost" style="padding:.3rem .6rem;font-size:.8125rem">Edit</a>
+  </div>
+  <p class="pu-muted" style="font-size:.8125rem;margin:.5rem 0 0">${scheduleSummary(s)}</p>
+  ${fieldError(`schedule-${s.id}`, errors)}
+  <div style="display:flex;gap:.5rem;margin-top:.75rem;flex-wrap:wrap">
+    <form method="post" action="/dashboard/availability/${id}/duplicate" style="margin:0">
+      ${csrfField(d.csrf)}
+      <button class="pu-btn pu-btn-ghost" type="submit" style="padding:.3rem .6rem;font-size:.8125rem">Duplicate</button>
+    </form>
+    ${
+      s.isDefault
+        ? ''
+        : `<form method="post" action="/dashboard/availability/${id}/set-default" style="margin:0">
+      ${csrfField(d.csrf)}
+      <button class="pu-btn pu-btn-ghost" type="submit" style="padding:.3rem .6rem;font-size:.8125rem">Set as default</button>
+    </form>`
+    }
+    ${
+      canDelete
+        ? `<form method="post" action="/dashboard/availability/${id}/delete" style="margin:0">
+      ${csrfField(d.csrf)}
+      <button class="pu-btn pu-btn-ghost" type="submit" style="padding:.3rem .6rem;font-size:.8125rem">Delete</button>
+    </form>`
+        : ''
+    }
+  </div>
+</article>`
+    })
+    .join('\n')
 
   return (
     shellTop(d, 'Availability', 'availability') +
     (d.notice ? notice(d.notice) : '') +
-    `<section class="pu-card" aria-label="Weekly availability">
+    `<section aria-label="Availability schedules">
   <h1>Availability</h1>
-  <form method="post" action="/dashboard/availability">
+  <p class="pu-muted">Each of your event types draws its hours from one of these schedules &mdash;
+    assign a specific one from the event type's own edit page, or leave it on the default.</p>
+  <div style="display:grid;gap:1rem">${cards}</div>
+  <form class="pu-card" method="post" action="/dashboard/availability/new" style="margin-top:1.5rem">
+    ${csrfField(d.csrf)}
+    <h2>New schedule</h2>
+    <label for="schedule-name">Name</label>
+    <input id="schedule-name" name="name" required aria-required="true" maxlength="120"
+           placeholder="Evenings" value="${escapeHtml(d.nameValue ?? '')}"${describedBy('schedule-name', errors)}>
+    ${fieldError('schedule-name', errors)}
+    <p class="pu-muted" style="font-size:.8125rem;margin:.25rem 0 0">
+      Starts as a copy of your default schedule's hours &mdash; edit it after creating.</p>
+    <div style="margin-top:1.25rem"><button class="pu-btn" type="submit">Create schedule</button></div>
+  </form>
+</section>` +
+    shellBottom(d.brandName)
+  )
+}
+
+export interface ScheduleFormData extends DashboardChrome {
+  schedule: Schedule
+  /** Echo of a failed rename, same reasoning as settingsPage's slugValue. */
+  nameValue?: string
+  errors?: Record<string, string>
+  notice?: string
+}
+
+export function scheduleForm(d: ScheduleFormData): string {
+  const errors = d.errors ?? {}
+  const id = encodeURIComponent(d.schedule.id)
+  const rows = DAY_NAMES.map((name, index) => {
+    const fid = `day-${index}`
+    const windows = d.schedule.weekly[index] ?? []
+    return `<div>
+      <label for="${fid}">${escapeHtml(name)}</label>
+      <input id="${fid}" name="${fid}" value="${escapeHtml(formatWindows(windows))}"
+             placeholder="09:00-17:00" autocomplete="off"${describedBy(fid, errors)}>
+      ${fieldError(fid, errors)}
+    </div>`
+  }).join('\n    ')
+
+  const zones = [...new Set([d.schedule.timezone, ...COMMON_ZONES])]
+
+  return (
+    shellTop(d, `${d.schedule.name} · Availability`, 'availability') +
+    (d.notice ? notice(d.notice) : '') +
+    `<p><a href="/dashboard/availability" class="pu-muted">&larr; All schedules</a></p>
+<section class="pu-card" aria-label="Edit schedule">
+  <h1>${escapeHtml(d.schedule.name)}${d.schedule.isDefault ? ' <span class="pu-badge">Default</span>' : ''}</h1>
+  <form method="post" action="/dashboard/availability/${id}">
     ${csrfField(d.csrf)}
 
-    <label for="timezone">Timezone</label>
+    <label for="schedule-name">Name</label>
+    <input id="schedule-name" name="name" required aria-required="true" maxlength="120"
+           value="${escapeHtml(d.nameValue ?? d.schedule.name)}"${describedBy('schedule-name', errors)}>
+    ${fieldError('schedule-name', errors)}
+
+    <label for="timezone" style="margin-top:1rem">Timezone</label>
     <input id="timezone" name="timezone" list="pu-zones" required aria-required="true"
-           value="${escapeHtml(d.availability.timezone)}"${describedBy('timezone', errors)}>
+           value="${escapeHtml(d.schedule.timezone)}"${describedBy('timezone', errors)}>
     <datalist id="pu-zones">
       ${zones.map((z) => `<option value="${escapeHtml(z)}"></option>`).join('\n      ')}
     </datalist>
@@ -662,13 +796,13 @@ export function availabilityPage(d: AvailabilityPageData): string {
 
     <h2 style="margin-top:1.5rem">Date overrides</h2>
     <label for="overrides">Specific dates</label>
-    <textarea id="overrides" name="overrides" rows="5" placeholder="2026-12-24"${describedBy('overrides', errors)}>${escapeHtml(formatOverrides(d.availability.overrides))}</textarea>
+    <textarea id="overrides" name="overrides" rows="5" placeholder="2026-12-24"${describedBy('overrides', errors)}>${escapeHtml(formatOverrides(d.schedule.overrides))}</textarea>
     <p class="pu-muted" style="font-size:.8125rem;margin:.25rem 0 0">
       One per line: <code>YYYY-MM-DD 10:00-14:00</code>. A date with no ranges is a day off, and an override
       replaces that day's weekly hours entirely.</p>
     ${fieldError('overrides', errors)}
 
-    <div style="margin-top:1.5rem"><button class="pu-btn" type="submit">Save availability</button></div>
+    <div style="margin-top:1.5rem"><button class="pu-btn" type="submit">Save schedule</button></div>
   </form>
 </section>` +
     shellBottom(d.brandName)

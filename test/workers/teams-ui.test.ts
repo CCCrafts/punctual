@@ -27,7 +27,7 @@ import {
   fakeConfig,
 } from '../../src/testing/fakes.js'
 import type { SlotService } from '../../src/engine.js'
-import type { Availability } from '../../src/core/domain/types.js'
+import type { Schedule } from '../../src/core/domain/types.js'
 import type {
   BlobCache,
   Cache as CachePort,
@@ -480,16 +480,22 @@ describe('repository-level atomic guards', () => {
     // host clearing their week from another device) can never lose a race
     // to the backfill's default — only the database can arbitrate that.
     const repos = createD1Repositories(db, { consistency: 'bookmark' })
-    const cleared: Availability = {
+    const cleared: Schedule = {
+      id: 'sch_avail',
       userId: 'usr_avail',
+      name: 'Working hours',
+      isDefault: true,
       timezone: 'UTC',
       weekly: [[], [], [], [], [], [], []],
       overrides: [],
     }
-    await repos.availability.save('usr_avail', cleared)
+    await repos.availability.create('usr_avail', cleared)
 
     await repos.availability.saveIfAbsent('usr_avail', {
+      id: 'sch_avail_backfill',
       userId: 'usr_avail',
+      name: 'Working hours',
+      isDefault: true,
       timezone: 'America/New_York',
       weekly: [[], [{ startMinute: 540, endMinute: 1020 }], [], [], [], [], []],
       overrides: [],
@@ -502,13 +508,103 @@ describe('repository-level atomic guards', () => {
     const repos = createD1Repositories(db, { consistency: 'bookmark' })
     expect(await repos.availability.forUser('usr_avail_new')).toBeNull()
 
-    const fresh: Availability = {
+    const fresh: Schedule = {
+      id: 'sch_avail_new',
       userId: 'usr_avail_new',
+      name: 'Working hours',
+      isDefault: true,
       timezone: 'Europe/Kyiv',
       weekly: [[], [{ startMinute: 540, endMinute: 1020 }], [], [], [], [], []],
       overrides: [],
     }
     await repos.availability.saveIfAbsent('usr_avail_new', fresh)
     expect(await repos.availability.forUser('usr_avail_new')).toEqual(fresh)
+  })
+
+  it('setDefault atomically moves the default flag, even under concurrent calls', async () => {
+    // The partial unique index (schedules_user_default_idx) is the actual
+    // invariant — this proves setDefault's two-statement batch never leaves
+    // two schedules (or zero) marked default for the same user, which a
+    // naive single UPDATE ordered the wrong way around would risk (see the
+    // comment on setDefault in repositories.ts).
+    const repos = createD1Repositories(db, { consistency: 'bookmark' })
+    const a: Schedule = {
+      id: 'sch_race_a',
+      userId: 'usr_race',
+      name: 'A',
+      isDefault: true,
+      timezone: 'UTC',
+      weekly: [[], [], [], [], [], [], []],
+      overrides: [],
+    }
+    const b: Schedule = { ...a, id: 'sch_race_b', name: 'B', isDefault: false }
+    await repos.availability.create('usr_race', a)
+    await repos.availability.create('usr_race', b)
+
+    await Promise.all([
+      repos.availability.setDefault('usr_race', 'sch_race_b'),
+      repos.availability.setDefault('usr_race', 'sch_race_a'),
+    ])
+
+    const defaults = await db
+      .prepare("SELECT COUNT(*) AS n FROM schedules WHERE user_id='usr_race' AND is_default=1")
+      .first<{ n: number }>()
+    expect(defaults?.n).toBe(1)
+  })
+
+  it('delete refuses the default schedule, and the user\'s only remaining one, in one statement', async () => {
+    const repos = createD1Repositories(db, { consistency: 'bookmark' })
+    const empty: Omit<Schedule, 'id' | 'name' | 'isDefault'> = {
+      userId: 'usr_del',
+      timezone: 'UTC',
+      weekly: [[], [], [], [], [], [], []],
+      overrides: [],
+    }
+    await repos.availability.create('usr_del', { ...empty, id: 'sch_del_default', name: 'Default', isDefault: true })
+    await repos.availability.create('usr_del', { ...empty, id: 'sch_del_extra', name: 'Extra', isDefault: false })
+
+    // Not the default, and not the last one — succeeds.
+    expect(await repos.availability.delete('usr_del', 'sch_del_extra')).toBe(true)
+    // Now the user's only (and default) schedule — refused either way.
+    expect(await repos.availability.delete('usr_del', 'sch_del_default')).toBe(false)
+    const left = await db.prepare("SELECT COUNT(*) AS n FROM schedules WHERE user_id='usr_del'").first<{ n: number }>()
+    expect(left?.n).toBe(1)
+  })
+
+  it('delete refuses a schedule an event type still points at', async () => {
+    const repos = createD1Repositories(db, { consistency: 'bookmark' })
+    const empty: Omit<Schedule, 'id' | 'name' | 'isDefault'> = {
+      userId: 'usr_del2',
+      timezone: 'UTC',
+      weekly: [[], [], [], [], [], [], []],
+      overrides: [],
+    }
+    await repos.availability.create('usr_del2', { ...empty, id: 'sch_del2_default', name: 'Default', isDefault: true })
+    await repos.availability.create('usr_del2', { ...empty, id: 'sch_del2_extra', name: 'Extra', isDefault: false })
+    await repos.eventTypes.create({
+      id: 'et_del2',
+      ownerUserId: 'usr_del2',
+      ownerTeamId: null,
+      schedulingType: 'personal',
+      slug: 'evening',
+      title: 'Evening call',
+      description: '',
+      durationMinutes: 30,
+      slotIntervalMinutes: null,
+      bufferBeforeMinutes: 0,
+      bufferAfterMinutes: 0,
+      minNoticeMinutes: 0,
+      maxHorizonDays: 60,
+      maxPerDay: null,
+      locationType: 'google_meet',
+      locationValue: null,
+      questions: [],
+      active: true,
+      scheduleId: 'sch_del2_extra',
+    })
+
+    expect(await repos.availability.delete('usr_del2', 'sch_del2_extra')).toBe(false)
+    await repos.eventTypes.update('et_del2', { scheduleId: null })
+    expect(await repos.availability.delete('usr_del2', 'sch_del2_extra')).toBe(true)
   })
 })

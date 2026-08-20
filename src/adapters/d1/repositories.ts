@@ -21,6 +21,7 @@ import type {
   Booking,
   CalendarConnection,
   EventType,
+  Schedule,
   Team,
   TeamMember,
   User,
@@ -255,13 +256,14 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
         `INSERT INTO event_types
          (id,owner_user_id,owner_team_id,scheduling_type,slug,title,description,duration_minutes,
           slot_interval_minutes,buffer_before_minutes,buffer_after_minutes,min_notice_minutes,
-          max_horizon_days,max_per_day,location_type,location_value,questions_json,active,created_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          max_horizon_days,max_per_day,location_type,location_value,questions_json,active,created_at,
+          schedule_id)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         row.id, row.ownerUserId, row.ownerTeamId, row.schedulingType, row.slug, row.title,
         row.description, row.durationMinutes, row.slotIntervalMinutes, row.bufferBeforeMinutes,
         row.bufferAfterMinutes, row.minNoticeMinutes, row.maxHorizonDays, row.maxPerDay,
         row.locationType, row.locationValue, JSON.stringify(row.questions), row.active ? 1 : 0,
-        row.createdAt,
+        row.createdAt, row.scheduleId,
       )
       return row
     },
@@ -292,6 +294,7 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
       if (patch.locationValue !== undefined) put('location_value', patch.locationValue)
       if (patch.questions !== undefined) put('questions_json', JSON.stringify(patch.questions))
       if (patch.active !== undefined) put('active', patch.active ? 1 : 0)
+      if (patch.scheduleId !== undefined) put('schedule_id', patch.scheduleId)
       const entries = Object.values(map)
       if (entries.length === 0) return
       await run(
@@ -306,50 +309,112 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
   }
 
   // -------------------------------------------------------------------------
-  // Availability
+  // Availability — named schedules (CCC-581)
   // -------------------------------------------------------------------------
   const availability: AvailabilityRepository = {
     async forUser(userId) {
-      const row = await first<Record<string, unknown>>(
-        'SELECT * FROM availability_schedules WHERE user_id = ?',
+      return mapSchedule(
+        await first<Record<string, unknown>>(
+          'SELECT * FROM schedules WHERE user_id = ? AND is_default = 1',
+          userId,
+        ),
+      )
+    },
+    async listForUser(userId) {
+      const rows = await all<Record<string, unknown>>(
+        'SELECT * FROM schedules WHERE user_id = ? ORDER BY is_default DESC, name',
         userId,
       )
-      if (!row) return null
-      return {
-        userId: String(row['user_id']),
-        timezone: String(row['timezone']),
-        weekly: JSON.parse(String(row['weekly_json'])) as WeeklySchedule,
-        overrides: JSON.parse(String(row['overrides_json'] ?? '[]')),
-      }
+      return rows.map((r) => mapSchedule(r)!).filter(Boolean)
     },
-    async save(userId, av) {
+    async byId(userId, scheduleId) {
+      return mapSchedule(
+        await first<Record<string, unknown>>(
+          'SELECT * FROM schedules WHERE id = ? AND user_id = ?',
+          scheduleId,
+          userId,
+        ),
+      )
+    },
+    async create(userId, schedule) {
       await run(
-        `INSERT INTO availability_schedules (user_id,timezone,weekly_json,overrides_json,updated_at)
-         VALUES (?,?,?,?,?)
-         ON CONFLICT(user_id) DO UPDATE SET
-           timezone = excluded.timezone,
-           weekly_json = excluded.weekly_json,
-           overrides_json = excluded.overrides_json,
-           updated_at = excluded.updated_at`,
+        `INSERT INTO schedules (id,user_id,name,is_default,timezone,weekly_json,overrides_json,updated_at)
+         VALUES (?,?,?,?,?,?,?,?)`,
+        schedule.id,
         userId,
-        av.timezone,
-        JSON.stringify(av.weekly),
-        JSON.stringify(av.overrides),
+        schedule.name,
+        schedule.isDefault ? 1 : 0,
+        schedule.timezone,
+        JSON.stringify(schedule.weekly),
+        JSON.stringify(schedule.overrides),
         Date.now(),
       )
+      return schedule
     },
-    async saveIfAbsent(userId, av) {
-      // ON CONFLICT DO NOTHING, not a forUser-then-save check from the
-      // caller: only the database can arbitrate a concurrent real save
-      // landing in the same window (see the port doc comment).
-      await run(
-        `INSERT INTO availability_schedules (user_id,timezone,weekly_json,overrides_json,updated_at)
-         VALUES (?,?,?,?,?)
-         ON CONFLICT(user_id) DO NOTHING`,
+    async update(userId, scheduleId, patch) {
+      const sets: string[] = []
+      const binds: unknown[] = []
+      if (patch.name !== undefined) (sets.push('name = ?'), binds.push(patch.name))
+      if (patch.timezone !== undefined) (sets.push('timezone = ?'), binds.push(patch.timezone))
+      if (patch.weekly !== undefined) (sets.push('weekly_json = ?'), binds.push(JSON.stringify(patch.weekly)))
+      if (patch.overrides !== undefined) {
+        sets.push('overrides_json = ?')
+        binds.push(JSON.stringify(patch.overrides))
+      }
+      if (sets.length === 0) return
+      sets.push('updated_at = ?')
+      binds.push(Date.now())
+      binds.push(scheduleId, userId)
+      await run(`UPDATE schedules SET ${sets.join(', ')} WHERE id = ? AND user_id = ?`, ...binds)
+    },
+    async delete(userId, scheduleId) {
+      // One statement, same discipline as `demoteAdmin`: refuses the
+      // default, the user's last schedule, or one an event type still
+      // points at — all evaluated inside the DELETE itself, so no
+      // interleaving between a check and the write can slip past any of the
+      // three.
+      const res = await q(
+        `DELETE FROM schedules
+         WHERE id = ? AND user_id = ?
+           AND is_default = 0
+           AND (SELECT COUNT(*) FROM schedules WHERE user_id = ?) > 1
+           AND NOT EXISTS (SELECT 1 FROM event_types WHERE schedule_id = ?)`,
+        scheduleId,
         userId,
-        av.timezone,
-        JSON.stringify(av.weekly),
-        JSON.stringify(av.overrides),
+        userId,
+        scheduleId,
+      ).run()
+      return (res.meta.changes ?? 0) > 0
+    },
+    async setDefault(userId, scheduleId) {
+      // Two statements in one transaction, old default cleared BEFORE the
+      // new one is set: the reverse order would momentarily create two
+      // is_default=1 rows for this user mid-batch, which the partial unique
+      // index (schedules_user_default_idx) would immediately reject. This
+      // order instead passes through a safe "zero defaults" middle state.
+      const results = await session.batch([
+        session.prepare('UPDATE schedules SET is_default = 0 WHERE user_id = ? AND is_default = 1').bind(userId),
+        session.prepare('UPDATE schedules SET is_default = 1 WHERE id = ? AND user_id = ?').bind(scheduleId, userId),
+      ])
+      return (results[1]?.meta.changes ?? 0) > 0
+    },
+    async saveIfAbsent(userId, schedule) {
+      // ON CONFLICT DO NOTHING against the partial unique index, not a
+      // forUser-then-create check from the caller: only the database can
+      // arbitrate a concurrent real save landing in the same window (see
+      // the port doc comment). The conflict target must repeat the index's
+      // exact predicate — a bare `ON CONFLICT(user_id)` does not match a
+      // partial index.
+      await run(
+        `INSERT INTO schedules (id,user_id,name,is_default,timezone,weekly_json,overrides_json,updated_at)
+         VALUES (?,?,?,1,?,?,?,?)
+         ON CONFLICT(user_id) WHERE is_default = 1 DO NOTHING`,
+        schedule.id,
+        userId,
+        schedule.name,
+        schedule.timezone,
+        JSON.stringify(schedule.weekly),
+        JSON.stringify(schedule.overrides),
         Date.now(),
       )
     },
@@ -997,6 +1062,19 @@ export function isConstraintViolation(err: unknown): boolean {
   )
 }
 
+function mapSchedule(row: Record<string, unknown> | null): Schedule | null {
+  if (!row) return null
+  return {
+    id: String(row['id']),
+    userId: String(row['user_id']),
+    name: String(row['name']),
+    isDefault: Number(row['is_default']) === 1,
+    timezone: String(row['timezone']),
+    weekly: JSON.parse(String(row['weekly_json'])) as WeeklySchedule,
+    overrides: JSON.parse(String(row['overrides_json'] ?? '[]')),
+  }
+}
+
 function mapUser(row: Record<string, unknown> | null): User | null {
   if (!row) return null
   return {
@@ -1056,6 +1134,7 @@ function mapEventType(row: Record<string, unknown> | null): EventType | null {
     questions: JSON.parse(String(row['questions_json'] ?? '[]')),
     active: Number(row['active']) === 1,
     createdAt: Number(row['created_at']),
+    scheduleId: row['schedule_id'] == null ? null : String(row['schedule_id']),
   }
 }
 

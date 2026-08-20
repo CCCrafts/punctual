@@ -40,10 +40,10 @@ import type {
 } from '../ports.js'
 import type { SlotService } from '../engine.js'
 import type {
-  Availability,
   Booking,
   CalendarConnection,
   EventType,
+  Schedule,
   Session,
   Team,
   User,
@@ -61,7 +61,7 @@ import {
 } from '../core/domain/auth-service.js'
 import {
   consumeMagicLink,
-  defaultAvailability,
+  defaultSchedule,
   parseSignupPolicy,
   createApiKey,
   requestMagicLink,
@@ -87,7 +87,8 @@ import { errorPage, shellFoot, shellHead } from './pages/booking.js'
 import {
   CSRF_FIELD,
   apiKeysPage,
-  availabilityPage,
+  schedulesPage,
+  scheduleForm,
   bookingDetailPage,
   connectionsPage,
   dashboardHome,
@@ -582,7 +583,13 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
   // Registered before `/:id`, or Hono would read "new" as an id.
   app.get('/dashboard/event-types/new', requireSession, async (c) =>
     c.html(
-      eventTypeForm({ brandName, user: c.get('user'), csrf: c.get('csrf'), teams: await userTeams(c) }),
+      eventTypeForm({
+        brandName,
+        user: c.get('user'),
+        csrf: c.get('csrf'),
+        teams: await userTeams(c),
+        schedules: await c.get('repos').availability.listForUser(c.get('user').id),
+      }),
     ),
   )
 
@@ -596,6 +603,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
         csrf: c.get('csrf'),
         eventType,
         teams: await userTeams(c),
+        schedules: await c.get('repos').availability.listForUser(c.get('user').id),
       }),
     )
   })
@@ -618,6 +626,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
           questionsText,
           errors,
           teams: await userTeams(c),
+          schedules: await repos.availability.listForUser(user.id),
         }),
         400,
       )
@@ -650,6 +659,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
           questionsText: read.questionsText,
           errors,
           teams: await userTeams(c),
+          schedules: await repos.availability.listForUser(user.id),
         }),
         400,
       )
@@ -700,22 +710,73 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
   }
 
   // ===========================================================================
-  // Dashboard — availability
+  // Dashboard — availability (named schedules, CCC-581)
   // ===========================================================================
 
-  app.get('/dashboard/availability', requireSession, async (c) => {
+  async function schedulesData(c: Ctx): Promise<{ brandName: string; user: User; csrf: string; schedules: Schedule[] }> {
     const user = c.get('user')
-    const availability = (await c.get('repos').availability.forUser(user.id)) ?? defaultAvailability(user)
-    return c.html(availabilityPage({ brandName, user, csrf: c.get('csrf'), availability }))
+    return { brandName, user, csrf: c.get('csrf'), schedules: await c.get('repos').availability.listForUser(user.id) }
+  }
+
+  /** Scoped by the signed-in user, same reasoning as `memberManagedTeam` — no cross-user id-guessing. */
+  async function ownedSchedule(c: Ctx): Promise<Schedule | null> {
+    return c.get('repos').availability.byId(c.get('user').id, c.req.param('id') ?? '')
+  }
+
+  app.get('/dashboard/availability', requireSession, async (c) => {
+    return c.html(schedulesPage(await schedulesData(c)))
   })
 
-  app.post('/dashboard/availability', requireSession, async (c) => {
+  app.post('/dashboard/availability/new', requireSession, async (c) => {
     const form = await c.req.formData()
     if (!(await csrfOk(c, form))) return csrfRejected(c)
 
     const user = c.get('user')
     const repos = c.get('repos')
+    const name = String(form.get('name') ?? '').trim()
+    if (name === '' || name.length > 120) {
+      return c.html(
+        schedulesPage({ ...(await schedulesData(c)), nameValue: name, errors: { 'schedule-name': 'Required, up to 120 characters' } }),
+        400,
+      )
+    }
+
+    // Starts as a copy of the default's hours — a blank week is a worse
+    // starting point than "the same as what already works," and the host
+    // edits it immediately after on its own page anyway.
+    const base = (await repos.availability.forUser(user.id)) ?? defaultSchedule(user, '')
+    const created = await repos.availability.create(user.id, {
+      id: `sch_${ports.crypto.randomToken(12)}`,
+      userId: user.id,
+      name,
+      isDefault: false,
+      timezone: base.timezone,
+      weekly: base.weekly,
+      overrides: [],
+    })
+    await advanceBookmark(c)
+    return c.redirect(`/dashboard/availability/${encodeURIComponent(created.id)}`, 302)
+  })
+
+  app.get('/dashboard/availability/:id', requireSession, async (c) => {
+    const schedule = await ownedSchedule(c)
+    if (!schedule) return notFound(c)
+    return c.html(scheduleForm({ brandName, user: c.get('user'), csrf: c.get('csrf'), schedule }))
+  })
+
+  app.post('/dashboard/availability/:id', requireSession, async (c) => {
+    const form = await c.req.formData()
+    if (!(await csrfOk(c, form))) return csrfRejected(c)
+
+    const user = c.get('user')
+    const repos = c.get('repos')
+    const schedule = await ownedSchedule(c)
+    if (!schedule) return notFound(c)
+
     const errors: Record<string, string> = {}
+
+    const name = String(form.get('name') ?? '').trim()
+    if (name === '' || name.length > 120) errors['schedule-name'] = 'Required, up to 120 characters'
 
     const timezone = String(form.get('timezone') ?? '').trim()
     if (!isValidTimeZone(timezone)) errors['timezone'] = 'Not a recognised timezone name'
@@ -730,35 +791,108 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     const overrides = parseOverrides(String(form.get('overrides') ?? ''))
     if (overrides === null) errors['overrides'] = 'Use lines like 2026-12-24 10:00-14:00'
 
-    const availability: Availability = {
-      userId: user.id,
-      timezone: isValidTimeZone(timezone) ? timezone : user.tz,
+    const draft: Schedule = {
+      ...schedule,
+      name: name === '' ? schedule.name : name,
+      timezone: isValidTimeZone(timezone) ? timezone : schedule.timezone,
       weekly,
       overrides: overrides ?? [],
     }
 
     if (Object.keys(errors).length > 0) {
-      return c.html(
-        availabilityPage({ brandName, user, csrf: c.get('csrf'), availability, errors }),
-        400,
-      )
+      return c.html(scheduleForm({ brandName, user, csrf: c.get('csrf'), schedule: draft, errors }), 400)
     }
 
-    await repos.availability.save(user.id, availability)
-    // The booking page renders the host's month grid in `users.tz`, so leaving
-    // the two to drift would show a calendar that disagrees with the schedule.
-    if (availability.timezone !== user.tz) await repos.users.update(user.id, { tz: availability.timezone })
+    await repos.availability.update(user.id, schedule.id, {
+      name: draft.name,
+      timezone: draft.timezone,
+      weekly: draft.weekly,
+      overrides: draft.overrides,
+    })
+    // The booking page renders the host's month grid in `users.tz`, so for
+    // the DEFAULT schedule specifically, leaving the two to drift would show
+    // a calendar that disagrees with the schedule actually in effect for
+    // most of the host's event types. A non-default schedule's timezone has
+    // no such single-field mirror to keep in sync.
+    if (schedule.isDefault && draft.timezone !== user.tz) {
+      await repos.users.update(user.id, { tz: draft.timezone })
+    }
     await advanceBookmark(c)
 
     return c.html(
-      availabilityPage({
+      scheduleForm({
         brandName,
-        user: { ...user, tz: availability.timezone },
+        user: schedule.isDefault ? { ...user, tz: draft.timezone } : user,
         csrf: c.get('csrf'),
-        availability,
-        notice: 'Availability saved.',
+        schedule: draft,
+        notice: 'Schedule saved.',
       }),
     )
+  })
+
+  app.post('/dashboard/availability/:id/duplicate', requireSession, async (c) => {
+    const form = await c.req.formData()
+    if (!(await csrfOk(c, form))) return csrfRejected(c)
+
+    const user = c.get('user')
+    const repos = c.get('repos')
+    const schedule = await ownedSchedule(c)
+    if (!schedule) return notFound(c)
+
+    await repos.availability.create(user.id, {
+      id: `sch_${ports.crypto.randomToken(12)}`,
+      userId: user.id,
+      name: `${schedule.name} copy`,
+      isDefault: false,
+      timezone: schedule.timezone,
+      weekly: schedule.weekly,
+      overrides: schedule.overrides,
+    })
+    await advanceBookmark(c)
+    return c.html(schedulesPage({ ...(await schedulesData(c)), notice: 'Schedule duplicated.' }))
+  })
+
+  app.post('/dashboard/availability/:id/set-default', requireSession, async (c) => {
+    const form = await c.req.formData()
+    if (!(await csrfOk(c, form))) return csrfRejected(c)
+
+    const user = c.get('user')
+    const repos = c.get('repos')
+    const schedule = await ownedSchedule(c)
+    if (!schedule) return notFound(c)
+    if (schedule.isDefault) return c.html(schedulesPage(await schedulesData(c))) // stale page double-submit
+
+    await repos.availability.setDefault(user.id, schedule.id)
+    // Mirrors the save route's reasoning: the booking page renders in
+    // `users.tz`, which must track whichever schedule is now the default.
+    if (schedule.timezone !== user.tz) await repos.users.update(user.id, { tz: schedule.timezone })
+    await advanceBookmark(c)
+    return c.html(schedulesPage({ ...(await schedulesData(c)), notice: `"${schedule.name}" is now your default.` }))
+  })
+
+  app.post('/dashboard/availability/:id/delete', requireSession, async (c) => {
+    const form = await c.req.formData()
+    if (!(await csrfOk(c, form))) return csrfRejected(c)
+
+    const user = c.get('user')
+    const repos = c.get('repos')
+    const schedule = await ownedSchedule(c)
+    // A stale page double-submit (already gone) is a no-op, same distinction
+    // as team-member removal and admin demotion below.
+    if (!schedule) return c.html(schedulesPage(await schedulesData(c)))
+
+    const deleted = await repos.availability.delete(user.id, schedule.id)
+    if (!deleted) {
+      // The guard refuses for three different reasons (default, last
+      // remaining, or still referenced by an event type) — cheap to
+      // distinguish here since the page just re-fetched the full list.
+      const reason = schedule.isDefault
+        ? 'Cannot delete your default schedule — set another one as default first.'
+        : 'Cannot delete a schedule an event type is still using.'
+      return c.html(schedulesPage({ ...(await schedulesData(c)), errors: { [`schedule-${schedule.id}`]: reason } }), 400)
+    }
+    await advanceBookmark(c)
+    return c.html(schedulesPage({ ...(await schedulesData(c)), notice: 'Schedule deleted.' }))
   })
 
   // ===========================================================================
@@ -2026,6 +2160,10 @@ function readEventTypeForm(
     questions: parseQuestions(questionsText) ?? [],
     active: form.get('active') !== null,
     createdAt: 0,
+    // Same reasoning as `schedulingType` above: the select always renders,
+    // but a team-owned draft has no single host to resolve it against, so
+    // its value is ignored here regardless of what was submitted.
+    scheduleId: ownerTeamId === null ? text('scheduleId') || null : null,
   }
   return { draft, questionsText }
 }
@@ -2129,6 +2267,17 @@ async function validateEventType(
   if (parseQuestions(questionsText) === null) {
     errors['questions'] =
       'One per line: Label | text, textarea or select | required or optional | options for select'
+  }
+
+  // `readEventTypeForm` already forces this null for a team-owned draft, but
+  // a raw POST bypasses the reader — re-checked here rather than trusted, the
+  // same discipline as the scheduling-type/owner pair above.
+  if (draft.scheduleId !== null) {
+    if (draft.ownerTeamId !== null) {
+      errors['scheduleId'] = 'A team event type cannot use a specific schedule'
+    } else if (!(await repos.availability.byId(user.id, draft.scheduleId))) {
+      errors['scheduleId'] = 'Pick one of your own schedules'
+    }
   }
 
   return errors
