@@ -153,8 +153,14 @@ describe('shellFoot operator line', () => {
     // guest clicking the wordmark wants the project, not a loop back into
     // the same instance they're already on.
     const html = shellFoot('Punctual', true, false, 'Acme Inc')
-    expect(html).toContain('<a class="pu-mark" href="https://punctual.sh">')
+    expect(html).toContain('<a class="pu-mark" href="https://punctual.sh" target="_blank" rel="noopener">')
     expect(html).not.toContain('href="/"')
+  })
+
+  it('opens in a new tab even when embedded, so a click cannot navigate the customer\'s iframe away from the booking flow', () => {
+    const html = shellFoot('Punctual', true, true, null)
+    expect(html).toContain('target="_blank"')
+    expect(html).toContain('rel="noopener"')
   })
 })
 

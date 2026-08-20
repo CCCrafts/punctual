@@ -120,7 +120,13 @@ export function shellFoot(
   embed = false,
   operator?: string | null,
 ): string {
-  const mark = `<a class="pu-mark" href="${PUNCTUAL_SITE_URL}">${escapeHtml(brandName.toLowerCase())}<span>:</span></a>`
+  // target="_blank": this page can be embedded in a customer's iframe
+  // (`embed`, below), and an external destination navigating the iframe
+  // itself in place would either hit the host site's framing restrictions
+  // and go blank, or strand the guest on punctual.sh with no way back into
+  // the booking flow. A new tab is correct whether embedded or not — this
+  // link now leaves the deployment entirely.
+  const mark = `<a class="pu-mark" href="${PUNCTUAL_SITE_URL}" target="_blank" rel="noopener">${escapeHtml(brandName.toLowerCase())}<span>:</span></a>`
   const foot = operator
     ? `<p class="pu-foot">${escapeHtml(operator)} · scheduling by ${mark}</p>`
     : `<p class="pu-foot">${mark} — scheduling that shows up on time</p>`
