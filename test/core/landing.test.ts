@@ -61,6 +61,13 @@ describe('footer operator line', () => {
     expect(landingPage(opts)).toContain('Creative Content Crafts (CCCrafts)')
     expect(docsIndexPage(opts)).toContain('Creative Content Crafts (CCCrafts)')
   })
+
+  it('the footer wordmark links to punctual.sh, not this deployment\'s own homepage', () => {
+    // Same reasoning as booking.ts's shellFoot: on a self-hosted install,
+    // "/" is that operator's own homepage, not the project.
+    expect(landingPage(base)).toContain('<a class="pu-mark" href="https://punctual.sh">')
+    expect(docsIndexPage(base)).toContain('<a class="pu-mark" href="https://punctual.sh">')
+  })
 })
 
 /**

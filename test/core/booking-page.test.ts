@@ -147,6 +147,15 @@ describe('shellFoot operator line', () => {
     expect(html).not.toContain('<img onerror')
     expect(html).toContain('&lt;img onerror=x&gt;')
   })
+
+  it('the wordmark links to punctual.sh, not this deployment\'s own homepage', () => {
+    // On a self-hosted install, "/" is that operator's own homepage — a
+    // guest clicking the wordmark wants the project, not a loop back into
+    // the same instance they're already on.
+    const html = shellFoot('Punctual', true, false, 'Acme Inc')
+    expect(html).toContain('<a class="pu-mark" href="https://punctual.sh">')
+    expect(html).not.toContain('href="/"')
+  })
 })
 
 /**

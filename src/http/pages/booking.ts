@@ -22,6 +22,14 @@ import { formatInZone, localDateString, offsetLabel } from '../../core/time/zone
 import { embedResizeScriptTag } from '../embed.js'
 import { pageCss } from '../styles.js'
 
+/**
+ * The wordmark in a public-facing footer always points here, not at `/` —
+ * on a self-hosted install, `/` is that operator's own homepage, and a
+ * curious guest clicking "punctual:" wants the project, not another loop
+ * back into the same deployment they're already looking at.
+ */
+export const PUNCTUAL_SITE_URL = 'https://punctual.sh'
+
 export function escapeHtml(s: string): string {
   return s
     .replace(/&/g, '&amp;')
@@ -112,7 +120,7 @@ export function shellFoot(
   embed = false,
   operator?: string | null,
 ): string {
-  const mark = `<a class="pu-mark" href="/">${escapeHtml(brandName.toLowerCase())}<span>:</span></a>`
+  const mark = `<a class="pu-mark" href="${PUNCTUAL_SITE_URL}">${escapeHtml(brandName.toLowerCase())}<span>:</span></a>`
   const foot = operator
     ? `<p class="pu-foot">${escapeHtml(operator)} · scheduling by ${mark}</p>`
     : `<p class="pu-foot">${mark} — scheduling that shows up on time</p>`
