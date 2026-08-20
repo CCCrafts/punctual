@@ -140,14 +140,14 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
     c.html(
       shellHead({ title: `Privacy · ${ports.config.brandName}`, brandName: ports.config.brandName }) +
         privacyPage(legal()) +
-        shellFoot(ports.config.brandName),
+        shellFoot(),
     ),
   )
   app.get('/terms', (c) =>
     c.html(
       shellHead({ title: `Terms · ${ports.config.brandName}`, brandName: ports.config.brandName }) +
         termsPage(legal()) +
-        shellFoot(ports.config.brandName),
+        shellFoot(),
     ),
   )
 
@@ -268,7 +268,7 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
       }
 
       return `<div class="pu-grid">${monthGrid(data)}${slotList(data)}</div>`
-    }, shellFoot(ports.config.brandName, true, embed, displayCompany(headerData)))
+    }, shellFoot(true, embed, displayCompany(headerData)))
   })
 
   // -------------------------------------------------------------------------
@@ -305,7 +305,7 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
       shellHead({ title: `Confirm · ${eventType.title}`, brandName: ports.config.brandName }) +
       eventHeader(data) +
       confirmForm(data, start) +
-      shellFoot(ports.config.brandName, true, embed, displayCompany(data))
+      shellFoot(true, embed, displayCompany(data))
     return c.html(html)
   })
 
@@ -322,7 +322,7 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
       return c.html(
         shellHead({ title: 'Too many requests', brandName: ports.config.brandName }) +
           errorPage('Too many bookings', 'Please wait a little and try again.') +
-          shellFoot(ports.config.brandName),
+          shellFoot(),
         429,
         { 'retry-after': String(Math.ceil((limit.resetAt - ports.clock.now()) / 1000)) },
       )
@@ -386,7 +386,7 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
           // THAT id, or confirmForm's `values[q.id]` lookup renders it as
           // empty and the guest's typed text looks lost on the error page.
           confirmForm(data, start, { errors, values: { name, email, ...declared }, holdId }) +
-          shellFoot(ports.config.brandName, true, embed, displayCompany(data)),
+          shellFoot(true, embed, displayCompany(data)),
         400,
       )
     }
@@ -416,7 +416,7 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
         shellHead({ title: 'Time unavailable', brandName: ports.config.brandName }) +
           eventHeader(data) +
           body +
-          shellFoot(ports.config.brandName, true, embed, displayCompany(data)),
+          shellFoot(true, embed, displayCompany(data)),
         409,
       )
     }
@@ -435,7 +435,7 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
           guestTimezone,
           manageUrl,
         }) +
-        shellFoot(ports.config.brandName, true, embed, displayCompany(data)),
+        shellFoot(true, embed, displayCompany(data)),
     )
   })
 
@@ -498,7 +498,7 @@ function notFound(c: Context<{ Bindings: Env }>, ports: EnginePorts): Response |
   return c.html(
     shellHead({ title: 'Not found', brandName: ports.config.brandName }) +
       errorPage('Not found', 'That booking page does not exist.') +
-      shellFoot(ports.config.brandName),
+      shellFoot(),
     404,
   )
 }
@@ -534,7 +534,7 @@ async function bookingPageRateLimited(
   return c.html(
     shellHead({ title: 'Too many requests', brandName: ports.config.brandName }) +
       errorPage('Too many requests', 'Please wait a little and try again.') +
-      shellFoot(ports.config.brandName),
+      shellFoot(),
     429,
     { 'retry-after': String(Math.ceil((limit.resetAt - ports.clock.now()) / 1000)) },
   )

@@ -113,20 +113,21 @@ ${chrome.description ? `<meta name="twitter:description" content="${escapeHtml(c
  * person's company, not with this software — so the company anchors the
  * footer and the wordmark becomes the attribution, instead of the product
  * tagline fronting a page it doesn't own.
+ *
+ * No `brandName` parameter: the wordmark below is a fixed "punctual:"
+ * attribution to the open-source project (it links to punctual.sh, not this
+ * deployment), so a self-hosted `BRAND_NAME` override must NOT retext it —
+ * "acme scheduler:" opening punctual.sh instead of Acme's own site would be
+ * an unrelated, confusing destination for that click.
  */
-export function shellFoot(
-  brandName: string,
-  poweredBy = true,
-  embed = false,
-  operator?: string | null,
-): string {
+export function shellFoot(poweredBy = true, embed = false, operator?: string | null): string {
   // target="_blank": this page can be embedded in a customer's iframe
   // (`embed`, below), and an external destination navigating the iframe
   // itself in place would either hit the host site's framing restrictions
   // and go blank, or strand the guest on punctual.sh with no way back into
   // the booking flow. A new tab is correct whether embedded or not — this
   // link now leaves the deployment entirely.
-  const mark = `<a class="pu-mark" href="${PUNCTUAL_SITE_URL}" target="_blank" rel="noopener">${escapeHtml(brandName.toLowerCase())}<span>:</span></a>`
+  const mark = `<a class="pu-mark" href="${PUNCTUAL_SITE_URL}" target="_blank" rel="noopener">punctual<span>:</span></a>`
   const foot = operator
     ? `<p class="pu-foot">${escapeHtml(operator)} · scheduling by ${mark}</p>`
     : `<p class="pu-foot">${mark} — scheduling that shows up on time</p>`

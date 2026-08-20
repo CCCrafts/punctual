@@ -212,7 +212,7 @@ export function loginPage(d: LoginPageData): string {
   return (
     shellHead({ title: `Sign in · ${d.brandName}`, brandName: d.brandName }) +
     `<section class="pu-card" style="max-width:26rem;margin:3rem auto">${body}</section>` +
-    shellFoot(d.brandName)
+    shellFoot()
   )
 }
 
@@ -1194,7 +1194,7 @@ export function bookingDetailPage(d: BookingDetailPageData): string {
   <p class="pu-muted">This booking is no longer active, so there is nothing left to change.</p>
 </section>`
       : rescheduleSection(d, tokenField) + cancelSection(d, tokenField)) +
-    shellFoot(d.brandName)
+    shellFoot()
   )
 }
 
@@ -1311,7 +1311,7 @@ export function manageLinkErrorPage(brandName: string, message: string): string 
   <p class="pu-muted">Links expire, and rescheduling replaces the ones sent before it. The most recent
      confirmation email always has a working link.</p>
 </section>` +
-    shellFoot(brandName)
+    shellFoot()
   )
 }
 

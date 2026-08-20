@@ -210,7 +210,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
           'Request not accepted',
           'This form was submitted without a valid security token. Reload the page and try again.',
         ) +
-        shellFoot(brandName),
+        shellFoot(),
       403,
     )
   }
@@ -1577,7 +1577,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     return c.html(
       shellHead({ title: `Cancelled · ${brandName}`, brandName }) +
         errorPage('Booking cancelled', 'The time has been released and the host has been notified.') +
-        shellFoot(brandName),
+        shellFoot(),
     )
   })
 
@@ -1781,14 +1781,14 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     return c.html(
       shellHead({ title: 'Not found', brandName }) +
         errorPage('Not found', 'That page does not exist, or is not yours.') +
-        shellFoot(brandName),
+        shellFoot(),
       404,
     )
   }
 
   function oauthError(c: Ctx, message: string): Response | Promise<Response> {
     return c.html(
-      shellHead({ title: 'Sign-in failed', brandName }) + errorPage('Sign-in failed', message) + shellFoot(brandName),
+      shellHead({ title: 'Sign-in failed', brandName }) + errorPage('Sign-in failed', message) + shellFoot(),
       400,
     )
   }
