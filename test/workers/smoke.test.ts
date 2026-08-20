@@ -259,22 +259,28 @@ describe('the public booking page rate-limits by IP', () => {
       )
 
     // Spend the full bucket (120 tokens) — every one must succeed.
+    const spendStart = Date.now()
     for (let i = 0; i < 120; i++) {
       const res = await fetchPage()
       expect(res.status).toBe(200)
     }
+    const spendElapsedMs = Date.now() - spendStart
 
     // The rate limiter refills continuously against real wall-clock time
-    // (src/do/rate-limiter.ts), not a mockable clock — the 120-request spend
-    // loop above is itself real elapsed time, and on a slow CI host it can
-    // hand back just enough of a fractional token that a single immediate
-    // "should be denied" request still lands as 200. Retry a few times
-    // rather than asserting on one request: whatever slack a slow host
-    // handed back is a few hundred milliseconds' worth at most, which a
-    // couple of near-instant follow-up requests exhausts even if the first
-    // one slips through.
+    // (src/do/rate-limiter.ts: 120 tokens / 60s = 1 token per 500ms), not a
+    // mockable clock — so the 120-request spend loop above is itself real
+    // elapsed time a slow CI host can bank WHOLE extra tokens against, not
+    // just a fractional one. A fixed small retry count (previously 5) is not
+    // proportional to that: a runner slow enough to take several seconds for
+    // the spend loop can bank a dozen or more tokens, and a fixed retry
+    // undercounts them — which is exactly what re-flaked this test on CI.
+    // Drain however many the measured spend elapsed time could actually have
+    // refilled, plus a margin for the drain loop's own (much shorter)
+    // elapsed time, rather than guessing a constant.
+    const REFILL_PER_MS = 120 / 60_000
+    const drainBudget = Math.ceil(spendElapsedMs * REFILL_PER_MS) + 10
     let denied: Response | undefined
-    for (let attempt = 0; attempt < 5 && denied?.status !== 429; attempt++) {
+    for (let attempt = 0; attempt < drainBudget && denied?.status !== 429; attempt++) {
       denied = await fetchPage()
     }
     expect(denied?.status).toBe(429)
@@ -284,6 +290,8 @@ describe('the public booking page rate-limits by IP', () => {
     // 120+ sequential real fetches (D1 + a DO-backed rate limiter + full
     // page render each) blew the default 5s test timeout on GitHub's shared
     // CI runners, well before the retry loop even mattered — this machine
-    // runs the whole file in ~250ms, but that is not a bound CI honors.
-  }, 20_000)
+    // runs the whole file in ~250ms, but that is not a bound CI honors. The
+    // drain loop above can add a proportional number of further requests on
+    // a slow runner, so the budget scales with it too.
+  }, 60_000)
 })
