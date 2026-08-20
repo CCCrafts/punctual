@@ -287,6 +287,26 @@ export function effectiveQuestions(et: EventType): EventTypeQuestion[] {
   return hasOwnAgenda ? et.questions : [...et.questions, AGENDA_QUESTION]
 }
 
+/**
+ * A submitted answer for `q`, tolerating one specific staleness: the guest's
+ * form was rendered before the host edited the event type to add a
+ * same-labeled question, so the guest's browser still posts under the
+ * builtin's `q_agenda` field while `q` (today's effective question for that
+ * same wording) has a different id and gets nothing at its own key. Without
+ * this, the answer the guest actually typed is silently dropped rather than
+ * stored — same failure shape as the stale-render case `answeredQuestions`
+ * covers on the read side, just triggered by a host edit between page load
+ * and submit instead of one before the booking existed.
+ */
+function submittedAnswerFor(q: EventTypeQuestion, answers: Record<string, string>): string | undefined {
+  const direct = answers[q.id]
+  if (direct !== undefined) return direct
+  if (q.id !== AGENDA_QUESTION.id && normalizeQuestionLabel(q.label) === AGENDA_LABEL_NORMALIZED) {
+    return answers[AGENDA_QUESTION.id]
+  }
+  return undefined
+}
+
 export function pickDeclaredAnswers(
   et: EventType,
   answers: Record<string, string>,
@@ -298,7 +318,7 @@ export function pickDeclaredAnswers(
   // arbitrary text of arbitrary size there.
   const out: Record<string, string> = {}
   for (const q of effectiveQuestions(et)) {
-    const v = answers[q.id]
+    const v = submittedAnswerFor(q, answers)
     // Trimmed HERE, not just in validation: `validateAnswers` length-checks
     // the trimmed value, so an answer of a few words padded with 200 KB of
     // whitespace would pass the 2000-char cap and then be persisted raw —
@@ -347,7 +367,7 @@ export function validateAnswers(
 ): Record<string, string> {
   const errors: Record<string, string> = {}
   for (const q of effectiveQuestions(et)) {
-    const v = (answers[q.id] ?? '').trim()
+    const v = (submittedAnswerFor(q, answers) ?? '').trim()
     if (q.required && v === '') {
       errors[q.id] = 'This field is required'
       continue

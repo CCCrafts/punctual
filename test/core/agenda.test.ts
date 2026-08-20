@@ -228,4 +228,45 @@ describe('agenda answers through the pipeline', () => {
     const rows = answeredQuestions(et, { 'what-would-you-like-to-discuss': 'New booking, own id' })
     expect(rows).toEqual([{ question: own, value: 'New booking, own id' }])
   })
+
+  it('a submission under the stale builtin key is not lost when the host added a same-labeled question mid-fill', () => {
+    // The guest's browser rendered the form before the host's edit, so it
+    // still posts q_agenda; the event type it submits against already has
+    // its own same-labeled question under a different id.
+    const own = {
+      id: 'what-would-you-like-to-discuss',
+      label: 'What would you like to discuss?',
+      type: 'textarea' as const,
+      required: false,
+    }
+    const et = eventType({ questions: [own] })
+    expect(pickDeclaredAnswers(et, { agenda: 'Stale-form roadmap question' })).toEqual({
+      'what-would-you-like-to-discuss': 'Stale-form roadmap question',
+    })
+  })
+
+  it('validateAnswers does not wrongly flag a required replacement as missing when only the stale key is present', () => {
+    const own = {
+      id: 'what-would-you-like-to-discuss',
+      label: 'What would you like to discuss?',
+      type: 'textarea' as const,
+      required: true,
+    }
+    const et = eventType({ questions: [own] })
+    expect(validateAnswers(et, { agenda: 'Stale-form roadmap question' })).toEqual({})
+    expect(validateAnswers(et, {})).toHaveProperty('what-would-you-like-to-discuss')
+  })
+
+  it('a live submission under the current id is unaffected by the legacy fallback', () => {
+    const own = {
+      id: 'what-would-you-like-to-discuss',
+      label: 'What would you like to discuss?',
+      type: 'textarea' as const,
+      required: false,
+    }
+    const et = eventType({ questions: [own] })
+    expect(pickDeclaredAnswers(et, { 'what-would-you-like-to-discuss': 'Fresh-form answer' })).toEqual({
+      'what-would-you-like-to-discuss': 'Fresh-form answer',
+    })
+  })
 })
