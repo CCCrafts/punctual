@@ -89,6 +89,9 @@ export function createFakeRepositories(): FakeRepositories {
     async save(userId, av) {
       availability.set(userId, av)
     },
+    async saveIfAbsent(userId, av) {
+      if (!availability.has(userId)) availability.set(userId, av)
+    },
   }
 
   const userRepo: UserRepository = {

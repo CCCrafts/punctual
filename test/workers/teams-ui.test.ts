@@ -27,6 +27,7 @@ import {
   fakeConfig,
 } from '../../src/testing/fakes.js'
 import type { SlotService } from '../../src/engine.js'
+import type { Availability } from '../../src/core/domain/types.js'
 import type {
   BlobCache,
   Cache as CachePort,
@@ -471,5 +472,43 @@ describe('repository-level atomic guards', () => {
     expect(member?.n).toBe(0)
     const slug2 = await db.prepare("SELECT COUNT(*) AS n FROM teams WHERE slug='dup-team-2'").first<{ n: number }>()
     expect(slug2?.n).toBe(0)
+  })
+
+  it('availability.saveIfAbsent never overwrites a row that already exists', async () => {
+    // The login-backfill path (auth-flows.ts) calls this instead of a
+    // forUser-then-save check specifically so a concurrent real save (a
+    // host clearing their week from another device) can never lose a race
+    // to the backfill's default — only the database can arbitrate that.
+    const repos = createD1Repositories(db, { consistency: 'bookmark' })
+    const cleared: Availability = {
+      userId: 'usr_avail',
+      timezone: 'UTC',
+      weekly: [[], [], [], [], [], [], []],
+      overrides: [],
+    }
+    await repos.availability.save('usr_avail', cleared)
+
+    await repos.availability.saveIfAbsent('usr_avail', {
+      userId: 'usr_avail',
+      timezone: 'America/New_York',
+      weekly: [[], [{ startMinute: 540, endMinute: 1020 }], [], [], [], [], []],
+      overrides: [],
+    })
+
+    expect(await repos.availability.forUser('usr_avail')).toEqual(cleared)
+  })
+
+  it('availability.saveIfAbsent inserts when no row exists', async () => {
+    const repos = createD1Repositories(db, { consistency: 'bookmark' })
+    expect(await repos.availability.forUser('usr_avail_new')).toBeNull()
+
+    const fresh: Availability = {
+      userId: 'usr_avail_new',
+      timezone: 'Europe/Kyiv',
+      weekly: [[], [{ startMinute: 540, endMinute: 1020 }], [], [], [], [], []],
+      overrides: [],
+    }
+    await repos.availability.saveIfAbsent('usr_avail_new', fresh)
+    expect(await repos.availability.forUser('usr_avail_new')).toEqual(fresh)
   })
 })

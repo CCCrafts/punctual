@@ -228,16 +228,19 @@ export async function consumeMagicLink(
   // submitted that form — and made the gap invisible once they did, since
   // the preview and a real saved schedule render identically.
   //
-  // Checked on EVERY login, not only at creation: a transient failure right
+  // Run on EVERY login, not only at creation: a transient failure right
   // after `users.create` would otherwise strand the account in this state
   // forever (the create branch only ever runs once), and every account that
-  // predates this fix is in exactly that state already. Checking `forUser`
-  // first, rather than saving unconditionally, is what keeps this safe for a
-  // host who deliberately cleared their week to all-empty — that is a real,
-  // saved schedule, not a missing one, and must never be overwritten.
-  if (!(await deps.repos.availability.forUser(user.id))) {
-    await deps.repos.availability.save(user.id, defaultAvailability(user))
-  }
+  // predates this fix is in exactly that state already.
+  //
+  // `saveIfAbsent`, not a `forUser`-then-`save` check here: a host who
+  // deliberately cleared their week to all-empty has a real saved schedule,
+  // not a missing one, and a check-then-write has a window where their save
+  // from another device lands between this login's read and write — the
+  // backfill's default would silently win. Only the database can arbitrate
+  // that, the same reasoning as every other race closed with a constraint
+  // rather than an application-level check (`slot_locks`, `demoteAdmin`).
+  await deps.repos.availability.saveIfAbsent(user.id, defaultAvailability(user))
 
   const created = await createSession(deps, user.id, input.now)
   return { ok: true, sessionToken: created.token, session: created.session, user, createdUser: !existing }

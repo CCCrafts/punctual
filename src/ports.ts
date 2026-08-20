@@ -137,6 +137,16 @@ export interface EventTypeRepository {
 export interface AvailabilityRepository {
   forUser(userId: string): Promise<Availability | null>
   save(userId: string, availability: Availability): Promise<void>
+  /**
+   * Insert only if no row exists yet; a no-op otherwise. For backfilling a
+   * default schedule on login (auth-flows.ts) — a check-then-write
+   * (`forUser` then `save`) has a window where a concurrent real save (a
+   * host clearing their week from another device) can be overwritten by the
+   * backfill's default. This is the same window closed as a database
+   * constraint elsewhere in the codebase (`slot_locks`, `demoteAdmin`)
+   * rather than left as an application-level race.
+   */
+  saveIfAbsent(userId: string, availability: Availability): Promise<void>
 }
 
 export interface BookingRepository {

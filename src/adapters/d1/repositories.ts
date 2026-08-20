@@ -338,6 +338,21 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
         Date.now(),
       )
     },
+    async saveIfAbsent(userId, av) {
+      // ON CONFLICT DO NOTHING, not a forUser-then-save check from the
+      // caller: only the database can arbitrate a concurrent real save
+      // landing in the same window (see the port doc comment).
+      await run(
+        `INSERT INTO availability_schedules (user_id,timezone,weekly_json,overrides_json,updated_at)
+         VALUES (?,?,?,?,?)
+         ON CONFLICT(user_id) DO NOTHING`,
+        userId,
+        av.timezone,
+        JSON.stringify(av.weekly),
+        JSON.stringify(av.overrides),
+        Date.now(),
+      )
+    },
   }
 
   // -------------------------------------------------------------------------
