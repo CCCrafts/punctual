@@ -7,10 +7,10 @@
  * tenants exist.
  */
 
-import type { EnginePorts, RequestScope } from './ports.js'
+import type { EnginePorts, Repositories, RequestScope } from './ports.js'
 import { buildRouter } from './http/router.js'
 import { bookingFootprint, computeSlots, type HostAvailabilityInput } from './core/slots/engine.js'
-import type { EventType, Interval, Slot, User } from './core/domain/types.js'
+import type { EventType, Interval, Schedule, Slot, User } from './core/domain/types.js'
 import { combineBusy, partitionConnections } from './core/domain/booking-service.js'
 import { localDateString, localTimeToInstant } from './core/time/zone.js'
 import { needsReconnect } from './adapters/oauth.js'
@@ -42,6 +42,33 @@ export function createEngine(ports: EnginePorts): Engine {
     fetch: async (request, env, ctx) => app.fetch(request, env as never, ctx),
     slots,
   }
+}
+
+/**
+ * The schedule a host's slots are drawn from for one event type — shared by
+ * BOTH the listing path (`createSlotService.forEventType` below) and the
+ * commit-time re-check (`adapters/coordinator.ts`'s `buildHostInputs`). The
+ * two used to disagree: a fix applied only here once left the commit path
+ * still validating against the host's default schedule regardless of what
+ * was assigned, so a guest booking a real, currently-listed slot on an
+ * assigned schedule could 409, while a slot the assigned schedule never
+ * offered could still commit. One function, one behavior, both call sites.
+ *
+ * `scheduleId` is only ever written for a personal event type
+ * (dashboard-routes.ts/rest.ts refuse it on a team-owned one), so this needs
+ * no `schedulingType` branch — for a team event it's always null and every
+ * host falls through to their own default, unchanged. Scoped by `userId`
+ * (not just the id) so an assigned schedule can never resolve to a
+ * different host's row.
+ */
+export async function resolveSchedule(
+  repos: Repositories,
+  userId: string,
+  scheduleId: string | null,
+): Promise<Schedule | null> {
+  if (!scheduleId) return repos.availability.forUser(userId)
+  const assigned = await repos.availability.byId(userId, scheduleId)
+  return assigned ?? repos.availability.forUser(userId)
 }
 
 /**
@@ -88,16 +115,8 @@ export function createSlotService(ports: EnginePorts): SlotService {
       // on (ADR-0007, and the measurement in EventTypeRepository).
       const built: Array<HostAvailabilityInput | null> = await Promise.all(
         hostUsers.map(async (user) => {
-          // `scheduleId` is only ever written for a personal event type
-          // (dashboard-routes.ts/rest.ts refuse it on a team-owned one), so
-          // this needs no `schedulingType` branch here: for a team event
-          // it's always null and every host falls through to their own
-          // default, unchanged. Scoped by `user.id` (not just the id) so an
-          // assigned schedule can never resolve to a different host's row.
           const [availability, external] = await Promise.all([
-            eventType.scheduleId
-              ? repos.availability.byId(user.id, eventType.scheduleId).then((s) => s ?? repos.availability.forUser(user.id))
-              : repos.availability.forUser(user.id),
+            resolveSchedule(repos, user.id, eventType.scheduleId),
             externalBusyFor(ports, repos, user.id, busyRange),
           ])
           if (!availability) return null

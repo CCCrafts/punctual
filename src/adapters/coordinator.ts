@@ -20,7 +20,7 @@ import { intervalToBuckets } from '../core/slots/intervals.js'
 import { issueManageToken } from '../core/domain/auth-flows.js'
 import { notifyBookingCreated } from './notify.js'
 import { localDateString } from '../core/time/zone.js'
-import { dayRange } from '../engine.js'
+import { dayRange, resolveSchedule } from '../engine.js'
 import { needsReconnect } from './oauth.js'
 import type { HostAvailabilityInput } from '../core/slots/engine.js'
 
@@ -363,7 +363,7 @@ async function buildHostInputs(
   repos: Repositories,
   hostUserIds: string[],
   range: { start: number; end: number },
-  eventType?: { maxPerDay: number | null },
+  eventType?: { maxPerDay: number | null; scheduleId: string | null },
   /** The booking's real start; `range` is buffered and must not be used here. */
   capAnchor: number = range.start,
   /**
@@ -384,7 +384,12 @@ async function buildHostInputs(
   for (const id of hostUserIds) {
     const [user, availability, connections] = await Promise.all([
       repos.users.byId(id),
-      repos.availability.forUser(id),
+      // Same resolution as the listing path (engine.ts's forEventType) —
+      // this is the commit-time re-check (ADR-0002 §2), and it must
+      // validate against the SAME schedule the guest was shown, or a real
+      // listed slot on an assigned schedule 409s while a slot the assigned
+      // schedule never offered can still commit.
+      resolveSchedule(repos, id, eventType?.scheduleId ?? null),
       repos.connections.listForUser(id),
     ])
     if (!user || !availability) continue

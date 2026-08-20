@@ -552,6 +552,35 @@ describe('repository-level atomic guards', () => {
     expect(defaults?.n).toBe(1)
   })
 
+  it('setDefault targeting a vanished schedule leaves the old default intact, not cleared', async () => {
+    // Caught by review: the target existing was only ever checked by the
+    // ROUTE (ownedSchedule), not by setDefault's own first statement — a
+    // concurrent delete of the target between that check and this call
+    // used to clear the real default in statement 1 regardless, then match
+    // nothing in statement 2, committing with NO schedule marked default
+    // for the user at all. The clear is now conditional on the target
+    // still existing.
+    const repos = createD1Repositories(db, { consistency: 'bookmark' })
+    const real: Schedule = {
+      id: 'sch_vanish_default',
+      userId: 'usr_vanish',
+      name: 'Real default',
+      isDefault: true,
+      timezone: 'UTC',
+      weekly: [[], [], [], [], [], [], []],
+      overrides: [],
+    }
+    await repos.availability.create('usr_vanish', real)
+
+    const result = await repos.availability.setDefault('usr_vanish', 'sch_never_existed')
+    expect(result).toBe(false)
+
+    const defaults = await db
+      .prepare("SELECT id FROM schedules WHERE user_id='usr_vanish' AND is_default=1")
+      .first<{ id: string }>()
+    expect(defaults?.id).toBe('sch_vanish_default')
+  })
+
   it('delete refuses the default schedule, and the user\'s only remaining one, in one statement', async () => {
     const repos = createD1Repositories(db, { consistency: 'bookmark' })
     const empty: Omit<Schedule, 'id' | 'name' | 'isDefault'> = {

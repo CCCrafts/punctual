@@ -762,6 +762,38 @@ describe('availability — named schedules (CCC-581)', () => {
     expect(await deleteDefault.text()).toContain('Cannot delete your default schedule')
   })
 
+  it('truncates a duplicated schedule\'s generated name to the same 120-char limit the form enforces', async () => {
+    // Caught by review: an untruncated "${name} copy" on an already-120-char
+    // name inserted a 125-char row that then failed the SAME 120-char check
+    // on its very next save.
+    const cookie = await seedSession(AVAIL_HOST_ID)
+    let csrf = await availCsrf(cookie)
+
+    const longName = 'x'.repeat(120)
+    const create = await post('/dashboard/availability/new', { name: longName, csrf }, cookie)
+    expect(create.status).toBe(302)
+    const longId = (create.headers.get('location') ?? '').split('/').pop()!
+
+    csrf = await availCsrf(cookie)
+    const dup = await post(`/dashboard/availability/${longId}/duplicate`, { csrf }, cookie)
+    expect(dup.status).toBe(200)
+
+    const row = await db
+      .prepare('SELECT id, name FROM schedules WHERE user_id = ? AND id != ? ORDER BY updated_at DESC LIMIT 1')
+      .bind(AVAIL_HOST_ID, longId)
+      .first<{ id: string; name: string }>()
+    expect(row!.name.length).toBeLessThanOrEqual(120)
+
+    // The truncated name must itself still round-trip through a save.
+    csrf = await availCsrf(cookie)
+    const save = await post(
+      `/dashboard/availability/${row!.id}`,
+      { name: row!.name, timezone: 'UTC', overrides: '', csrf },
+      cookie,
+    )
+    expect(save.status).toBe(200)
+  })
+
   it('refuses to delete a schedule an event type still uses, then allows it once unassigned', async () => {
     const cookie = await seedSession(AVAIL_HOST_ID)
     let csrf = await availCsrf(cookie)

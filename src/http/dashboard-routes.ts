@@ -839,10 +839,16 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     const schedule = await ownedSchedule(c)
     if (!schedule) return notFound(c)
 
+    // The 120-char cap enforced on the name field (both here and on the
+    // create/edit forms) applies to the GENERATED name too — an untruncated
+    // "${name} copy" on an already-120-char schedule would insert a 125-char
+    // name today and then refuse to save on the very next edit, since that
+    // route re-validates the same limit.
+    const copyName = `${schedule.name} copy`.slice(0, 120)
     await repos.availability.create(user.id, {
       id: `sch_${ports.crypto.randomToken(12)}`,
       userId: user.id,
-      name: `${schedule.name} copy`,
+      name: copyName,
       isDefault: false,
       timezone: schedule.timezone,
       weekly: schedule.weekly,
@@ -862,7 +868,16 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     if (!schedule) return notFound(c)
     if (schedule.isDefault) return c.html(schedulesPage(await schedulesData(c))) // stale page double-submit
 
-    await repos.availability.setDefault(user.id, schedule.id)
+    const didSetDefault = await repos.availability.setDefault(user.id, schedule.id)
+    if (!didSetDefault) {
+      // Refused because the target vanished between the read above and this
+      // write (a concurrent delete from another tab) — the repository's own
+      // guard already keeps the OLD default intact for exactly this case, so
+      // there is nothing to roll back here. A stale-page no-op, same
+      // distinction as team-member removal and admin demotion elsewhere.
+      await advanceBookmark(c)
+      return c.html(schedulesPage(await schedulesData(c)))
+    }
     // Mirrors the save route's reasoning: the booking page renders in
     // `users.tz`, which must track whichever schedule is now the default.
     if (schedule.timezone !== user.tz) await repos.users.update(user.id, { tz: schedule.timezone })

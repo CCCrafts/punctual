@@ -631,6 +631,74 @@ describe('POST /bookings', () => {
     expect(listBody.data.map((b) => b.id)).toEqual([body.data.id])
   })
 
+  /**
+   * CCC-581 regression: the commit-time re-check (coordinator.ts's
+   * `buildHostInputs`, ADR-0002 §2) used to validate every booking against
+   * the host's DEFAULT schedule regardless of what the event type was
+   * assigned — so a guest booking a real, currently-listed slot on an
+   * assigned schedule got a false 409, while a time the assigned schedule
+   * never offered could still commit if it happened to fall inside the
+   * default. `seedHost`'s default is 09:00-17:00 UTC weekdays; this
+   * schedule is a disjoint 20:00-21:00 UTC every day, so a pass here can
+   * only mean the commit path is reading the assignment, not the default.
+   */
+  it('honors the event type\'s assigned schedule at commit, not just at listing', async () => {
+    const ports = testPorts()
+    const app = buildApp(ports)
+    const seed = await seedHost(ports)
+    const repos = ports.repositories({ consistency: 'bookmark' })
+
+    const evening = [{ startMinute: 20 * 60, endMinute: 21 * 60 }]
+    const scheduleId = `sch_evening_commit_${seed.user.id}`
+    await repos.availability.create(seed.user.id, {
+      id: scheduleId,
+      userId: seed.user.id,
+      name: 'Evenings',
+      isDefault: false,
+      timezone: 'UTC',
+      weekly: [evening, evening, evening, evening, evening, evening, evening],
+      overrides: [],
+    })
+    await app.request(`/api/v1/event-types/${seed.eventType.id}`, {
+      method: 'PATCH',
+      headers: { ...auth(seed.apiKey), 'content-type': 'application/json' },
+      body: JSON.stringify({ scheduleId }),
+    })
+
+    // A slot the LISTING already correctly offers under the assigned
+    // schedule (proven by the GET /slots test above) — booking it must
+    // actually commit, not 409 against the default it no longer uses.
+    const slot = await firstSlot(app, seed.apiKey, seed.eventType.id)
+    expect(new Date(slot.start.epochMs).getUTCHours()).toBe(20)
+    const bookRes = await app.request('/api/v1/bookings', {
+      method: 'POST',
+      headers: { ...auth(seed.apiKey), 'content-type': 'application/json' },
+      body: JSON.stringify({
+        eventTypeId: seed.eventType.id,
+        start: slot.start.iso,
+        guestName: 'Ada Lovelace',
+        guestEmail: 'ada@example.com',
+      }),
+    })
+    expect(bookRes.status).toBe(201)
+
+    // A time inside the DEFAULT (10:00) but outside the assigned schedule
+    // must still be refused — proving the commit path isn't just "anything
+    // goes" once an assignment exists.
+    const tomorrow10am = Math.floor((Date.now() + DAY_MS) / DAY_MS) * DAY_MS + 10 * 60 * 60_000
+    const outsideRes = await app.request('/api/v1/bookings', {
+      method: 'POST',
+      headers: { ...auth(seed.apiKey), 'content-type': 'application/json' },
+      body: JSON.stringify({
+        eventTypeId: seed.eventType.id,
+        start: new Date(tomorrow10am).toISOString(),
+        guestName: 'Bea Guest',
+        guestEmail: 'bea@example.com',
+      }),
+    })
+    expect(outsideRes.status).toBe(409)
+  })
+
   it('returns the SAME booking for a repeated Idempotency-Key', async () => {
     const ports = testPorts()
     const app = buildApp(ports)

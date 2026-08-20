@@ -392,8 +392,25 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
       // is_default=1 rows for this user mid-batch, which the partial unique
       // index (schedules_user_default_idx) would immediately reject. This
       // order instead passes through a safe "zero defaults" middle state.
+      //
+      // The clear is itself conditional on the target still existing
+      // (EXISTS subquery): without it, a concurrent delete of `scheduleId`
+      // landing between this call's ownership check and this batch clears
+      // the real default in statement 1, then statement 2 matches nothing —
+      // committing with the user's default flag cleared everywhere, no
+      // schedule marked default at all, and every personal event type
+      // unbookable until the next login's backfill. Conditioning statement 1
+      // on the same existence the caller already implicitly assumed keeps
+      // the old default intact when the target has vanished, so the
+      // `changes === 0` this returns is the ONLY thing that changed.
       const results = await session.batch([
-        session.prepare('UPDATE schedules SET is_default = 0 WHERE user_id = ? AND is_default = 1').bind(userId),
+        session
+          .prepare(
+            `UPDATE schedules SET is_default = 0
+             WHERE user_id = ? AND is_default = 1
+               AND EXISTS (SELECT 1 FROM schedules WHERE id = ? AND user_id = ?)`,
+          )
+          .bind(userId, scheduleId, userId),
         session.prepare('UPDATE schedules SET is_default = 1 WHERE id = ? AND user_id = ?').bind(scheduleId, userId),
       ])
       return (results[1]?.meta.changes ?? 0) > 0
