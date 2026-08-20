@@ -38,7 +38,7 @@ import type { EnginePorts, Repositories, RequestScope } from '../../ports.js'
 import type { SlotService } from '../../engine.js'
 import { authenticateApiKey } from '../../core/domain/auth-flows.js'
 import { parseApiKey } from '../../core/domain/auth-service.js'
-import { effectiveQuestions, isValidEmail, validateAnswers } from '../../core/domain/booking-service.js'
+import { effectiveQuestions, isValidEmail, pickDeclaredAnswers, validateAnswers } from '../../core/domain/booking-service.js'
 import { notifyBookingCancelled, notifyBookingRescheduled } from '../../adapters/notify.js'
 import { formatInZone, isValidTimeZone, localDateString } from '../../core/time/zone.js'
 
@@ -686,7 +686,13 @@ export function buildApiRoutes(ports: EnginePorts, slots: SlotService): Hono<Api
     const eventType = await repos.eventTypes.byId(body.eventTypeId)
     if (!eventType || !(await ownsEventType(repos, user, eventType))) return notFound('event type')
 
-    const answerErrors = validateAnswers(eventType, body.answers)
+    // Normalized to today's question ids (also the same-labeled-question
+    // legacy-key fallback) BEFORE validating and storing — a raw pass-through
+    // would both let undeclared keys reach the host's calendar event
+    // unfiltered and, once validated via the fallback, persist an answer
+    // under a stale id that no longer matches any current question.
+    const declaredAnswers = pickDeclaredAnswers(eventType, body.answers)
+    const answerErrors = validateAnswers(eventType, declaredAnswers)
     if (Object.keys(answerErrors).length > 0) {
       return problem(400, 'Invalid request', 'One or more answers are invalid.', {
         errors: Object.entries(answerErrors).map(([field, message]) => ({ field: `answers.${field}`, message })),
@@ -702,7 +708,7 @@ export function buildApiRoutes(ports: EnginePorts, slots: SlotService): Hono<Api
       guestName: body.guestName,
       guestEmail: body.guestEmail,
       guestTimezone: body.guestTimezone ?? user.tz,
-      answers: body.answers,
+      answers: declaredAnswers,
       // Passed straight through: the coordinator owns deduplication (ADR-0002
       // §4), so a retried POST returns the booking it already made instead of
       // making a second one.

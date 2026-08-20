@@ -380,7 +380,12 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
       return c.html(
         shellHead({ title: `Confirm · ${eventType.title}`, brandName: ports.config.brandName }) +
           eventHeader(data) +
-          confirmForm(data, start, { errors, values: { name, email, ...answers }, holdId }) +
+          // `declared` (not raw `answers`): a stale-form submission that
+          // posted under the built-in q_agenda key while the event type's
+          // effective question has a different id needs to reappear under
+          // THAT id, or confirmForm's `values[q.id]` lookup renders it as
+          // empty and the guest's typed text looks lost on the error page.
+          confirmForm(data, start, { errors, values: { name, email, ...declared }, holdId }) +
           shellFoot(ports.config.brandName, true, embed, displayCompany(data)),
         400,
       )

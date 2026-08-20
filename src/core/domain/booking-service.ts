@@ -297,11 +297,23 @@ export function effectiveQuestions(et: EventType): EventTypeQuestion[] {
  * stored — same failure shape as the stale-render case `answeredQuestions`
  * covers on the read side, just triggered by a host edit between page load
  * and submit instead of one before the booking existed.
+ *
+ * `agendaIsLive` must be false for the fallback to apply: a host can declare
+ * BOTH the literal-id escape hatch (a question with id `'agenda'`) AND a
+ * second question that separately happens to share the builtin's wording.
+ * When that's the case, `'agenda'` is someone else's real live answer, not a
+ * stale relic, and borrowing it for `q` here would misattribute one
+ * question's answer to another and let a required `q` pass while actually
+ * blank.
  */
-function submittedAnswerFor(q: EventTypeQuestion, answers: Record<string, string>): string | undefined {
+function submittedAnswerFor(
+  q: EventTypeQuestion,
+  answers: Record<string, string>,
+  agendaIsLive: boolean,
+): string | undefined {
   const direct = answers[q.id]
   if (direct !== undefined) return direct
-  if (q.id !== AGENDA_QUESTION.id && normalizeQuestionLabel(q.label) === AGENDA_LABEL_NORMALIZED) {
+  if (!agendaIsLive && q.id !== AGENDA_QUESTION.id && normalizeQuestionLabel(q.label) === AGENDA_LABEL_NORMALIZED) {
     return answers[AGENDA_QUESTION.id]
   }
   return undefined
@@ -316,9 +328,11 @@ export function pickDeclaredAnswers(
   // below, and `buildDescription` writes every key into the event on the
   // host's real calendar — so an unauthenticated guest could otherwise put
   // arbitrary text of arbitrary size there.
+  const questions = effectiveQuestions(et)
+  const agendaIsLive = questions.some((q) => q.id === AGENDA_QUESTION.id)
   const out: Record<string, string> = {}
-  for (const q of effectiveQuestions(et)) {
-    const v = submittedAnswerFor(q, answers)
+  for (const q of questions) {
+    const v = submittedAnswerFor(q, answers, agendaIsLive)
     // Trimmed HERE, not just in validation: `validateAnswers` length-checks
     // the trimmed value, so an answer of a few words padded with 200 KB of
     // whitespace would pass the 2000-char cap and then be persisted raw —
@@ -366,8 +380,10 @@ export function validateAnswers(
   answers: Record<string, string>,
 ): Record<string, string> {
   const errors: Record<string, string> = {}
-  for (const q of effectiveQuestions(et)) {
-    const v = (submittedAnswerFor(q, answers) ?? '').trim()
+  const questions = effectiveQuestions(et)
+  const agendaIsLive = questions.some((q) => q.id === AGENDA_QUESTION.id)
+  for (const q of questions) {
+    const v = (submittedAnswerFor(q, answers, agendaIsLive) ?? '').trim()
     if (q.required && v === '') {
       errors[q.id] = 'This field is required'
       continue

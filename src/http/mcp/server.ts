@@ -34,7 +34,7 @@ import { z } from 'zod'
 import type { EnginePorts, RequestScope } from '../../ports.js'
 import type { SlotService } from '../../engine.js'
 import type { Booking, EventType, User } from '../../core/domain/types.js'
-import { effectiveQuestions, validateAnswers } from '../../core/domain/booking-service.js'
+import { effectiveQuestions, pickDeclaredAnswers, validateAnswers } from '../../core/domain/booking-service.js'
 import { formatInZone, isValidTimeZone, localDateString } from '../../core/time/zone.js'
 import {
   API_SCOPE_READ,
@@ -661,7 +661,10 @@ async function createBooking(
     return toolError(`No event type with id "${input.eventTypeId}". Call list_event_types for valid ids.`)
   }
 
-  const answerErrors = validateAnswers(eventType, input.answers)
+  // Normalized to today's question ids before validating and storing — see
+  // the identical comment in rest.ts's POST /bookings.
+  const declaredAnswers = pickDeclaredAnswers(eventType, input.answers)
+  const answerErrors = validateAnswers(eventType, declaredAnswers)
   if (Object.keys(answerErrors).length > 0) {
     const detail = Object.entries(answerErrors)
       .map(([field, message]) => `${field}: ${message}`)
@@ -678,7 +681,7 @@ async function createBooking(
     guestName: input.guestName,
     guestEmail: input.guestEmail,
     guestTimezone: input.guestTimezone ?? user.tz,
-    answers: input.answers,
+    answers: declaredAnswers,
     idempotencyKey: input.idempotencyKey,
   })
 

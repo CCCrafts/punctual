@@ -269,4 +269,26 @@ describe('agenda answers through the pipeline', () => {
       'what-would-you-like-to-discuss': 'Fresh-form answer',
     })
   })
+
+  it('the legacy fallback does not fire when the host declares BOTH the id escape hatch and a same-labeled question live', () => {
+    // "Agenda | Anything to prepare? | optional" plus a second question
+    // whose own label happens to match the builtin's wording — the
+    // dashboard editor produces exactly this from two lines. 'agenda' is a
+    // real, distinct live answer here, not a stale relic, so it must not
+    // leak into the second question.
+    const agendaQ = { id: 'agenda', label: 'Anything to prepare?', type: 'text' as const, required: false }
+    const own = {
+      id: 'what-would-you-like-to-discuss',
+      label: 'What would you like to discuss?',
+      type: 'textarea' as const,
+      required: true,
+    }
+    const et = eventType({ questions: [agendaQ, own] })
+
+    expect(pickDeclaredAnswers(et, { agenda: 'bring the Q3 deck' })).toEqual({
+      agenda: 'bring the Q3 deck',
+    })
+    // The required second question is genuinely blank, so it must still error.
+    expect(validateAnswers(et, { agenda: 'bring the Q3 deck' })).toHaveProperty('what-would-you-like-to-discuss')
+  })
 })
