@@ -61,6 +61,7 @@ import {
 } from '../core/domain/auth-service.js'
 import {
   consumeMagicLink,
+  defaultAvailability,
   parseSignupPolicy,
   createApiKey,
   requestMagicLink,
@@ -1970,13 +1971,6 @@ function base64UrlDecode(value: string): string {
 
 function emptyWeek(): WeeklySchedule {
   return [[], [], [], [], [], [], []]
-}
-
-/** Weekdays 09:00–17:00 — a schedule that works before anyone edits anything. */
-function defaultAvailability(user: User): Availability {
-  const weekly = emptyWeek()
-  for (let day = 1; day <= 5; day++) weekly[day] = [{ startMinute: 9 * 60, endMinute: 17 * 60 }]
-  return { userId: user.id, timezone: user.tz, weekly, overrides: [] }
 }
 
 /**

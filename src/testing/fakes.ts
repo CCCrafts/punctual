@@ -10,6 +10,7 @@
  */
 
 import type {
+  Availability,
   ApiKey,
   Booking,
   CalendarConnection,
@@ -20,6 +21,7 @@ import type {
 } from '../core/domain/types.js'
 import type {
   ApiKeyRepository,
+  AvailabilityRepository,
   TeamRepository,
   BlobStorage,
   BookingRepository,
@@ -76,8 +78,18 @@ export function createFakeRepositories(): FakeRepositories {
   const bookings = new Map<string, Booking>()
   const teams = new Map<string, Team>()
   const connections = new Map<string, CalendarConnection>()
+  const availability = new Map<string, Availability>()
   let touches = 0
   let lastBookmark: string | null = null
+
+  const availabilityRepo: AvailabilityRepository = {
+    async forUser(userId) {
+      return availability.get(userId) ?? null
+    },
+    async save(userId, av) {
+      availability.set(userId, av)
+    },
+  }
 
   const userRepo: UserRepository = {
     async byId(id) {
@@ -225,7 +237,7 @@ export function createFakeRepositories(): FakeRepositories {
       return { users: users.size, eventTypes: 0, bookings: bookings.size }
     },
     eventTypes: unimplemented('eventTypes'),
-    availability: unimplemented('availability'),
+    availability: availabilityRepo,
     slotLocks: unimplemented('slotLocks'),
     // Enough of a real teams repo for the flows core tests exercise —
     // signup's slug allocation reads teams.bySlug on every candidate, so a

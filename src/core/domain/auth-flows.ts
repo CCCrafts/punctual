@@ -15,7 +15,7 @@
  */
 
 import { suggestSlug, validateSlug } from './slugs.js'
-import type { ApiKey, Booking, MagicLinkToken, Session, User } from './types.js'
+import type { ApiKey, Availability, Booking, MagicLinkToken, Session, User, WeeklySchedule } from './types.js'
 import type {
   Crypto,
   EmailSender,
@@ -217,6 +217,16 @@ export async function consumeMagicLink(
       companyUrl: null,
       role: isFirstUser ? 'admin' : 'member',
     })
+    // Without a persisted schedule, `createSlotService` treats this host as
+    // having zero availability (engine.ts skips a host `forUser` returns
+    // null for) — not "unconfigured", indistinguishable from "never
+    // bookable". The dashboard's availability form shows this same default
+    // as a preview before the first save, which made connecting a calendar
+    // look like it had "activated" nothing until the host separately
+    // discovered and submitted that form. A brand new account is bookable
+    // from the moment it exists; editing the schedule later is a normal
+    // update, not a required activation step.
+    await deps.repos.availability.save(user.id, defaultAvailability(user))
   }
 
   const created = await createSession(deps, user.id, input.now)
@@ -489,6 +499,13 @@ function trimTrailingSlash(url: string): string {
 function defaultNameFrom(email: string): string {
   const local = email.split('@')[0] ?? ''
   return local.replace(/[._-]+/g, ' ').trim() || 'There'
+}
+
+/** Weekdays 09:00–17:00 in the host's own timezone — a schedule that works before anyone edits anything. */
+export function defaultAvailability(user: User): Availability {
+  const weekly: WeeklySchedule = [[], [], [], [], [], [], []]
+  for (let day = 1; day <= 5; day++) weekly[day] = [{ startMinute: 9 * 60, endMinute: 17 * 60 }]
+  return { userId: user.id, timezone: user.tz, weekly, overrides: [] }
 }
 
 /**

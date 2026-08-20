@@ -795,6 +795,29 @@ describe('admin bootstrap', () => {
     })
     expect(res.ok && res.user.role).toBe('member')
   })
+
+  it('a new account is bookable from the moment it exists, not only after the availability form is first saved', async () => {
+    // Without this, `createSlotService` (engine.ts) treats a host with no
+    // saved schedule as having zero availability — not "unconfigured",
+    // indistinguishable from "never bookable". Connecting a calendar looked
+    // like it did nothing until the host separately found and submitted the
+    // availability form, which only ever showed this same default as an
+    // unsaved preview.
+    const h = harness()
+    const res = await consumeMagicLink(h, {
+      token: await requestAndGetToken(h, 'fresh@example.com'),
+      now: NOW + 1000,
+    })
+    expect(res.ok).toBe(true)
+    if (!res.ok) return
+    const saved = await h.repos.availability.forUser(res.user.id)
+    expect(saved).not.toBeNull()
+    expect(saved?.timezone).toBe(res.user.tz)
+    // Weekdays open, weekend closed — the same default the dashboard form
+    // used to only preview.
+    expect(saved?.weekly[1]).toEqual([{ startMinute: 9 * 60, endMinute: 17 * 60 }])
+    expect(saved?.weekly[0]).toEqual([])
+  })
 })
 
 describe('signup slug allocation shares the namespace with teams', () => {
