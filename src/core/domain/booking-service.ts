@@ -259,20 +259,32 @@ export const AGENDA_QUESTION: EventTypeQuestion = {
   required: false,
 }
 
+function normalizeQuestionLabel(label: string): string {
+  return label.trim().toLowerCase().replace(/\s+/g, ' ')
+}
+
+const AGENDA_LABEL_NORMALIZED = normalizeQuestionLabel(AGENDA_QUESTION.label)
+
 /**
  * The questions a booking form actually asks: the host's own, plus the
- * built-in agenda question. A host who declares a question of their own with
- * this id — the dashboard editor derives ids from labels, so a line starting
- * with "Agenda |" does it — replaces the builtin entirely (their label,
- * their required flag), which is the customisation escape hatch without a
- * separate setting. Every consumer of the answers pipeline (form render,
- * validation, calendar description, emails, MCP listing) goes through this,
- * so an answer can never be collected that the other side won't display.
+ * built-in agenda question — unless the host already declares one that means
+ * the same thing. That's either the id the dashboard editor derives from a
+ * literal "Agenda | ..." line (the documented escape hatch: their label,
+ * their required flag, entirely replaces the builtin), OR a question whose
+ * label is the builtin's own wording ("What would you like to discuss?"),
+ * which a host reaches just as easily by typing it in the questions editor
+ * without knowing the "Agenda" keyword. Matching only by id let that second,
+ * far more likely path double up: the host's copy AND the appended builtin,
+ * rendering the identical field twice on the booking form. Every consumer of
+ * the answers pipeline (form render, validation, calendar description,
+ * emails, MCP listing) goes through this, so an answer can never be
+ * collected that the other side won't display.
  */
 export function effectiveQuestions(et: EventType): EventTypeQuestion[] {
-  return et.questions.some((q) => q.id === AGENDA_QUESTION.id)
-    ? et.questions
-    : [...et.questions, AGENDA_QUESTION]
+  const hasOwnAgenda = et.questions.some(
+    (q) => q.id === AGENDA_QUESTION.id || normalizeQuestionLabel(q.label) === AGENDA_LABEL_NORMALIZED,
+  )
+  return hasOwnAgenda ? et.questions : [...et.questions, AGENDA_QUESTION]
 }
 
 export function pickDeclaredAnswers(

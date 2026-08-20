@@ -70,6 +70,31 @@ describe('effectiveQuestions', () => {
     const qs = effectiveQuestions(eventType({ questions: [own] }))
     expect(qs).toEqual([own])
   })
+
+  it('a host-declared question with the builtin\'s own wording also replaces it, not doubles it', () => {
+    // A host typing the question out by hand — the far likelier path than
+    // knowing the "Agenda" id escape hatch — gets a different slugified id
+    // but the same label. That must not render the field twice.
+    const own = {
+      id: 'what-would-you-like-to-discuss',
+      label: 'What would you like to discuss?',
+      type: 'textarea' as const,
+      required: true,
+    }
+    const qs = effectiveQuestions(eventType({ questions: [own] }))
+    expect(qs).toEqual([own])
+  })
+
+  it('matches the builtin label regardless of case or extra whitespace', () => {
+    const own = {
+      id: 'q1',
+      label: '  WHAT would  you like to discuss?  ',
+      type: 'textarea' as const,
+      required: false,
+    }
+    const qs = effectiveQuestions(eventType({ questions: [own] }))
+    expect(qs).toEqual([own])
+  })
 })
 
 describe('agenda answers through the pipeline', () => {
