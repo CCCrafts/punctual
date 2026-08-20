@@ -336,10 +336,17 @@ function submittedAnswerFor(
 
   const claimed = (id: string) => questions.some((other) => other.id === id)
 
-  if (q.id !== AGENDA_QUESTION.id && normalizeQuestionLabel(q.label) === AGENDA_LABEL_NORMALIZED && !claimed(AGENDA_QUESTION.id)) {
+  const isBuiltinWorded = normalizeQuestionLabel(q.label) === AGENDA_LABEL_NORMALIZED
+  if (q.id !== AGENDA_QUESTION.id && isBuiltinWorded && !claimed(AGENDA_QUESTION.id)) {
     return answers[AGENDA_QUESTION.id]
   }
-  if (q.id === AGENDA_QUESTION.id && !claimed(AGENDA_EDITOR_DERIVED_ID)) {
+  // isBuiltinWorded here, not just `q.id === AGENDA_QUESTION.id`: the literal
+  // escape hatch lets a host reuse the 'agenda' id for an UNRELATED question
+  // ("Agenda | Anything to prepare?"). Without the wording check, a stale
+  // submission meant for the deleted "What would you like to discuss?"
+  // question would be misattributed to that unrelated one and could satisfy
+  // its `required` check while it is actually blank.
+  if (q.id === AGENDA_QUESTION.id && isBuiltinWorded && !claimed(AGENDA_EDITOR_DERIVED_ID)) {
     return answers[AGENDA_EDITOR_DERIVED_ID]
   }
   return undefined
@@ -371,17 +378,14 @@ export function pickDeclaredAnswers(
 }
 
 /**
- * Every stored answer worth showing back — form questions currently in
- * effect, PLUS a fallback for the one case those can silently drop: a
- * booking made while the builtin agenda question was still active for this
- * event type, before the host's own same-labeled question started
- * suppressing it (see `effectiveQuestions`). That booking's answer is
- * stored under the builtin's id, which is no longer in the effective list,
- * so without this it would vanish from every reminder, cancellation, and
- * reschedule email — the guest's answer still exists in D1, the host would
- * just never see it again. Only reached when the effective list doesn't
- * already carry that id, so a live "Agenda" replacement question renders
- * its own value, never the stale one twice.
+ * Every stored answer worth showing back — today's effective questions,
+ * reading each one through `submittedAnswerFor`'s same builtin/editor-id
+ * equivalence used at submit time. A booking can be made while one side of
+ * that equivalence is live and rendered — or read back after the host has
+ * since switched to the other — and the id its answer is stored under
+ * doesn't retroactively change. Without going through the same lookup, that
+ * answer would vanish from every reminder, cancellation, and reschedule
+ * email even though it still sits in D1.
  */
 export function answeredQuestions(
   et: EventType,
@@ -390,12 +394,8 @@ export function answeredQuestions(
   const questions = effectiveQuestions(et)
   const out: Array<{ question: EventTypeQuestion; value: string }> = []
   for (const q of questions) {
-    const value = answers[q.id]
+    const value = submittedAnswerFor(q, answers, questions)
     if (value !== undefined && value.trim() !== '') out.push({ question: q, value: value.trim() })
-  }
-  if (!questions.some((q) => q.id === AGENDA_QUESTION.id)) {
-    const legacy = answers[AGENDA_QUESTION.id]
-    if (legacy !== undefined && legacy.trim() !== '') out.push({ question: AGENDA_QUESTION, value: legacy.trim() })
   }
   return out
 }

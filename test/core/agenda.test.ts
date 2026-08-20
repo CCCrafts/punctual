@@ -181,8 +181,11 @@ describe('agenda answers through the pipeline', () => {
     const et = eventType({ questions: [own] })
     const answers = { agenda: 'Quarterly roadmap review' }
 
+    // Surfaces under `own` — today's live question for that wording — not
+    // the retired builtin, so the row's id matches what a fresh answer
+    // would use going forward.
     const rows = answeredQuestions(et, answers)
-    expect(rows).toEqual([{ question: AGENDA_QUESTION, value: 'Quarterly roadmap review' }])
+    expect(rows).toEqual([{ question: own, value: 'Quarterly roadmap review' }])
 
     const booking: Booking = {
       id: 'bk_2',
@@ -317,5 +320,37 @@ describe('agenda answers through the pipeline', () => {
     expect(pickDeclaredAnswers(et, { 'what-would-you-like-to-discuss': 'Answer for other' })).toEqual({
       'what-would-you-like-to-discuss': 'Answer for other',
     })
+  })
+
+  it('answeredQuestions mirrors the delete direction too: a stored answer survives the host deleting the question it was answered under', () => {
+    // The booking was made while the host's own "What would you like to
+    // discuss?" question existed, so the answer is stored under its id. The
+    // host later deletes that question — effectiveQuestions falls back to
+    // the builtin — and the read side must still find it, not just the
+    // write side pickDeclaredAnswers already covered.
+    const et = eventType({ questions: [] })
+    const rows = answeredQuestions(et, { 'what-would-you-like-to-discuss': 'Quarterly roadmap review' })
+    expect(rows).toEqual([{ question: AGENDA_QUESTION, value: 'Quarterly roadmap review' }])
+  })
+
+  it('the escape hatch does not leak a stale answer into an unrelated question that merely reuses the id \'agenda\'', () => {
+    // The host's literal-id escape hatch lets 'agenda' mean ANY question,
+    // not necessarily the builtin's wording. A guest's stale form, rendered
+    // while "What would you like to discuss?" existed under its editor id,
+    // must not have its answer misattributed to this unrelated question —
+    // that would both mislabel the guest's text and let a required,
+    // genuinely-unanswered question silently pass validation.
+    const repurposedAgenda = {
+      id: 'agenda',
+      label: 'Anything to prepare?',
+      type: 'text' as const,
+      required: true,
+    }
+    const et = eventType({ questions: [repurposedAgenda] })
+    const staleAnswers = { 'what-would-you-like-to-discuss': 'Quarterly roadmap review' }
+
+    expect(pickDeclaredAnswers(et, staleAnswers)).toEqual({})
+    expect(validateAnswers(et, staleAnswers)).toHaveProperty('agenda')
+    expect(answeredQuestions(et, staleAnswers)).toEqual([])
   })
 })
