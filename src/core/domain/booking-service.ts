@@ -325,6 +325,13 @@ export function effectiveQuestions(et: EventType): EventTypeQuestion[] {
  * that case the id belongs to a real, distinct live answer, not a stale
  * relic, and borrowing it for `q` would misattribute one question's answer
  * to another and let a required `q` pass while actually blank.
+ *
+ * A BLANK direct value does not shadow a filled alias. A plain HTML submit
+ * only ever posts one field for this question, so this only matters for a
+ * JSON caller (REST/MCP) that sends both today's id and the equivalent
+ * stale one in one request — e.g. a client merging a fresh empty field with
+ * a leftover cached one. Preferring the blank would silently drop a real
+ * answer the caller did provide, just under the other id.
  */
 function submittedAnswerFor(
   q: EventTypeQuestion,
@@ -332,24 +339,26 @@ function submittedAnswerFor(
   questions: EventTypeQuestion[],
 ): string | undefined {
   const direct = answers[q.id]
-  if (direct !== undefined) return direct
-
   const claimed = (id: string) => questions.some((other) => other.id === id)
-
   const isBuiltinWorded = normalizeQuestionLabel(q.label) === AGENDA_LABEL_NORMALIZED
+
+  let alias: string | undefined
   if (q.id !== AGENDA_QUESTION.id && isBuiltinWorded && !claimed(AGENDA_QUESTION.id)) {
-    return answers[AGENDA_QUESTION.id]
+    alias = answers[AGENDA_QUESTION.id]
+  } else if (q.id === AGENDA_QUESTION.id && isBuiltinWorded && !claimed(AGENDA_EDITOR_DERIVED_ID)) {
+    // isBuiltinWorded here, not just `q.id === AGENDA_QUESTION.id`: the
+    // literal escape hatch lets a host reuse the 'agenda' id for an
+    // UNRELATED question ("Agenda | Anything to prepare?"). Without the
+    // wording check, a stale submission meant for the deleted "What would
+    // you like to discuss?" question would be misattributed to that
+    // unrelated one and could satisfy its `required` check while it is
+    // actually blank.
+    alias = answers[AGENDA_EDITOR_DERIVED_ID]
   }
-  // isBuiltinWorded here, not just `q.id === AGENDA_QUESTION.id`: the literal
-  // escape hatch lets a host reuse the 'agenda' id for an UNRELATED question
-  // ("Agenda | Anything to prepare?"). Without the wording check, a stale
-  // submission meant for the deleted "What would you like to discuss?"
-  // question would be misattributed to that unrelated one and could satisfy
-  // its `required` check while it is actually blank.
-  if (q.id === AGENDA_QUESTION.id && isBuiltinWorded && !claimed(AGENDA_EDITOR_DERIVED_ID)) {
-    return answers[AGENDA_EDITOR_DERIVED_ID]
-  }
-  return undefined
+
+  if (direct !== undefined && direct.trim() !== '') return direct
+  if (alias !== undefined && alias.trim() !== '') return alias
+  return direct
 }
 
 export function pickDeclaredAnswers(

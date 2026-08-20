@@ -353,4 +353,23 @@ describe('agenda answers through the pipeline', () => {
     expect(validateAnswers(et, staleAnswers)).toHaveProperty('agenda')
     expect(answeredQuestions(et, staleAnswers)).toEqual([])
   })
+
+  it('a blank value under today\'s id does not shadow a filled value under the stale alias id', () => {
+    // A JSON caller (REST/MCP) can send both keys in one request, unlike a
+    // plain HTML form. The blank one must not win just because it is
+    // checked first.
+    const own = {
+      id: 'what-would-you-like-to-discuss',
+      label: 'What would you like to discuss?',
+      type: 'textarea' as const,
+      required: true,
+    }
+    const et = eventType({ questions: [own] })
+    const answers = { 'what-would-you-like-to-discuss': '', agenda: 'Quarterly roadmap review' }
+
+    expect(pickDeclaredAnswers(et, answers)).toEqual({
+      'what-would-you-like-to-discuss': 'Quarterly roadmap review',
+    })
+    expect(validateAnswers(et, answers)).toEqual({})
+  })
 })
