@@ -26,6 +26,7 @@ export interface DocsPageOptions {
   baseUrl: string
   githubUrl?: string
   operator?: string
+  analyticsId?: string
 }
 
 interface DocsNavItem {
@@ -91,6 +92,7 @@ ${footer(githubUrl, opts.operator)}
       description: lede,
       baseUrl: opts.baseUrl,
       path: activePath,
+      analyticsId: opts.analyticsId,
     },
     body,
   )
@@ -314,6 +316,7 @@ ${pre(`git pull\nnpm run migrate\nnpm run deploy`)}
 <tr><td class="pu-time">TELEMETRY_ENABLED</td><td>[vars]</td><td>0 by default &mdash; see below</td></tr>
 <tr><td class="pu-time">SIGNUPS</td><td>secret or [vars]</td><td>Pins the sign-up policy: open, closed, or a comma list of emails and @domains. Unset (the default), admins manage it from the dashboard's Admin page &mdash; existing users always sign in either way</td></tr>
 <tr><td class="pu-time">DEMO_BOOKING_PATH</td><td>[vars]</td><td>A live booking page on this deployment (e.g. /jo/30min), embedded on the landing page</td></tr>
+<tr><td class="pu-time">GA_MEASUREMENT_ID</td><td>[vars]</td><td>Unset by default. A GA4 id (G-XXXXXXXXXX) loads Google Analytics on the marketing/docs pages ONLY &mdash; never on a booking page or the dashboard</td></tr>
 <tr><td class="pu-time">ENCRYPTION_KEY_V1</td><td>secret</td><td>AES-GCM key for calendar tokens</td></tr>
 <tr><td class="pu-time">SIGNING_KEY</td><td>secret</td><td>HMAC key for guest manage links</td></tr>
 <tr><td class="pu-time">GOOGLE_CLIENT_ID / _SECRET</td><td>secret</td><td>Your Google OAuth app</td></tr>

@@ -41,6 +41,8 @@ export interface Env {
   BRAND_NAME?: string
   LEGAL_OPERATOR?: string
   DEMO_BOOKING_PATH?: string
+  /** GA4 measurement id for the marketing/docs pages only — see EngineConfig.analyticsId in ports.ts. */
+  GA_MEASUREMENT_ID?: string
   /** Signup policy: unset/"open", "closed", or a comma list of emails/@domains — see `SignupPolicy` in ports.ts. Set as a secret/var per deployment; never a public-repo default, which would lock a fresh self-hoster out of their own instance. */
   SIGNUPS?: string
   FROM_EMAIL?: string
@@ -155,6 +157,7 @@ export function buildPorts(env: Env): EnginePorts {
       brandName: env.BRAND_NAME ?? 'Punctual',
       ...(env.LEGAL_OPERATOR ? { legalOperator: env.LEGAL_OPERATOR } : {}),
       ...(env.DEMO_BOOKING_PATH ? { demoBookingPath: env.DEMO_BOOKING_PATH } : {}),
+      ...(env.GA_MEASUREMENT_ID ? { analyticsId: env.GA_MEASUREMENT_ID } : {}),
       ...(env.SIGNUPS ? { signupPolicy: parseSignupPolicy(env.SIGNUPS) } : {}),
       supportEmail: env.SUPPORT_EMAIL ?? 'hello@example.com',
       fromEmail: env.FROM_EMAIL ?? 'hello@example.com',

@@ -643,6 +643,16 @@ export interface EngineConfig {
   rateLimits?: Partial<Record<string, { limit: number; windowSeconds: number }>>
   /** Who may create an account here — see `SignupPolicy`. Unset = open. */
   signupPolicy?: SignupPolicy
+  /**
+   * A GA4 measurement id (`G-XXXXXXXXXX`), loaded ONLY on the marketing/docs
+   * pages (landing, /calendly-alternative, /docs and its sub-pages) — never
+   * on a booking page or the dashboard. Those carry a guest's or a host's
+   * real activity and are session-free by design (ADR-0005 §5); this
+   * deployment's own marketing analytics has no business seeing that.
+   * Unset by default: a self-hosted deployment gets no third-party script
+   * injected, and never one pointed at this project's own GA property.
+   */
+  analyticsId?: string
 }
 
 // ---------------------------------------------------------------------------

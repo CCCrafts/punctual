@@ -118,3 +118,32 @@ describe('calendlyAlternativePage', () => {
     expect(calendlyAlternativePage(opts)).toContain('Seat-based subscription')
   })
 })
+
+/**
+ * GA4 analytics on the marketing/docs pages — off by default (EngineConfig.
+ * analyticsId is unset), so a self-hosted deployment never gets a
+ * third-party script injected and never one pointed at this project's own
+ * GA property.
+ */
+describe('marketing/docs page analytics', () => {
+  const base = { brandName: 'Punctual', baseUrl: 'https://example.test' }
+
+  it('loads no tracking script when unconfigured', () => {
+    expect(landingPage(base)).not.toContain('googletagmanager.com')
+    expect(calendlyAlternativePage(base)).not.toContain('googletagmanager.com')
+    expect(docsIndexPage(base)).not.toContain('googletagmanager.com')
+  })
+
+  it('loads the configured GA4 tag when set', () => {
+    const opts = { ...base, analyticsId: 'G-XGF46TP8S1' }
+    const html = landingPage(opts)
+    expect(html).toContain('https://www.googletagmanager.com/gtag/js?id=G-XGF46TP8S1')
+    expect(html).toContain("gtag('config', 'G-XGF46TP8S1');")
+  })
+
+  it('drops a malformed id instead of interpolating it into the inline script', () => {
+    const html = landingPage({ ...base, analyticsId: "'); alert(1); //" })
+    expect(html).not.toContain('googletagmanager.com')
+    expect(html).not.toContain('alert(1)')
+  })
+})

@@ -233,6 +233,7 @@ Two features need a paid plan, and both degrade gracefully:
 | `TELEMETRY_ENABLED` | `[vars]` | `0` by default. See below |
 | `SIGNUPS` | secret or `[vars]` | Pins the sign-up policy: `open`, `closed`, or a comma list of emails and `@domains`. Unset (the default), admins manage it from the dashboard's Admin page instead — existing users always sign in either way |
 | `DEMO_BOOKING_PATH` | `[vars]` | A live booking page on this deployment (e.g. `/jo/30min`), embedded on the landing page. Unset: no demo section |
+| `GA_MEASUREMENT_ID` | `[vars]` | Unset by default. A GA4 id (`G-XXXXXXXXXX`) loads Google Analytics on the marketing/docs pages ONLY — never on a booking page or the dashboard |
 | `ENCRYPTION_KEY_V1` | secret | AES-GCM key for calendar tokens |
 | `SIGNING_KEY` | secret | HMAC key for guest manage links |
 | `GOOGLE_CLIENT_ID` / `_SECRET` | secret | Your Google OAuth app |

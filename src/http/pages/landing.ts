@@ -33,6 +33,8 @@ export interface LandingPageOptions {
    * so the footer just omits the line rather than naming this repo's owner.
    */
   operator?: string
+  /** GA4 measurement id (EngineConfig.analyticsId) — see `analyticsTag`. */
+  analyticsId?: string
 }
 
 export interface CalendlyAlternativePageOptions {
@@ -40,6 +42,7 @@ export interface CalendlyAlternativePageOptions {
   baseUrl: string
   githubUrl?: string
   operator?: string
+  analyticsId?: string
 }
 
 /**
@@ -48,8 +51,30 @@ export interface CalendlyAlternativePageOptions {
  */
 export const DEFAULT_GITHUB_URL = 'https://github.com/CCCrafts/punctual'
 
+/**
+ * A GA4 tag, gated behind `EngineConfig.analyticsId` — unset for every
+ * deployment by default (see the doc comment on that field in ports.ts). A
+ * malformed id (this is operator config, not request input, but defense in
+ * depth costs nothing here) is dropped rather than interpolated into the
+ * inline script.
+ */
+function analyticsTag(id: string | undefined): string {
+  if (!id || !/^G-[A-Z0-9]+$/i.test(id)) return ''
+  const safeId = escapeHtml(id)
+  return `<script async src="https://www.googletagmanager.com/gtag/js?id=${safeId}"></script>
+<script>
+window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+gtag('config', '${safeId}');
+</script>`
+}
+
 /** Exported for pages/docs.ts: the docs pages want the exact same page frame. */
-export function shell(opts: { title: string; description: string; baseUrl: string; path?: string }, body: string): string {
+export function shell(
+  opts: { title: string; description: string; baseUrl: string; path?: string; analyticsId?: string },
+  body: string,
+): string {
   const origin = opts.baseUrl.replace(/\/$/, '')
   const url = `${origin}${opts.path ?? ''}`
   const image = `${origin}/og/default.png`
@@ -64,6 +89,7 @@ export function shell(opts: { title: string; description: string; baseUrl: strin
 <meta name="theme-color" content="#0E7C4C">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="canonical" href="${escapeHtml(url)}">
+${analyticsTag(opts.analyticsId)}
 <!-- Open Graph / Twitter: one shared brand card for now — a booking page's
      own title/description still varies per host and event type (see
      pages/booking.ts), only the image is shared until per-page OG images
@@ -268,6 +294,7 @@ ${footer(githubUrl, opts.operator)}
         'Open, edge-native scheduling on Cloudflare Workers. Self-host for $0, MIT licensed, with a built-in MCP server for AI agents.',
       baseUrl: opts.baseUrl,
       path: '/',
+      analyticsId: opts.analyticsId,
     },
     body,
   )
@@ -360,6 +387,7 @@ ${footer(githubUrl, opts.operator)}
         'Punctual is a self-hosted, MIT-licensed alternative to Calendly — no seat limits, your calendar data stays yours, deployed on your own Cloudflare account for $0.',
       baseUrl: opts.baseUrl,
       path: '/calendly-alternative',
+      analyticsId: opts.analyticsId,
     },
     body,
   )
