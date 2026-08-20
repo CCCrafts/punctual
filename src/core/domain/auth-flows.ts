@@ -217,15 +217,25 @@ export async function consumeMagicLink(
       companyUrl: null,
       role: isFirstUser ? 'admin' : 'member',
     })
-    // Without a persisted schedule, `createSlotService` treats this host as
-    // having zero availability (engine.ts skips a host `forUser` returns
-    // null for) — not "unconfigured", indistinguishable from "never
-    // bookable". The dashboard's availability form shows this same default
-    // as a preview before the first save, which made connecting a calendar
-    // look like it had "activated" nothing until the host separately
-    // discovered and submitted that form. A brand new account is bookable
-    // from the moment it exists; editing the schedule later is a normal
-    // update, not a required activation step.
+  }
+
+  // Without a persisted schedule, `createSlotService` treats this host as
+  // having zero availability (engine.ts skips a host `forUser` returns null
+  // for) — not "unconfigured", indistinguishable from "never bookable". The
+  // dashboard's availability form shows this same default as a preview
+  // before the first save, which made connecting a calendar look like it
+  // had "activated" nothing until the host separately discovered and
+  // submitted that form — and made the gap invisible once they did, since
+  // the preview and a real saved schedule render identically.
+  //
+  // Checked on EVERY login, not only at creation: a transient failure right
+  // after `users.create` would otherwise strand the account in this state
+  // forever (the create branch only ever runs once), and every account that
+  // predates this fix is in exactly that state already. Checking `forUser`
+  // first, rather than saving unconditionally, is what keeps this safe for a
+  // host who deliberately cleared their week to all-empty — that is a real,
+  // saved schedule, not a missing one, and must never be overwritten.
+  if (!(await deps.repos.availability.forUser(user.id))) {
     await deps.repos.availability.save(user.id, defaultAvailability(user))
   }
 

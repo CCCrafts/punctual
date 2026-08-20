@@ -36,7 +36,7 @@ import {
   createFakeRepositories,
   fakeConfig,
 } from '../../src/testing/fakes.js'
-import type { Booking, Session } from '../../src/core/domain/types.js'
+import type { Availability, Booking, Session } from '../../src/core/domain/types.js'
 
 /**
  * The auth path in plain Node (ADR-0003 §5): the flows take ports as
@@ -817,6 +817,43 @@ describe('admin bootstrap', () => {
     // used to only preview.
     expect(saved?.weekly[1]).toEqual([{ startMinute: 9 * 60, endMinute: 17 * 60 }])
     expect(saved?.weekly[0]).toEqual([])
+  })
+
+  it('backfills a missing schedule on login too, not only at creation — self-healing for pre-fix accounts and a save that failed once', async () => {
+    // Caught by review: gating the save to the create branch only means a
+    // transient failure right after `users.create` (or simply predating this
+    // fix) strands the account with no schedule forever, since that branch
+    // never runs again for an existing user.
+    const h = harness()
+    h.repos.seedUser({ id: 'usr_stuck', email: 'stuck@example.com', tz: 'Europe/Kyiv' })
+    expect(await h.repos.availability.forUser('usr_stuck')).toBeNull()
+
+    const res = await consumeMagicLink(h, {
+      token: await requestAndGetToken(h, 'stuck@example.com'),
+      now: NOW + 1000,
+    })
+    expect(res.ok).toBe(true)
+    const saved = await h.repos.availability.forUser('usr_stuck')
+    expect(saved).not.toBeNull()
+    expect(saved?.timezone).toBe('Europe/Kyiv')
+  })
+
+  it('never overwrites a host who deliberately cleared their week to all-empty', async () => {
+    const h = harness()
+    h.repos.seedUser({ id: 'usr_cleared', email: 'cleared@example.com' })
+    const cleared: Availability = {
+      userId: 'usr_cleared',
+      timezone: 'UTC',
+      weekly: [[], [], [], [], [], [], []],
+      overrides: [],
+    }
+    await h.repos.availability.save('usr_cleared', cleared)
+
+    await consumeMagicLink(h, {
+      token: await requestAndGetToken(h, 'cleared@example.com'),
+      now: NOW + 1000,
+    })
+    expect(await h.repos.availability.forUser('usr_cleared')).toEqual(cleared)
   })
 })
 
