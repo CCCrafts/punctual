@@ -9,12 +9,14 @@ import { describe, expect, it } from 'vitest'
 import type { Booking, EventType, User } from '../../src/core/domain/types.js'
 import {
   AGENDA_QUESTION,
+  answeredQuestions,
   effectiveQuestions,
   pickDeclaredAnswers,
   validateAnswers,
 } from '../../src/core/domain/booking-service.js'
 import { confirmForm, type BookingPageData } from '../../src/http/pages/booking.js'
 import { bookingConfirmationForHost, type BookingEmailContext } from '../../src/core/email-templates.js'
+import { buildIcs } from '../../src/core/ics.js'
 
 const host: User = {
   id: 'u_host',
@@ -162,5 +164,68 @@ describe('agenda answers through the pipeline', () => {
     const html = bookingConfirmationForHost(ctx).html
     expect(html).toContain(AGENDA_QUESTION.label)
     expect(html).toContain('Quarterly roadmap review')
+  })
+
+  it('a legacy answer stored under the builtin id still surfaces after a same-labeled question replaces it', () => {
+    // The exact scenario the reviewers flagged: this booking predates the
+    // host adding their own "What would you like to discuss?" question, so
+    // its answer is keyed 'agenda' — a key effectiveQuestions no longer
+    // returns for this event type. Without the fallback, reminder/cancel/
+    // reschedule emails and the ICS description would silently drop it.
+    const own = {
+      id: 'what-would-you-like-to-discuss',
+      label: 'What would you like to discuss?',
+      type: 'textarea' as const,
+      required: false,
+    }
+    const et = eventType({ questions: [own] })
+    const answers = { agenda: 'Quarterly roadmap review' }
+
+    const rows = answeredQuestions(et, answers)
+    expect(rows).toEqual([{ question: AGENDA_QUESTION, value: 'Quarterly roadmap review' }])
+
+    const booking: Booking = {
+      id: 'bk_2',
+      eventTypeId: 'et_1',
+      hostUserId: 'u_host',
+      hostUserIds: ['u_host'],
+      guestName: 'Ada',
+      guestEmail: 'ada@example.com',
+      guestTimezone: 'UTC',
+      startUtc: Date.UTC(2026, 8, 10, 9, 0),
+      endUtc: Date.UTC(2026, 8, 10, 9, 30),
+      localDate: '2026-09-10',
+      status: 'confirmed',
+      answers,
+      externalEventIds: {},
+      rescheduleOf: null,
+      rescheduledTo: null,
+    } as unknown as Booking
+
+    const emailHtml = bookingConfirmationForHost({ booking, eventType: et, host }).html
+    expect(emailHtml).toContain('Quarterly roadmap review')
+
+    const ics = buildIcs({
+      uid: 'bk_2@punctual',
+      sequence: 0,
+      method: 'REQUEST',
+      booking,
+      eventType: et,
+      organizer: { email: host.email, name: host.name },
+      attendees: [{ email: booking.guestEmail, name: booking.guestName }],
+    })
+    expect(ics).toContain('Quarterly roadmap review')
+  })
+
+  it('a live answer under the replacement id is not doubled by the legacy fallback', () => {
+    const own = {
+      id: 'what-would-you-like-to-discuss',
+      label: 'What would you like to discuss?',
+      type: 'textarea' as const,
+      required: false,
+    }
+    const et = eventType({ questions: [own] })
+    const rows = answeredQuestions(et, { 'what-would-you-like-to-discuss': 'New booking, own id' })
+    expect(rows).toEqual([{ question: own, value: 'New booking, own id' }])
   })
 })

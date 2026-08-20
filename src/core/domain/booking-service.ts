@@ -311,6 +311,36 @@ export function pickDeclaredAnswers(
   return out
 }
 
+/**
+ * Every stored answer worth showing back — form questions currently in
+ * effect, PLUS a fallback for the one case those can silently drop: a
+ * booking made while the builtin agenda question was still active for this
+ * event type, before the host's own same-labeled question started
+ * suppressing it (see `effectiveQuestions`). That booking's answer is
+ * stored under the builtin's id, which is no longer in the effective list,
+ * so without this it would vanish from every reminder, cancellation, and
+ * reschedule email — the guest's answer still exists in D1, the host would
+ * just never see it again. Only reached when the effective list doesn't
+ * already carry that id, so a live "Agenda" replacement question renders
+ * its own value, never the stale one twice.
+ */
+export function answeredQuestions(
+  et: EventType,
+  answers: Record<string, string>,
+): Array<{ question: EventTypeQuestion; value: string }> {
+  const questions = effectiveQuestions(et)
+  const out: Array<{ question: EventTypeQuestion; value: string }> = []
+  for (const q of questions) {
+    const value = answers[q.id]
+    if (value !== undefined && value.trim() !== '') out.push({ question: q, value: value.trim() })
+  }
+  if (!questions.some((q) => q.id === AGENDA_QUESTION.id)) {
+    const legacy = answers[AGENDA_QUESTION.id]
+    if (legacy !== undefined && legacy.trim() !== '') out.push({ question: AGENDA_QUESTION, value: legacy.trim() })
+  }
+  return out
+}
+
 export function validateAnswers(
   et: EventType,
   answers: Record<string, string>,

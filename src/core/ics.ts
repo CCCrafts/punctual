@@ -21,7 +21,7 @@
  */
 
 import type { Booking, EventType } from './domain/types.js'
-import { effectiveQuestions } from './domain/booking-service.js'
+import { answeredQuestions } from './domain/booking-service.js'
 
 export type IcsMethod = 'REQUEST' | 'CANCEL'
 export type IcsStatus = 'CONFIRMED' | 'CANCELLED' | 'TENTATIVE'
@@ -296,13 +296,7 @@ export function describeLocation(et: EventType): string {
 
 /** Answers rendered as `Label: value`, in the order the questions are defined. */
 function describeAnswers(et: EventType, booking: Booking): string[] {
-  const lines: string[] = []
-  for (const q of effectiveQuestions(et)) {
-    const value = booking.answers[q.id]
-    if (value === undefined || value.trim() === '') continue
-    lines.push(`${q.label}: ${value}`)
-  }
-  return lines
+  return answeredQuestions(et, booking.answers).map(({ question, value }) => `${question.label}: ${value}`)
 }
 
 function defaultDescription(booking: Booking, et: EventType): string {
