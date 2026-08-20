@@ -291,4 +291,31 @@ describe('agenda answers through the pipeline', () => {
     // The required second question is genuinely blank, so it must still error.
     expect(validateAnswers(et, { agenda: 'bring the Q3 deck' })).toHaveProperty('what-would-you-like-to-discuss')
   })
+
+  it('mirrors the fallback for the delete direction: a stale form still posting the editor-derived id resolves to the re-appeared builtin', () => {
+    // The reverse of the earlier scenario: the guest's form was rendered
+    // while the host's own "What would you like to discuss?" question
+    // existed (id 'what-would-you-like-to-discuss'), the host then deletes
+    // it, and effectiveQuestions falls back to the builtin ('agenda') —
+    // but the guest's browser still posts under the now-gone id.
+    const et = eventType({ questions: [] }) // host's question is gone; only the builtin remains
+    expect(pickDeclaredAnswers(et, { 'what-would-you-like-to-discuss': 'Stale-form roadmap question' })).toEqual({
+      agenda: 'Stale-form roadmap question',
+    })
+    expect(validateAnswers(et, { 'what-would-you-like-to-discuss': 'Stale-form roadmap question' })).toEqual({})
+  })
+
+  it('the delete-direction fallback does not fire when another live question already owns the derived id', () => {
+    const other = {
+      id: 'what-would-you-like-to-discuss',
+      label: 'Anything else we should know?',
+      type: 'text' as const,
+      required: false,
+    }
+    const et = eventType({ questions: [other] }) // effectiveQuestions: [other, AGENDA_QUESTION]
+    // Live answer for `other`, nothing for the builtin — must not be stolen.
+    expect(pickDeclaredAnswers(et, { 'what-would-you-like-to-discuss': 'Answer for other' })).toEqual({
+      'what-would-you-like-to-discuss': 'Answer for other',
+    })
+  })
 })

@@ -266,6 +266,23 @@ function normalizeQuestionLabel(label: string): string {
 const AGENDA_LABEL_NORMALIZED = normalizeQuestionLabel(AGENDA_QUESTION.label)
 
 /**
+ * Also lives here (rather than duplicated in the dashboard editor, which
+ * re-exports it) because `submittedAnswerFor` below needs the exact id the
+ * editor would derive from the builtin's own wording — the two must use one
+ * algorithm or the derived id silently drifts out of sync.
+ */
+export function slugify(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60)
+}
+
+/** The id the dashboard editor would derive from a question labeled exactly like the builtin. */
+const AGENDA_EDITOR_DERIVED_ID = slugify(AGENDA_QUESTION.label)
+
+/**
  * The questions a booking form actually asks: the host's own, plus the
  * built-in agenda question — unless the host already declares one that means
  * the same thing. That's either the id the dashboard editor derives from a
@@ -288,33 +305,42 @@ export function effectiveQuestions(et: EventType): EventTypeQuestion[] {
 }
 
 /**
- * A submitted answer for `q`, tolerating one specific staleness: the guest's
- * form was rendered before the host edited the event type to add a
- * same-labeled question, so the guest's browser still posts under the
- * builtin's `q_agenda` field while `q` (today's effective question for that
- * same wording) has a different id and gets nothing at its own key. Without
- * this, the answer the guest actually typed is silently dropped rather than
- * stored — same failure shape as the stale-render case `answeredQuestions`
- * covers on the read side, just triggered by a host edit between page load
- * and submit instead of one before the booking existed.
+ * A submitted answer for `q`, tolerating staleness in EITHER direction: the
+ * guest's form was rendered against one version of the event type's
+ * questions and is submitted against another, edited in between. Two ids
+ * denote "the agenda question, worded as the builtin" — `'agenda'` itself,
+ * and whatever id the dashboard editor would derive from that exact wording
+ * (`AGENDA_EDITOR_DERIVED_ID`) — because a host can reach that wording
+ * either by using the builtin as-is or by typing it into the questions
+ * editor, and an edit mid-fill can swap which one is currently live. A
+ * submission under the OTHER one of the two must still resolve to `q`,
+ * or the guest's typed answer is silently dropped rather than stored — same
+ * failure shape as the stale-render case `answeredQuestions` covers on the
+ * read side, just triggered by a host edit between page load and submit
+ * instead of one before the booking existed.
  *
- * `agendaIsLive` must be false for the fallback to apply: a host can declare
- * BOTH the literal-id escape hatch (a question with id `'agenda'`) AND a
- * second question that separately happens to share the builtin's wording.
- * When that's the case, `'agenda'` is someone else's real live answer, not a
- * stale relic, and borrowing it for `q` here would misattribute one
- * question's answer to another and let a required `q` pass while actually
- * blank.
+ * The borrowed id must not already be `claimed` by a live question: a host
+ * can declare BOTH the literal-id escape hatch AND a second, separately
+ * live question that happens to derive the same id from its own wording. In
+ * that case the id belongs to a real, distinct live answer, not a stale
+ * relic, and borrowing it for `q` would misattribute one question's answer
+ * to another and let a required `q` pass while actually blank.
  */
 function submittedAnswerFor(
   q: EventTypeQuestion,
   answers: Record<string, string>,
-  agendaIsLive: boolean,
+  questions: EventTypeQuestion[],
 ): string | undefined {
   const direct = answers[q.id]
   if (direct !== undefined) return direct
-  if (!agendaIsLive && q.id !== AGENDA_QUESTION.id && normalizeQuestionLabel(q.label) === AGENDA_LABEL_NORMALIZED) {
+
+  const claimed = (id: string) => questions.some((other) => other.id === id)
+
+  if (q.id !== AGENDA_QUESTION.id && normalizeQuestionLabel(q.label) === AGENDA_LABEL_NORMALIZED && !claimed(AGENDA_QUESTION.id)) {
     return answers[AGENDA_QUESTION.id]
+  }
+  if (q.id === AGENDA_QUESTION.id && !claimed(AGENDA_EDITOR_DERIVED_ID)) {
+    return answers[AGENDA_EDITOR_DERIVED_ID]
   }
   return undefined
 }
@@ -329,10 +355,9 @@ export function pickDeclaredAnswers(
   // host's real calendar — so an unauthenticated guest could otherwise put
   // arbitrary text of arbitrary size there.
   const questions = effectiveQuestions(et)
-  const agendaIsLive = questions.some((q) => q.id === AGENDA_QUESTION.id)
   const out: Record<string, string> = {}
   for (const q of questions) {
-    const v = submittedAnswerFor(q, answers, agendaIsLive)
+    const v = submittedAnswerFor(q, answers, questions)
     // Trimmed HERE, not just in validation: `validateAnswers` length-checks
     // the trimmed value, so an answer of a few words padded with 200 KB of
     // whitespace would pass the 2000-char cap and then be persisted raw —
@@ -381,9 +406,8 @@ export function validateAnswers(
 ): Record<string, string> {
   const errors: Record<string, string> = {}
   const questions = effectiveQuestions(et)
-  const agendaIsLive = questions.some((q) => q.id === AGENDA_QUESTION.id)
   for (const q of questions) {
-    const v = (submittedAnswerFor(q, answers, agendaIsLive) ?? '').trim()
+    const v = (submittedAnswerFor(q, answers, questions) ?? '').trim()
     if (q.required && v === '') {
       errors[q.id] = 'This field is required'
       continue

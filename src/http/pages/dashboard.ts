@@ -41,6 +41,7 @@ import type {
 } from '../../core/domain/types.js'
 import type { CalendarProviderName } from '../../ports.js'
 import { slotStateClassName } from '../../core/slot-state.js'
+import { slugify } from '../../core/domain/booking-service.js'
 import { formatInZone, localDateString, offsetLabel } from '../../core/time/zone.js'
 import { avatarHtml, escapeHtml, shellFoot, shellHead } from './booking.js'
 
@@ -1449,13 +1450,7 @@ export function parseQuestions(text: string): EventTypeQuestion[] | null {
   return out
 }
 
-export function slugify(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 60)
-}
+export { slugify }
 
 function trimSlash(url: string): string {
   return url.endsWith('/') ? url.slice(0, -1) : url
