@@ -113,6 +113,81 @@ describe('month resolution follows the selected date', () => {
 })
 
 /**
+ * A fresh visit to the booking page — no `?date=` at all — must show TODAY's
+ * times immediately rather than the generic "Pick a day to see available
+ * times" prompt, even though today genuinely has open slots and the
+ * calendar itself already marks it as bookable. Every link the page renders
+ * carries `?date=`, so a bare load is the ONLY way to reach the unset state.
+ */
+describe('a fresh page load shows today, not "pick a day"', () => {
+  it('defaults the day view to the guest\'s today', async () => {
+    const now = Date.now()
+    await env.DB.batch([
+      env.DB.prepare('INSERT INTO users (id,email,name,tz,slug,created_at) VALUES (?,?,?,?,?,?)').bind(
+        'u_fresh_load',
+        'fresh@example.com',
+        'Fresh Host',
+        'UTC',
+        'fresh-host',
+        now,
+      ),
+      // The whole day, every day — the test must not be flaky depending on
+      // what hour it happens to run.
+      env.DB.prepare(
+        'INSERT INTO schedules (id,user_id,name,is_default,timezone,weekly_json,overrides_json,updated_at) VALUES (?,?,?,?,?,?,?,?)',
+      ).bind(
+        'sch_fresh_load',
+        'u_fresh_load',
+        'Working hours',
+        1,
+        'UTC',
+        JSON.stringify(Array(7).fill([{ startMinute: 0, endMinute: 24 * 60 }])),
+        '[]',
+        now,
+      ),
+      env.DB.prepare(
+        `INSERT INTO event_types
+         (id,owner_user_id,owner_team_id,scheduling_type,slug,title,description,duration_minutes,
+          slot_interval_minutes,buffer_before_minutes,buffer_after_minutes,min_notice_minutes,
+          max_horizon_days,max_per_day,location_type,location_value,questions_json,active,created_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      ).bind(
+        'et_fresh_load',
+        'u_fresh_load',
+        null,
+        'personal',
+        'fresh-intro',
+        'Fresh intro call',
+        '',
+        30,
+        null,
+        0,
+        0,
+        0,
+        60,
+        null,
+        'google_meet',
+        null,
+        '[]',
+        1,
+        now,
+      ),
+    ])
+
+    const { default: worker } = await import('../../src/index.js')
+    const res = await worker.fetch(
+      new Request('https://punctual.sh/fresh-host/fresh-intro'),
+      env,
+      createExecutionContext(),
+    )
+    expect(res.status).toBe(200)
+    const body = await res.text()
+    expect(body).not.toContain('Pick a day to see available times')
+    expect(body).toContain('pu-slot-available')
+  })
+})
+
+/**
  * A team-owned event type's public booking page must resolve.
  *
  * The bug: `bookingPageContext` INNER JOINed `event_types` to `users` on
