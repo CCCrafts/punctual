@@ -226,6 +226,31 @@ describe('a fresh page load shows today, not "pick a day"', () => {
     expect(body).toContain('Pick a day to see available times')
     expect(body).not.toContain('No times available on this day')
   })
+
+  /**
+   * Caught by review: the day panel must never describe a month the calendar
+   * beside it isn't showing — its slots would be unreachable from the
+   * visible grid. `clampMonth` can move the calendar off the selected day's
+   * own month, and the review's trigger was a date-line split (host already
+   * on Sep 1, guest still on Aug 31, so the HOST-local `currentMonth` clamps
+   * the GUEST-local default forward). A past `?date=` reaches the identical
+   * clamp branch (`month < currentMonth`) without needing to pin the clock
+   * or straddle a month boundary.
+   */
+  it('drops a selected date the month clamp moved the calendar away from', async () => {
+    const { default: worker } = await import('../../src/index.js')
+    const res = await worker.fetch(
+      new Request('https://punctual.sh/fresh-host/fresh-intro?date=2020-01-15&tz=UTC'),
+      env,
+      createExecutionContext(),
+    )
+    expect(res.status).toBe(200)
+    const body = await res.text()
+    // Clamped forward to the current month, so January 2020 must not be
+    // rendered as the chosen day beneath it.
+    expect(body).not.toContain('January 15')
+    expect(body).toContain('Pick a day to see available times')
+  })
 })
 
 /**

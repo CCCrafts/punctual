@@ -214,16 +214,25 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
     // unconditionally there re-applied THIS month's "today" as the selected
     // date against a DIFFERENT month's slot set, rendering a bogus "No times
     // available on this day" instead of just the calendar for browsing.
-    const selectedDate = dateParam ?? (monthParam ? undefined : localDateString(ports.clock.now(), guestTimezone))
+    const requestedDate = dateParam ?? (monthParam ? undefined : localDateString(ports.clock.now(), guestTimezone))
     // A selected date decides the month. Slots are computed for ONE month and
     // the day view filters that set, so taking the month from `?month=` alone
     // meant picking any day outside the current month returned "No times
     // available" — the calendar offered days it then refused to show.
     const month = clampMonth(
-      monthParam ?? selectedDate?.slice(0, 7) ?? currentMonth,
+      monthParam ?? requestedDate?.slice(0, 7) ?? currentMonth,
       currentMonth,
       eventType.maxHorizonDays,
     )
+    // Dropped when the clamp moved the calendar off the selected day's own
+    // month (caught by review). `currentMonth` is HOST-local while the
+    // default above is GUEST-local, so on a date-line split at a month
+    // boundary — host already on Sep 1, guest still on Aug 31 — the clamp
+    // pulls the calendar to September while the day list would still be
+    // filtering for August 31. Rendering a day panel for a month the
+    // calendar beside it isn't showing is worse than falling back to "pick
+    // a day": the slots it lists are unreachable from the visible grid.
+    const selectedDate = requestedDate?.slice(0, 7) === month ? requestedDate : undefined
 
     // Flush the shell and the event header before touching D1 for slots: TTFB
     // then measures edge render rather than a replica round trip (ADR-0007 §3).
