@@ -96,6 +96,7 @@ async function seedHost(ports: EnginePorts, scopes: string[] = ['*']): Promise<S
     companyUrl: null,
     role: 'member',
   })
+  if (!user) throw new Error(`seedHost: slug host${n} unexpectedly collided`)
 
   const workday = [{ startMinute: 9 * 60, endMinute: 17 * 60 }]
   await repos.availability.create(user.id, {

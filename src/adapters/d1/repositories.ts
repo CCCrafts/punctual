@@ -123,20 +123,29 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
       // round trips — only slug_claims' own PRIMARY KEY can arbitrate a
       // concurrent team creation claiming the identical slug in between.
       // Vanishingly rare (the precheck already tried a random suffix up to 5
-      // times), so a genuine collision here throws like any other
-      // unexpected D1 error rather than growing a retry loop for it.
-      await session.batch([
-        q(
-          'INSERT INTO users (id,email,name,tz,slug,avatar_key,company,job_title,company_url,role,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
-          row.id, row.email.toLowerCase(), row.name, row.tz, row.slug,
-          row.avatarKey, row.company, row.jobTitle, row.companyUrl, row.role, row.createdAt,
-        ),
-        q(
-          'INSERT INTO slug_claims (slug,kind,owner_id,created_at) VALUES (?,?,?,?)',
-          row.slug, 'user', row.id, row.createdAt,
-        ),
-      ])
-      return row
+      // times), but null-on-conflict rather than a throw, same as
+      // `TeamRepository.createWithFirstMember`: `consumeMagicLink` has
+      // already burned the guest's single-use link by the time it calls
+      // this, so an uncaught exception here would surface as a bare 500 on
+      // a link the guest can never use again, instead of a clean retry with
+      // a fresh candidate.
+      try {
+        await session.batch([
+          q(
+            'INSERT INTO users (id,email,name,tz,slug,avatar_key,company,job_title,company_url,role,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+            row.id, row.email.toLowerCase(), row.name, row.tz, row.slug,
+            row.avatarKey, row.company, row.jobTitle, row.companyUrl, row.role, row.createdAt,
+          ),
+          q(
+            'INSERT INTO slug_claims (slug,kind,owner_id,created_at) VALUES (?,?,?,?)',
+            row.slug, 'user', row.id, row.createdAt,
+          ),
+        ])
+        return row
+      } catch (err) {
+        if (isConstraintViolation(err)) return null
+        throw err
+      }
     },
     async update(id, patch) {
       const sets: string[] = []
@@ -722,15 +731,26 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
     },
     async create(team) {
       const row = { ...team, createdAt: Date.now() }
-      await run(
-        'INSERT INTO teams (id,name,slug,logo_key,created_at) VALUES (?,?,?,?,?)',
-        row.id,
-        row.name,
-        row.slug,
-        row.logoKey,
-        row.createdAt,
-      )
-      return row
+      // Same claim, same batch, as createWithFirstMember (CCC-559) — a bare
+      // single-statement insert here would let this sibling method write a
+      // team whose slug nothing in slug_claims holds, silently reopening the
+      // exact cross-table race that table exists to close.
+      try {
+        await session.batch([
+          q(
+            'INSERT INTO teams (id,name,slug,logo_key,created_at) VALUES (?,?,?,?,?)',
+            row.id, row.name, row.slug, row.logoKey, row.createdAt,
+          ),
+          q(
+            'INSERT INTO slug_claims (slug,kind,owner_id,created_at) VALUES (?,?,?,?)',
+            row.slug, 'team', row.id, row.createdAt,
+          ),
+        ])
+        return row
+      } catch (err) {
+        if (isConstraintViolation(err)) return null
+        throw err
+      }
     },
     async createWithFirstMember(team, member) {
       const row = { ...team, createdAt: Date.now() }

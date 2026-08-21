@@ -665,6 +665,48 @@ describe('slug_claims — the shared namespace constraint (CCC-559)', () => {
     expect(team?.n).toBe(0)
   })
 
+  it('TeamRepository.create (the memberless sibling of createWithFirstMember) also claims its slug, and also refuses one already held', async () => {
+    // Caught by review: createWithFirstMember claimed its slug atomically
+    // from the start, but this sibling method on the same public port did a
+    // bare single-statement insert — a team created through it held a slug
+    // in `teams` that nothing held in `slug_claims`, silently reopening the
+    // exact race this table exists to close for any later signup or slug
+    // change racing that same slug.
+    const repos = createD1Repositories(db, { consistency: 'bookmark' })
+    const team = await repos.teams.create({ id: 'team_bare', name: 'Bare Create', slug: 'bare-create-slug', logoKey: null })
+    expect(team).not.toBeNull()
+    const claim = await db
+      .prepare("SELECT owner_id FROM slug_claims WHERE slug='bare-create-slug'")
+      .first<{ owner_id: string }>()
+    expect(claim?.owner_id).toBe('team_bare')
+
+    // And the reverse: it must also REFUSE a slug already claimed, not just
+    // successfully claim a free one.
+    await repos.users.create({
+      id: 'usr_bare_holder',
+      email: 'bare-holder@example.test',
+      name: 'Bare Holder',
+      tz: 'UTC',
+      slug: 'user-held-for-bare',
+      avatarKey: null,
+      company: null,
+      jobTitle: null,
+      companyUrl: null,
+      role: 'member',
+    })
+    const blocked = await repos.teams.create({
+      id: 'team_bare_2',
+      name: 'Bare Create 2',
+      slug: 'user-held-for-bare',
+      logoKey: null,
+    })
+    expect(blocked).toBeNull()
+    const notCreated = await db
+      .prepare("SELECT COUNT(*) AS n FROM teams WHERE id='team_bare_2'")
+      .first<{ n: number }>()
+    expect(notCreated?.n).toBe(0)
+  })
+
   it('a user cannot be created with a slug an existing team already holds', async () => {
     const repos = createD1Repositories(db, { consistency: 'bookmark' })
     const team = await repos.teams.createWithFirstMember(
@@ -676,20 +718,22 @@ describe('slug_claims — the shared namespace constraint (CCC-559)', () => {
     // users_slug_idx alone would never catch this — no other USER wants
     // "team-held-slug". Only the shared slug_claims constraint does; the
     // batch in `users.create` must roll back the user row along with it.
-    await expect(
-      repos.users.create({
-        id: 'usr_slugrace_2',
-        email: 'slugrace2@example.test',
-        name: 'Slug Race 2',
-        tz: 'UTC',
-        slug: 'team-held-slug',
-        avatarKey: null,
-        company: null,
-        jobTitle: null,
-        companyUrl: null,
-        role: 'member',
-      }),
-    ).rejects.toThrow()
+    // null, not a throw — the caller (consumeMagicLink) reaches this after
+    // its single-use link is already burned, so a collision here must be
+    // retryable rather than an uncaught exception on a dead link.
+    const created = await repos.users.create({
+      id: 'usr_slugrace_2',
+      email: 'slugrace2@example.test',
+      name: 'Slug Race 2',
+      tz: 'UTC',
+      slug: 'team-held-slug',
+      avatarKey: null,
+      company: null,
+      jobTitle: null,
+      companyUrl: null,
+      role: 'member',
+    })
+    expect(created).toBeNull()
     const user = await db
       .prepare("SELECT COUNT(*) AS n FROM users WHERE id='usr_slugrace_2'")
       .first<{ n: number }>()

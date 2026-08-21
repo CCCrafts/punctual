@@ -205,18 +205,31 @@ export async function consumeMagicLink(
     // both are the operator's own attempts, and an admin can demote the
     // duplicate — a lockout (no admin at all) is the failure this avoids.
     const isFirstUser = (await deps.repos.users.count()) === 0
-    user = await deps.repos.users.create({
-      id: `usr_${deps.crypto.randomToken(12)}`,
-      email,
-      name: defaultNameFrom(email),
-      tz: input.timezone && input.timezone.length > 0 ? input.timezone : 'UTC',
-      slug: await uniqueSlug(deps, email),
-      avatarKey: null,
-      company: null,
-      jobTitle: null,
-      companyUrl: null,
-      role: isFirstUser ? 'admin' : 'member',
-    })
+    // `create` returns null when `slug` lost a race against a concurrent
+    // claim (CCC-559) — vanishingly rare, since `uniqueSlug` already
+    // rechecks both tables, but the guest's single-use link is ALREADY
+    // burned by this point (the atomic delete above), so failing outright
+    // here would strand them on a dead link instead of a working account. A
+    // fresh `uniqueSlug` call re-reads both tables, so a retry naturally
+    // picks a candidate the losing attempt's winner can no longer hold.
+    for (let attempt = 0; attempt < 3 && !user; attempt++) {
+      user = await deps.repos.users.create({
+        id: `usr_${deps.crypto.randomToken(12)}`,
+        email,
+        name: defaultNameFrom(email),
+        tz: input.timezone && input.timezone.length > 0 ? input.timezone : 'UTC',
+        slug: await uniqueSlug(deps, email),
+        avatarKey: null,
+        company: null,
+        jobTitle: null,
+        companyUrl: null,
+        role: isFirstUser ? 'admin' : 'member',
+      })
+    }
+    // Effectively unreachable (three consecutive losses against three fresh,
+    // independently-checked candidates), but the link is already burned, so
+    // failing closed and honestly is the only option left.
+    if (!user) return { ok: false, reason: 'invalid_or_expired' }
   }
 
   // Without a persisted schedule, `createSlotService` treats this host as

@@ -71,7 +71,8 @@ export interface UserRepository {
   byId(id: string): Promise<User | null>
   byEmail(email: string): Promise<User | null>
   bySlug(slug: string): Promise<User | null>
-  create(user: Omit<User, 'createdAt'>): Promise<User>
+  /** @returns null when `user.slug` lost a race against a concurrent claim — see `TeamRepository.createWithFirstMember`. */
+  create(user: Omit<User, 'createdAt'>): Promise<User | null>
   /** Every user, oldest first — the admin page's user list. A single team's worth of rows, not a paginated feed. */
   listAll(): Promise<User[]>
   /** How many users exist at all — the first-user-becomes-admin bootstrap check. */
@@ -255,7 +256,8 @@ export interface TeamRepository {
   bySlug(slug: string): Promise<Team | null>
   members(teamId: string): Promise<TeamMember[]>
   memberships(userId: string): Promise<TeamMember[]>
-  create(team: Omit<Team, 'createdAt'>): Promise<Team>
+  /** @returns null when `team.slug` lost a race against a concurrent claim — see `createWithFirstMember`. */
+  create(team: Omit<Team, 'createdAt'>): Promise<Team | null>
   /**
    * Team row and its first membership in ONE atomic write. Creating them as
    * two statements lets a transient failure between the two strand a

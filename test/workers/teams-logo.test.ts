@@ -22,7 +22,8 @@ describe('TeamRepository.logoKey', () => {
       slug: 'logo-test-team',
       logoKey: null,
     })
-    expect(team.logoKey).toBeNull()
+    expect(team).not.toBeNull()
+    expect(team?.logoKey).toBeNull()
 
     const fetched = await repos.teams.byId('team_logo_1')
     expect(fetched?.logoKey).toBeNull()

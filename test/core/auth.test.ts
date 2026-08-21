@@ -796,6 +796,38 @@ describe('admin bootstrap', () => {
     expect(res.ok && res.user.role).toBe('member')
   })
 
+  it('retries with a fresh slug when create loses a race, since the link is already burned by then (CCC-559)', async () => {
+    const h = harness()
+    let calls = 0
+    const realCreate = h.repos.users.create.bind(h.repos.users)
+    // Simulate `create` losing the slug_claims race exactly twice, then
+    // winning on the third attempt — proving the retry loop in
+    // consumeMagicLink actually re-invokes uniqueSlug (a fresh candidate
+    // each time) rather than retrying the same doomed slug.
+    h.repos.users.create = async (user) => {
+      calls++
+      if (calls <= 2) return null
+      return realCreate(user)
+    }
+
+    const res = await consumeMagicLink(h, {
+      token: await requestAndGetToken(h, 'contested@example.com'),
+      now: NOW + 1000,
+    })
+    expect(res.ok).toBe(true)
+    expect(calls).toBe(3)
+  })
+
+  it('fails closed, honestly, rather than looping forever, once retries are exhausted', async () => {
+    const h = harness()
+    h.repos.users.create = async () => null
+    const res = await consumeMagicLink(h, {
+      token: await requestAndGetToken(h, 'always-collides@example.com'),
+      now: NOW + 1000,
+    })
+    expect(res.ok).toBe(false)
+  })
+
   it('a new account is bookable from the moment it exists, not only after the availability form is first saved', async () => {
     // Without this, `createSlotService` (engine.ts) treats a host with no
     // saved schedule as having zero availability — not "unconfigured",
