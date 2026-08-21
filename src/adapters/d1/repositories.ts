@@ -117,20 +117,25 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
     },
     async create(user) {
       const row = { ...user, createdAt: Date.now() }
-      await run(
-        'INSERT INTO users (id,email,name,tz,slug,avatar_key,company,job_title,company_url,role,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
-        row.id,
-        row.email.toLowerCase(),
-        row.name,
-        row.tz,
-        row.slug,
-        row.avatarKey,
-        row.company,
-        row.jobTitle,
-        row.companyUrl,
-        row.role,
-        row.createdAt,
-      )
+      // The slug claim goes in the SAME batch as the user row (CCC-559): the
+      // caller (uniqueSlug in auth-flows.ts) already checked both users AND
+      // teams for this slug, but that check and this write are two separate
+      // round trips — only slug_claims' own PRIMARY KEY can arbitrate a
+      // concurrent team creation claiming the identical slug in between.
+      // Vanishingly rare (the precheck already tried a random suffix up to 5
+      // times), so a genuine collision here throws like any other
+      // unexpected D1 error rather than growing a retry loop for it.
+      await session.batch([
+        q(
+          'INSERT INTO users (id,email,name,tz,slug,avatar_key,company,job_title,company_url,role,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+          row.id, row.email.toLowerCase(), row.name, row.tz, row.slug,
+          row.avatarKey, row.company, row.jobTitle, row.companyUrl, row.role, row.createdAt,
+        ),
+        q(
+          'INSERT INTO slug_claims (slug,kind,owner_id,created_at) VALUES (?,?,?,?)',
+          row.slug, 'user', row.id, row.createdAt,
+        ),
+      ])
       return row
     },
     async update(id, patch) {
@@ -147,12 +152,33 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
       if (sets.length === 0) return true
       binds.push(id)
       try {
-        await run(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`, ...binds)
+        if (patch.slug !== undefined) {
+          // Same reasoning as `create`: the caller already checked both
+          // users AND teams for this slug (settings route, CCC-559), but
+          // that read and this write are separate round trips. Re-claiming
+          // in slug_claims — delete the old claim, insert the new one, in
+          // the SAME batch as the users row — is what actually arbitrates a
+          // concurrent team creation (or another user's slug change)
+          // landing on the identical slug in between. Deleted by
+          // (kind, owner_id), not by the old slug value, since a user has
+          // at most one live claim and this needs no pre-read to find it.
+          await session.batch([
+            q(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`, ...binds),
+            q("DELETE FROM slug_claims WHERE kind = 'user' AND owner_id = ?", id),
+            q(
+              "INSERT INTO slug_claims (slug,kind,owner_id,created_at) VALUES (?,'user',?,?)",
+              patch.slug, id, Date.now(),
+            ),
+          ])
+        } else {
+          await run(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`, ...binds)
+        }
         return true
       } catch (err) {
         // A slug collision losing a race against the caller's own
-        // read-then-write uniqueness check hits `users_slug_idx` here — the
-        // caller turns that into a form error, never an uncaught 500.
+        // read-then-write uniqueness check hits `users_slug_idx` (same
+        // table) or `slug_claims` (cross-table, CCC-559) here — the caller
+        // turns either into the same form error, never an uncaught 500.
         if (isConstraintViolation(err)) return false
         throw err
       }
@@ -708,8 +734,11 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
     },
     async createWithFirstMember(team, member) {
       const row = { ...team, createdAt: Date.now() }
-      // One batch: D1 rolls the whole thing back if either insert fails, so
-      // a memberless (unmanageable, slug-squatting) team can never exist.
+      // One batch: D1 rolls the whole thing back if any insert fails, so a
+      // memberless (unmanageable, slug-squatting) team can never exist. The
+      // slug_claims insert is what actually arbitrates a concurrent signup
+      // or slug change claiming this exact slug (CCC-559) — teams_slug_idx
+      // alone only ever caught another team wanting the same slug.
       try {
         await session.batch([
           q(
@@ -720,13 +749,19 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
             'INSERT INTO team_members (team_id,user_id,role,rr_weight) VALUES (?,?,?,?)',
             row.id, member.userId, member.role, member.rrWeight,
           ),
+          q(
+            'INSERT INTO slug_claims (slug,kind,owner_id,created_at) VALUES (?,?,?,?)',
+            row.slug, 'team', row.id, row.createdAt,
+          ),
         ])
         return row
       } catch (err) {
         // The route's own precheck is read-then-write: a concurrent create of
-        // the same slug can slip past it and hit teams_slug_idx here instead.
-        // Without this catch that surfaced as a bare 500 rather than the same
-        // "slug already taken" form error the precheck gives everyone else.
+        // the same slug (by another team, a signup, or a slug change) can
+        // slip past it and hit teams_slug_idx or slug_claims here instead.
+        // Without this catch that surfaced as a bare 500 rather than the
+        // same "slug already taken" form error the precheck gives everyone
+        // else.
         if (isConstraintViolation(err)) return null
         throw err
       }

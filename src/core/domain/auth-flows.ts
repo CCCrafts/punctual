@@ -542,6 +542,11 @@ async function uniqueSlug(deps: SessionDeps, email: string): Promise<string> {
   // LIMIT 1 and no precedence, so a user claiming an existing team's slug
   // (someone signing up as sales@ where a "sales" team exists) makes both
   // parties' public pages ambiguous, with no way to reclaim either side.
+  // This precheck is the fast path, not the guarantee — `users.create`
+  // writes into the shared `slug_claims` table in the same batch as the
+  // user row, which is what actually arbitrates a concurrent team creation
+  // (or another signup) claiming the identical slug in the round trip
+  // between this check and that write (CCC-559).
   const taken = async (slug: string) =>
     (await deps.repos.users.bySlug(slug)) !== null || (await deps.repos.teams.bySlug(slug)) !== null
   const candidate = validateSlug(base).ok ? base : `${base}-1`

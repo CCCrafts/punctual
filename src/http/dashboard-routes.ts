@@ -995,12 +995,14 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
       )
     }
 
-    // Read-then-write: a concurrent create of the same slug can slip past the
-    // check above and hit the teams_slug_idx UNIQUE constraint instead. That
-    // window is a form re-submit away from fixed, so createWithFirstMember
-    // catches the constraint and returns null rather than growing the
-    // repository a compare-and-swap for it — but the caller still has to
-    // turn that into the same form error, not an uncaught 500.
+    // Read-then-write: a concurrent create of the same slug — by another
+    // team, a signup, or a slug change — can slip past the check above and
+    // hit teams_slug_idx or the shared slug_claims constraint instead
+    // (CCC-559). That window is a form re-submit away from fixed, so
+    // createWithFirstMember catches the constraint and returns null rather
+    // than growing the repository a compare-and-swap for it — but the
+    // caller still has to turn that into the same form error, not an
+    // uncaught 500.
     // The creator is the first member, in the SAME atomic write as the team
     // row — a team with no members can be seen and managed by nobody, and a
     // transient failure between two separate inserts would strand exactly
@@ -1326,10 +1328,11 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     // `users.slug` column.
     if (raw !== user.slug) {
       // The check above is read-then-write: two concurrent saves of the same
-      // slug can both pass it before either commits. `update`'s own return
-      // value is the real guard — it reports false if the write lost that
-      // race against the `users_slug_idx` UNIQUE constraint — so that lands
-      // as the same clean form error, never an uncaught 500.
+      // slug — including a team claiming it — can both pass it before either
+      // commits. `update`'s own return value is the real guard — it reports
+      // false if the write lost that race against `users_slug_idx` or the
+      // shared slug_claims constraint (CCC-559) — so that lands as the same
+      // clean form error, never an uncaught 500.
       const ok = await repos.users.update(user.id, { slug: raw })
       if (!ok) {
         return c.html(

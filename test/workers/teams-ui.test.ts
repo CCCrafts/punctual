@@ -637,3 +637,120 @@ describe('repository-level atomic guards', () => {
     expect(await repos.availability.delete('usr_del2', 'sch_del2_extra')).toBe(true)
   })
 })
+
+describe('slug_claims — the shared namespace constraint (CCC-559)', () => {
+  it('a team cannot claim a slug an existing user already holds', async () => {
+    const repos = createD1Repositories(db, { consistency: 'bookmark' })
+    await repos.users.create({
+      id: 'usr_slugrace_1',
+      email: 'slugrace1@example.test',
+      name: 'Slug Race',
+      tz: 'UTC',
+      slug: 'contested-slug',
+      avatarKey: null,
+      company: null,
+      jobTitle: null,
+      companyUrl: null,
+      role: 'member',
+    })
+
+    // teams_slug_idx alone would never catch this — no other TEAM wants
+    // "contested-slug". Only slug_claims' shared PRIMARY KEY does.
+    const result = await repos.teams.createWithFirstMember(
+      { id: 'team_slugrace', name: 'Slug Race Team', slug: 'contested-slug', logoKey: null },
+      { userId: 'usr_slugrace_1', role: 'admin', rrWeight: 1 },
+    )
+    expect(result).toBeNull()
+    const team = await db.prepare("SELECT COUNT(*) AS n FROM teams WHERE id='team_slugrace'").first<{ n: number }>()
+    expect(team?.n).toBe(0)
+  })
+
+  it('a user cannot be created with a slug an existing team already holds', async () => {
+    const repos = createD1Repositories(db, { consistency: 'bookmark' })
+    const team = await repos.teams.createWithFirstMember(
+      { id: 'team_slugrace2', name: 'Team Holds It', slug: 'team-held-slug', logoKey: null },
+      { userId: 'usr_slugrace_owner', role: 'admin', rrWeight: 1 },
+    )
+    expect(team).not.toBeNull()
+
+    // users_slug_idx alone would never catch this — no other USER wants
+    // "team-held-slug". Only the shared slug_claims constraint does; the
+    // batch in `users.create` must roll back the user row along with it.
+    await expect(
+      repos.users.create({
+        id: 'usr_slugrace_2',
+        email: 'slugrace2@example.test',
+        name: 'Slug Race 2',
+        tz: 'UTC',
+        slug: 'team-held-slug',
+        avatarKey: null,
+        company: null,
+        jobTitle: null,
+        companyUrl: null,
+        role: 'member',
+      }),
+    ).rejects.toThrow()
+    const user = await db
+      .prepare("SELECT COUNT(*) AS n FROM users WHERE id='usr_slugrace_2'")
+      .first<{ n: number }>()
+    expect(user?.n).toBe(0)
+  })
+
+  it('a user cannot change their slug to one a team already holds, and their own claim is untouched on failure', async () => {
+    const repos = createD1Repositories(db, { consistency: 'bookmark' })
+    await repos.users.create({
+      id: 'usr_slugrace_3',
+      email: 'slugrace3@example.test',
+      name: 'Slug Race 3',
+      tz: 'UTC',
+      slug: 'my-own-slug',
+      avatarKey: null,
+      company: null,
+      jobTitle: null,
+      companyUrl: null,
+      role: 'member',
+    })
+    await repos.teams.createWithFirstMember(
+      { id: 'team_slugrace3', name: 'Blocking Team', slug: 'blocking-team-slug', logoKey: null },
+      { userId: 'usr_slugrace_3', role: 'admin', rrWeight: 1 },
+    )
+
+    const ok = await repos.users.update('usr_slugrace_3', { slug: 'blocking-team-slug' })
+    expect(ok).toBe(false)
+    // Rolled back as one batch: the user's OWN slug (and its claim row) must
+    // still be exactly what it was — not deleted, not half-updated.
+    const user = await repos.users.byId('usr_slugrace_3')
+    expect(user?.slug).toBe('my-own-slug')
+    const claim = await db
+      .prepare("SELECT owner_id FROM slug_claims WHERE slug='my-own-slug'")
+      .first<{ owner_id: string }>()
+    expect(claim?.owner_id).toBe('usr_slugrace_3')
+  })
+
+  it('a user CAN change their slug when the new one is genuinely free, and the old claim is released', async () => {
+    const repos = createD1Repositories(db, { consistency: 'bookmark' })
+    await repos.users.create({
+      id: 'usr_slugrace_4',
+      email: 'slugrace4@example.test',
+      name: 'Slug Race 4',
+      tz: 'UTC',
+      slug: 'old-free-slug',
+      avatarKey: null,
+      company: null,
+      jobTitle: null,
+      companyUrl: null,
+      role: 'member',
+    })
+
+    const ok = await repos.users.update('usr_slugrace_4', { slug: 'new-free-slug' })
+    expect(ok).toBe(true)
+    const oldClaim = await db
+      .prepare("SELECT COUNT(*) AS n FROM slug_claims WHERE slug='old-free-slug'")
+      .first<{ n: number }>()
+    expect(oldClaim?.n).toBe(0)
+    const newClaim = await db
+      .prepare("SELECT owner_id FROM slug_claims WHERE slug='new-free-slug'")
+      .first<{ owner_id: string }>()
+    expect(newClaim?.owner_id).toBe('usr_slugrace_4')
+  })
+})

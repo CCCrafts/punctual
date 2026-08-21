@@ -355,6 +355,19 @@ export const instanceSettings = sqliteTable('instance_settings', {
   updatedAt: integer('updated_at').notNull(),
 })
 
+/**
+ * The real constraint behind the shared slug namespace (CCC-559, ADR — see
+ * migrations/0008_slug_claims.sql). `users.slug` and `teams.slug` each have
+ * their own unique index; this one spans both, written in the same batch as
+ * whichever row claims a slug.
+ */
+export const slugClaims = sqliteTable('slug_claims', {
+  slug: text('slug').primaryKey(),
+  kind: text('kind').notNull(),
+  ownerId: text('owner_id').notNull(),
+  createdAt: integer('created_at').notNull(),
+})
+
 export const schema = {
   users,
   teams,
@@ -373,6 +386,7 @@ export const schema = {
   idempotencyKeys,
   rrAssignments,
   instanceSettings,
+  slugClaims,
 }
 
 export const CURRENT_TIMESTAMP = sql`(unixepoch() * 1000)`
