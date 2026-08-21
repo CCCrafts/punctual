@@ -1,5 +1,5 @@
 import { createExecutionContext, env } from 'cloudflare:test'
-import { describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it } from 'vitest'
 
 /**
  * Proves the Workers-project harness itself works: real runtime, real D1,
@@ -120,7 +120,14 @@ describe('month resolution follows the selected date', () => {
  * carries `?date=`, so a bare load is the ONLY way to reach the unset state.
  */
 describe('a fresh page load shows today, not "pick a day"', () => {
-  it('defaults the day view to the guest\'s today', async () => {
+  // A suite-level hook, not a seed inside the first `it` (caught by review):
+  // storage persists across tests in a file, so the other two tests here
+  // passed only because test 1 happened to run first and left the fixture
+  // behind. Filtering to one of them with `-t` (or `.only`, or a reorder)
+  // skipped that body and 404ed. `beforeAll` rather than `beforeEach`
+  // because the rows persist — re-inserting per test hits users.slug's
+  // unique index.
+  beforeAll(async () => {
     const now = Date.now()
     await env.DB.batch([
       env.DB.prepare('INSERT INTO users (id,email,name,tz,slug,created_at) VALUES (?,?,?,?,?,?)').bind(
@@ -173,7 +180,9 @@ describe('a fresh page load shows today, not "pick a day"', () => {
         now,
       ),
     ])
+  })
 
+  it('defaults the day view to the guest\'s today', async () => {
     const { default: worker } = await import('../../src/index.js')
     const res = await worker.fetch(
       new Request('https://punctual.sh/fresh-host/fresh-intro'),
@@ -246,9 +255,12 @@ describe('a fresh page load shows today, not "pick a day"', () => {
     )
     expect(res.status).toBe(200)
     const body = await res.text()
-    // Clamped forward to the current month, so January 2020 must not be
-    // rendered as the chosen day beneath it.
-    expect(body).not.toContain('January 15')
+    // Asserts on the day panel's own `<h2>` heading, not a bare "January 15"
+    // (caught by review): every calendar cell carries the same human date in
+    // its aria-label, so during the first half of any January the CURRENT
+    // month's grid legitimately contains that string and a bare
+    // `not.toContain` would fail deterministically for two weeks a year.
+    expect(body).not.toContain('<h2>Wednesday, January 15</h2>')
     expect(body).toContain('Pick a day to see available times')
   })
 })
