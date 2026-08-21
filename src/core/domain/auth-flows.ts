@@ -205,13 +205,16 @@ export async function consumeMagicLink(
     // both are the operator's own attempts, and an admin can demote the
     // duplicate — a lockout (no admin at all) is the failure this avoids.
     const isFirstUser = (await deps.repos.users.count()) === 0
-    // `create` returns null when `slug` lost a race against a concurrent
-    // claim (CCC-559) — vanishingly rare, since `uniqueSlug` already
-    // rechecks both tables, but the guest's single-use link is ALREADY
-    // burned by this point (the atomic delete above), so failing outright
-    // here would strand them on a dead link instead of a working account. A
-    // fresh `uniqueSlug` call re-reads both tables, so a retry naturally
-    // picks a candidate the losing attempt's winner can no longer hold.
+    // `create` returns null on ANY constraint loss, not only `slug` losing
+    // a race against a concurrent claim (CCC-559) — the same batch also
+    // carries the `users_email_idx` insert, so two concurrent redemptions
+    // for the SAME email (two tabs, two links both clicked) hit this too,
+    // and that case must NOT retry `uniqueSlug`: the right recovery is
+    // "sign in to the account the other request just created", not another
+    // attempt at an account that would violate `users_email_idx` again. The
+    // guest's single-use link is ALREADY burned by this point (the atomic
+    // delete above), so failing outright here would strand them on a dead
+    // link instead of a working account.
     for (let attempt = 0; attempt < 3 && !user; attempt++) {
       user = await deps.repos.users.create({
         id: `usr_${deps.crypto.randomToken(12)}`,
@@ -225,10 +228,15 @@ export async function consumeMagicLink(
         companyUrl: null,
         role: isFirstUser ? 'admin' : 'member',
       })
+      // A concurrent request for this exact email won in between — use the
+      // account it created rather than looping on a slug retry that could
+      // never succeed (the email, not the slug, is what's now taken).
+      if (!user) user = await deps.repos.users.byEmail(email)
     }
     // Effectively unreachable (three consecutive losses against three fresh,
-    // independently-checked candidates), but the link is already burned, so
-    // failing closed and honestly is the only option left.
+    // independently-checked slug candidates, with the concurrent-email case
+    // resolved above on the first iteration), but the link is already
+    // burned, so failing closed and honestly is the only option left.
     if (!user) return { ok: false, reason: 'invalid_or_expired' }
   }
 

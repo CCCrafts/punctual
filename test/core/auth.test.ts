@@ -828,6 +828,42 @@ describe('admin bootstrap', () => {
     expect(res.ok).toBe(false)
   })
 
+  it('a concurrent winner for the SAME email signs this request into the account it just created, instead of retrying a doomed slug', async () => {
+    // Caught by review: create() returns null on ANY constraint loss, not
+    // only a slug_claims collision — the same batch also carries the
+    // users_email_idx insert. Retrying uniqueSlug here would be wrong (a
+    // fresh slug can never fix a duplicate EMAIL) and would exhaust all 3
+    // attempts, stranding this request on "invalid_or_expired" even though
+    // a real account for their email exists right now.
+    //
+    // Simulated by having the FIRST create() attempt both insert "the other
+    // request's" row directly (as if that request's commit landed in
+    // between this request's initial byEmail check and its own create
+    // call) and report null (as if THIS request's own insert then failed
+    // on the now-duplicate email) — matching the interleaving a real
+    // concurrent double-redemption produces.
+    const h = harness()
+    let calls = 0
+    h.repos.users.create = async () => {
+      calls++
+      // The other request's commit, landing exactly here — after this
+      // request's own initial byEmail check already returned null, but
+      // before its create() attempt would have succeeded.
+      h.repos.seedUser({ id: 'usr_winner', email: 'raced@example.com', slug: 'raced-winner' })
+      return null
+    }
+
+    const res = await consumeMagicLink(h, {
+      token: await requestAndGetToken(h, 'raced@example.com'),
+      now: NOW + 1000,
+    })
+    expect(res.ok).toBe(true)
+    if (res.ok) expect(res.user.id).toBe('usr_winner')
+    // Exactly one attempt: the byEmail fallback finds the winner on the
+    // first loss and stops, it does not burn all 3 retries first.
+    expect(calls).toBe(1)
+  })
+
   it('a new account is bookable from the moment it exists, not only after the availability form is first saved', async () => {
     // Without this, `createSlotService` (engine.ts) treats a host with no
     // saved schedule as having zero availability — not "unconfigured",
