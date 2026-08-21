@@ -197,22 +197,30 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
     // provider call per connection per request — which burns the deployment's
     // Google/Graph quota and eventually degrades conflict checking for every
     // host on it.
+    const dateParam = validDate(c.req.query('date'))
+    const monthParam = validMonth(c.req.query('month'))
+    // No `?date=` AND no `?month=` means a fresh page load (every calendar/
+    // day link the page itself renders always includes at least one of
+    // them), which used to leave the day list unset and render "Pick a day
+    // to see available times" even when today has open slots right there in
+    // the calendar. Defaulting to the GUEST's own today — not the host's —
+    // matches what `daysWithSlots`/the day filter below are already keyed
+    // on, so the auto-selected day always lines up with a real bucket in
+    // that map instead of occasionally landing on a host-local date the
+    // guest-local calendar never marks.
     //
-    // No `?date=` at all means a fresh page load (every calendar/day link the
-    // page itself renders always includes one), which used to leave the day
-    // list unset and render "Pick a day to see available times" even when
-    // today has open slots right there in the calendar. Defaulting to the
-    // GUEST's own today — not the host's — matches what `daysWithSlots`/the
-    // day filter below are already keyed on, so the auto-selected day always
-    // lines up with a real bucket in that map instead of occasionally
-    // landing on a host-local date the guest-local calendar never marks.
-    const selectedDate = validDate(c.req.query('date')) ?? localDateString(ports.clock.now(), guestTimezone)
+    // Guarded on `monthParam` too (caught by review): the Previous/Next
+    // month links carry `?month=` alone, no `?date=`. Defaulting
+    // unconditionally there re-applied THIS month's "today" as the selected
+    // date against a DIFFERENT month's slot set, rendering a bogus "No times
+    // available on this day" instead of just the calendar for browsing.
+    const selectedDate = dateParam ?? (monthParam ? undefined : localDateString(ports.clock.now(), guestTimezone))
     // A selected date decides the month. Slots are computed for ONE month and
     // the day view filters that set, so taking the month from `?month=` alone
     // meant picking any day outside the current month returned "No times
     // available" — the calendar offered days it then refused to show.
     const month = clampMonth(
-      validMonth(c.req.query('month')) ?? selectedDate?.slice(0, 7) ?? currentMonth,
+      monthParam ?? selectedDate?.slice(0, 7) ?? currentMonth,
       currentMonth,
       eventType.maxHorizonDays,
     )

@@ -183,7 +183,36 @@ describe('a fresh page load shows today, not "pick a day"', () => {
     expect(res.status).toBe(200)
     const body = await res.text()
     expect(body).not.toContain('Pick a day to see available times')
-    expect(body).toContain('pu-slot-available')
+    // Not just `.toContain('pu-slot-available')` — that substring is also in
+    // the inlined stylesheet's CSS custom property and selector (`--pu-slot-
+    // available-bg`, `.pu-slot-available{...}`), so it's on EVERY page
+    // regardless of whether any slot actually rendered. The full class
+    // attribute `slotList` actually emits on a real slot anchor only exists
+    // there.
+    expect(body).toContain('class="pu-slot pu-slot-available"')
+  })
+
+  /**
+   * Caught by review: defaulting `selectedDate` whenever `?date=` was absent
+   * also fired on the Previous/Next month links, which carry `?month=`
+   * alone. That re-applied THIS month's "today" as the selected date against
+   * a DIFFERENT month's slot set — every month-navigation click rendered a
+   * bogus "No times available on this day" instead of just the calendar.
+   */
+  it('does not carry a stale selected date into month-only navigation', async () => {
+    const { default: worker } = await import('../../src/index.js')
+    const next = new Date(Date.now() + 32 * 86_400_000)
+    const nextMonth = `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, '0')}`
+
+    const res = await worker.fetch(
+      new Request(`https://punctual.sh/fresh-host/fresh-intro?month=${nextMonth}&tz=UTC`),
+      env,
+      createExecutionContext(),
+    )
+    expect(res.status).toBe(200)
+    const body = await res.text()
+    expect(body).toContain('Pick a day to see available times')
+    expect(body).not.toContain('No times available on this day')
   })
 })
 
