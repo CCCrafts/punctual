@@ -183,13 +183,25 @@ describe('a fresh page load shows today, not "pick a day"', () => {
     expect(res.status).toBe(200)
     const body = await res.text()
     expect(body).not.toContain('Pick a day to see available times')
-    // Not just `.toContain('pu-slot-available')` — that substring is also in
-    // the inlined stylesheet's CSS custom property and selector (`--pu-slot-
-    // available-bg`, `.pu-slot-available{...}`), so it's on EVERY page
-    // regardless of whether any slot actually rendered. The full class
-    // attribute `slotList` actually emits on a real slot anchor only exists
-    // there.
-    expect(body).toContain('class="pu-slot pu-slot-available"')
+    // Asserts on the rendered date HEADER, not a slot anchor (caught by
+    // review): the 24-hour schedule guarantees slots exist somewhere in the
+    // day, but its LAST 30-minute slot starts at 23:30 UTC — a run between
+    // 23:30 and 24:00 UTC would find zero remaining slots for "today" and
+    // legitimately render "No times available on this day.", which is a
+    // correct response to a real edge case, not a bug in the defaulting
+    // this test is actually about. `slotList` renders this exact date
+    // header in BOTH the has-slots and empty-day branches (booking.ts:423
+    // and :454), so it proves the day view defaulted to today regardless of
+    // what time the suite happens to run.
+    const today = new Date().toISOString().slice(0, 10)
+    const [y, m, d] = today.split('-').map(Number)
+    const todayHeader = new Intl.DateTimeFormat('en-US', {
+      weekday: 'long',
+      month: 'long',
+      day: 'numeric',
+      timeZone: 'UTC',
+    }).format(new Date(Date.UTC(y!, m! - 1, d!)))
+    expect(body).toContain(`<h2>${todayHeader}</h2>`)
   })
 
   /**
