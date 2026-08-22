@@ -38,6 +38,7 @@ import type {
   Team,
   TeamMember,
   User,
+  WeeklySchedule,
 } from '../../core/domain/types.js'
 import type { CalendarProviderName } from '../../ports.js'
 import { slotStateClassName } from '../../core/slot-state.js'
@@ -747,21 +748,21 @@ export interface ScheduleFormData extends DashboardChrome {
   nameValue?: string
   errors?: Record<string, string>
   notice?: string
+  /**
+   * Raw day-editor state from a round trip — a rejected save, or a no-JS
+   * "+ Add range" submit — overrides deriving rows from `schedule.weekly`
+   * when present, so the host's in-progress typing (including a freshly
+   * added, still-empty range) survives the re-render instead of reverting
+   * to whatever was last actually saved.
+   */
+  weeklyDraft?: WeeklyDayDraft[]
 }
 
 export function scheduleForm(d: ScheduleFormData): string {
   const errors = d.errors ?? {}
   const id = encodeURIComponent(d.schedule.id)
-  const rows = DAY_NAMES.map((name, index) => {
-    const fid = `day-${index}`
-    const windows = d.schedule.weekly[index] ?? []
-    return `<div>
-      <label for="${fid}">${escapeHtml(name)}</label>
-      <input id="${fid}" name="${fid}" value="${escapeHtml(formatWindows(windows))}"
-             placeholder="09:00-17:00" autocomplete="off"${describedBy(fid, errors)}>
-      ${fieldError(fid, errors)}
-    </div>`
-  }).join('\n    ')
+  const draft = d.weeklyDraft ?? weeklyDraftFromSchedule(d.schedule.weekly)
+  const rows = DAY_NAMES.map((name, index) => dayRow(index, name, draft[index]!, errors)).join('\n    ')
 
   const zones = [...new Set([d.schedule.timezone, ...COMMON_ZONES])]
 
@@ -791,8 +792,8 @@ export function scheduleForm(d: ScheduleFormData): string {
 
     <h2 style="margin-top:1.5rem">Weekly hours</h2>
     <p class="pu-muted" style="font-size:.8125rem">
-      Comma-separated 24-hour ranges, for example <code>09:00-12:00, 13:00-17:00</code>. Leave a day blank for a day off.</p>
-    ${rows}
+      Turn a day on and set one or more ranges — add a second for a lunch break. To drop a range, clear both its times and save.</p>
+    <div class="pu-week-editor">${rows}</div>
 
     <h2 style="margin-top:1.5rem">Date overrides</h2>
     <label for="overrides">Specific dates</label>
@@ -807,6 +808,138 @@ export function scheduleForm(d: ScheduleFormData): string {
 </section>` +
     shellBottom(d.brandName)
   )
+}
+
+/** One day's editor state — the switch position and whatever's typed in its range rows, as raw strings. */
+export interface DayRangeDraft {
+  start: string
+  end: string
+}
+export interface WeeklyDayDraft {
+  enabled: boolean
+  ranges: DayRangeDraft[]
+}
+
+/**
+ * A day may hold this many ranges at once (a lunch-break split is 2; this is
+ * headroom, not an expected count) — bounds how large "+ Add range" can grow
+ * a single day and how many `day-N-start-I`/`day-N-end-I` pairs the route
+ * handler will ever read back, regardless of what a crafted POST claims.
+ */
+export const MAX_RANGES_PER_DAY = 8
+
+function weeklyDraftFromSchedule(weekly: WeeklySchedule): WeeklyDayDraft[] {
+  return weekly.map((windows) => ({
+    enabled: windows.length > 0,
+    ranges: windows.map((w) => ({ start: minutesToTimeInput(w.startMinute), end: minutesToTimeInput(w.endMinute) })),
+  })) as WeeklyDayDraft[]
+}
+
+/**
+ * Same mapping as `minutesToTime`, except the end-of-day case: a native
+ * `<input type="time">` cannot hold "24:00" (its own valid range tops out at
+ * 23:59), so an end minute of 1440 renders as "23:59" here — and
+ * `parseWeeklyDraft` below maps that string back to 1440 on the way in, so a
+ * window that runs to midnight round-trips through the editor exactly, not
+ * truncated by a minute.
+ */
+function minutesToTimeInput(minutes: number): string {
+  return minutes >= 24 * 60 ? '23:59' : minutesToTime(minutes)
+}
+
+/**
+ * One day's switch + its range rows. Always renders at least one range row,
+ * even for a day with zero saved windows, so there is always something for
+ * "+ Add range" to build from and something for a newly-enabled day to fill
+ * in — an enabled day with a genuinely empty row is simply not yet finished,
+ * the same state a fresh "day off" toggled on would start from.
+ *
+ * The switch and the ranges are siblings inside `.pu-day-row`, not nested —
+ * `:has()` in styles.ts is what shows/hides the ranges off the checkbox's
+ * `:checked` state, and that needs no JavaScript at all to work.
+ */
+function dayRow(index: number, name: string, day: WeeklyDayDraft, errors: Record<string, string>): string {
+  const fid = `day-${index}`
+  const ranges = day.ranges.length > 0 ? day.ranges : [{ start: '', end: '' }]
+  const canAddMore = day.ranges.length < MAX_RANGES_PER_DAY
+  const rangeRows = ranges
+    .map(
+      (r, i) => `<div class="pu-range-row">
+        <input type="time" name="${fid}-start-${i}" value="${escapeHtml(r.start)}" aria-label="${escapeHtml(name)} range ${i + 1} start">
+        <span aria-hidden="true">&ndash;</span>
+        <input type="time" name="${fid}-end-${i}" value="${escapeHtml(r.end)}" aria-label="${escapeHtml(name)} range ${i + 1} end">
+      </div>`,
+    )
+    .join('\n      ')
+
+  return `<div class="pu-day-row">
+    <label class="pu-switch">
+      <input type="checkbox" name="${fid}-enabled" class="pu-switch-input"${day.enabled ? ' checked' : ''}>
+      <span class="pu-switch-track" aria-hidden="true"><span class="pu-switch-thumb"></span></span>
+      <span class="pu-day-name">${escapeHtml(name)}</span>
+    </label>
+    <div class="pu-day-ranges">
+      ${rangeRows}
+      ${
+        canAddMore
+          ? `<button class="pu-btn-plain pu-add-range" type="submit" name="add-range" value="${index}" formnovalidate>+ Add range</button>`
+          : ''
+      }
+      ${fieldError(fid, errors)}
+    </div>
+  </div>`
+}
+
+/**
+ * `readWeeklyDraftFromForm`'s output, resolved into real minutes — the write
+ * side of the pair above, same "rendered and parsed side by side" reasoning
+ * as `formatWindows`/`parseWindows`.
+ *
+ * A range row where BOTH times are blank is a still-empty "+ Add range" row,
+ * not an error — skipped silently. Exactly one of the two blank, or either
+ * one unparseable, or the end not after the start, IS an error: rejected
+ * rather than repaired, same reasoning as `parseWindows`'s own doc comment —
+ * silently dropping a range a host thinks they set would make them believe
+ * they are bookable when they are not. A disabled day ignores whatever its
+ * rows hold, same as the old format's blank-line-means-day-off.
+ */
+export function parseWeeklyDraft(draft: WeeklyDayDraft[]): { weekly: WeeklySchedule; errors: Record<string, string> } {
+  const weekly = emptyWeekSchedule()
+  const errors: Record<string, string> = {}
+  for (let day = 0; day < 7; day++) {
+    const { enabled, ranges } = draft[day]!
+    if (!enabled) continue
+
+    const windows: DayWindow[] = []
+    for (const r of ranges) {
+      const start = r.start.trim()
+      const end = r.end.trim()
+      if (start === '' && end === '') continue // an unused row, not a day off
+
+      const startMinute = timeToMinutes(start)
+      // "23:59" is the editor's stand-in for "24:00" (see `minutesToTimeInput`).
+      const endMinute = end === '23:59' ? 24 * 60 : timeToMinutes(end)
+      if (startMinute === null || endMinute === null || endMinute <= startMinute) {
+        errors[`day-${day}`] = 'Each range needs a start before its end'
+        continue
+      }
+      // Snap INWARD to the 5-minute bucket grid, same as `parseWindows` —
+      // never widens availability beyond what the host set.
+      const snappedStart = Math.ceil(startMinute / 5) * 5
+      const snappedEnd = Math.floor(endMinute / 5) * 5
+      if (snappedEnd <= snappedStart) {
+        errors[`day-${day}`] = 'Each range needs a start before its end'
+        continue
+      }
+      windows.push({ startMinute: snappedStart, endMinute: snappedEnd })
+    }
+    if (!errors[`day-${day}`]) weekly[day] = windows.sort((a, b) => a.startMinute - b.startMinute)
+  }
+  return { weekly, errors }
+}
+
+function emptyWeekSchedule(): WeeklySchedule {
+  return [[], [], [], [], [], [], []]
 }
 
 // ---------------------------------------------------------------------------

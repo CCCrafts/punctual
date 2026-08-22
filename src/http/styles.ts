@@ -477,6 +477,40 @@ input:has(+ .pu-err),select:has(+ .pu-err),textarea:has(+ .pu-err){border-color:
   color:var(--pu-text-secondary);text-decoration:underline;text-underline-offset:.2rem;cursor:pointer}
 .pu-btn-plain:hover{color:var(--pu-status-danger)}
 
+/* Weekly-hours editor (CCC-582): a switch per day, one or more native time-
+   range rows underneath. The switch and the ranges are SIBLINGS inside
+   .pu-day-row, not nested — :has() below reacts to the checkbox's :checked
+   state to show/hide the ranges, which needs no JavaScript to work at all;
+   an optional client-side layer only adds the open/close animation on top. */
+.pu-week-editor{display:flex;flex-direction:column;gap:.25rem;margin-top:.5rem}
+.pu-day-row{padding:.6rem 0;border-bottom:1px solid var(--pu-border-subtle)}
+.pu-day-row:last-child{border-bottom:0}
+.pu-day-row:has(.pu-switch-input:not(:checked)) .pu-day-ranges{display:none}
+.pu-switch{display:inline-flex;align-items:center;gap:.65rem;cursor:pointer;user-select:none}
+/* Same hidden-but-focusable convention as .pu-file-btn's inner <input> —
+   .pu-sr, not display:none, so Tab and screen readers still reach it. */
+.pu-switch-input{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
+  clip:rect(0 0 0 0);white-space:nowrap;border:0}
+.pu-switch-track{position:relative;flex:0 0 auto;width:2.25rem;height:1.25rem;border-radius:99px;
+  background:var(--pu-border-subtle);transition:background-color .15s ease}
+.pu-switch-thumb{position:absolute;top:2px;left:2px;width:1rem;height:1rem;border-radius:50%;
+  background:var(--pu-surface-raised);box-shadow:var(--pu-shadow-sm);transition:transform .15s ease}
+.pu-switch-input:checked~.pu-switch-track{background:var(--pu-green-fill)}
+.pu-switch-input:checked~.pu-switch-track .pu-switch-thumb{transform:translateX(1rem)}
+.pu-switch-input:focus-visible~.pu-switch-track{outline:2px solid var(--pu-border-focus);outline-offset:2px}
+.pu-day-name{font-weight:600;font-size:.9375rem;min-width:5.5rem}
+.pu-day-ranges{display:flex;flex-direction:column;gap:.5rem;margin:.6rem 0 0 2.9rem}
+.pu-range-row{display:flex;align-items:center;gap:.5rem}
+.pu-range-row input[type=time]{width:auto;max-width:8.5rem}
+.pu-range-row span{color:var(--pu-text-secondary);font-size:.8125rem}
+.pu-add-range{display:inline-block}
+.pu-add-range:hover{color:var(--pu-green-700)}
+@media(max-width:420px){
+  .pu-day-ranges{margin-left:0}
+  .pu-range-row{flex-wrap:wrap}
+  .pu-range-row input[type=time]{max-width:none;flex:1 1 7rem}
+}
+
 .pu-skeleton{height:2.4rem;border-radius:var(--pu-radius);background:var(--pu-surface-sunken);
   animation:pu-pulse 1.2s ease-in-out infinite}
 @keyframes pu-pulse{50%{opacity:.55}}

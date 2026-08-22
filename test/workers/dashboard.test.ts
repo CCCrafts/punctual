@@ -705,16 +705,21 @@ describe('availability — named schedules (CCC-581)', () => {
     const cookie = await seedSession(AVAIL_HOST_ID)
     const csrf = await availCsrf(cookie)
 
+    const weekday = (day: number) => ({
+      [`day-${day}-enabled`]: 'on',
+      [`day-${day}-start-0`]: '09:00',
+      [`day-${day}-end-0`]: '17:00',
+    })
     const res = await post(
       `/dashboard/availability/${DEFAULT_SCHEDULE_ID}`,
       {
         name: 'Working hours',
         timezone: 'UTC',
-        'day-1': '09:00-17:00',
-        'day-2': '09:00-17:00',
-        'day-3': '09:00-17:00',
-        'day-4': '09:00-17:00',
-        'day-5': '09:00-17:00',
+        ...weekday(1),
+        ...weekday(2),
+        ...weekday(3),
+        ...weekday(4),
+        ...weekday(5),
         overrides: '',
         csrf,
       },

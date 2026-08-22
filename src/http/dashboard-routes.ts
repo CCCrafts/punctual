@@ -47,7 +47,6 @@ import type {
   Session,
   Team,
   User,
-  WeeklySchedule,
 } from '../core/domain/types.js'
 import {
   SESSION_COOKIE_NAME,
@@ -86,6 +85,7 @@ import { resizeToSquareThumbnail } from '../adapters/image/resize.js'
 import { errorPage, shellFoot, shellHead } from './pages/booking.js'
 import {
   CSRF_FIELD,
+  MAX_RANGES_PER_DAY,
   apiKeysPage,
   schedulesPage,
   scheduleForm,
@@ -97,7 +97,7 @@ import {
   manageLinkErrorPage,
   parseOverrides,
   parseQuestions,
-  parseWindows,
+  parseWeeklyDraft,
   adminPage,
   settingsPage,
   slugify,
@@ -107,6 +107,7 @@ import {
   type TeamView,
   type TeamsPageData,
   type UpcomingBooking,
+  type WeeklyDayDraft,
 } from './pages/dashboard.js'
 
 type Env = Record<string, unknown>
@@ -773,6 +774,27 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     const schedule = await ownedSchedule(c)
     if (!schedule) return notFound(c)
 
+    const weeklyDraft = readWeeklyDraftFromForm(form)
+
+    // "+ Add range" (CCC-582): a no-JS-safe `formnovalidate` submit that
+    // appends one empty range row to ONE day and re-renders — never a save.
+    // The rest of the form's in-progress values round-trip through
+    // `weeklyDraft` (every day, not just the one that changed) rather than
+    // reverting to whatever is in D1, same reasoning as the rejected-save
+    // path just below.
+    const addRangeDay = form.get('add-range')
+    if (typeof addRangeDay === 'string') {
+      const day = Number(addRangeDay)
+      if (Number.isInteger(day) && day >= 0 && day < 7 && weeklyDraft[day]!.ranges.length < MAX_RANGES_PER_DAY) {
+        weeklyDraft[day]!.ranges.push({ start: '', end: '' })
+      }
+      const nameValue = String(form.get('name') ?? '')
+      const draft: Schedule = { ...schedule, name: nameValue || schedule.name }
+      return c.html(
+        scheduleForm({ brandName, user, csrf: c.get('csrf'), schedule: draft, nameValue, weeklyDraft }),
+      )
+    }
+
     const errors: Record<string, string> = {}
 
     const name = String(form.get('name') ?? '').trim()
@@ -781,12 +803,8 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     const timezone = String(form.get('timezone') ?? '').trim()
     if (!isValidTimeZone(timezone)) errors['timezone'] = 'Not a recognised timezone name'
 
-    const weekly = emptyWeek()
-    for (let day = 0; day < 7; day++) {
-      const parsed = parseWindows(String(form.get(`day-${day}`) ?? ''))
-      if (parsed === null) errors[`day-${day}`] = 'Use ranges like 09:00-17:00, separated by commas'
-      else weekly[day] = parsed
-    }
+    const { weekly, errors: weeklyErrors } = parseWeeklyDraft(weeklyDraft)
+    Object.assign(errors, weeklyErrors)
 
     const overrides = parseOverrides(String(form.get('overrides') ?? ''))
     if (overrides === null) errors['overrides'] = 'Use lines like 2026-12-24 10:00-14:00'
@@ -800,7 +818,10 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     }
 
     if (Object.keys(errors).length > 0) {
-      return c.html(scheduleForm({ brandName, user, csrf: c.get('csrf'), schedule: draft, errors }), 400)
+      return c.html(
+        scheduleForm({ brandName, user, csrf: c.get('csrf'), schedule: draft, errors, weeklyDraft }),
+        400,
+      )
     }
 
     await repos.availability.update(user.id, schedule.id, {
@@ -2121,8 +2142,27 @@ function base64UrlDecode(value: string): string {
   return new TextDecoder().decode(bytes)
 }
 
-function emptyWeek(): WeeklySchedule {
-  return [[], [], [], [], [], [], []]
+/**
+ * The weekly-hours editor's fields (CCC-582), read into the same shape
+ * `scheduleForm`/`parseWeeklyDraft` in pages/dashboard.ts already share —
+ * `day-N-enabled` plus `day-N-start-I`/`day-N-end-I` pairs, I from 0 up to
+ * whichever of `MAX_RANGES_PER_DAY` or the first missing pair comes first.
+ * Capped regardless of what a crafted POST claims to have, same reasoning
+ * as every other bound-the-input guard in this file.
+ */
+function readWeeklyDraftFromForm(form: FormData): WeeklyDayDraft[] {
+  const days: WeeklyDayDraft[] = []
+  for (let day = 0; day < 7; day++) {
+    const ranges: WeeklyDayDraft['ranges'] = []
+    for (let i = 0; i < MAX_RANGES_PER_DAY; i++) {
+      const start = form.get(`day-${day}-start-${i}`)
+      const end = form.get(`day-${day}-end-${i}`)
+      if (start === null && end === null) break
+      ranges.push({ start: String(start ?? ''), end: String(end ?? '') })
+    }
+    days.push({ enabled: form.get(`day-${day}-enabled`) !== null, ranges })
+  }
+  return days
 }
 
 /**
