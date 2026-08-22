@@ -756,6 +756,14 @@ export interface ScheduleFormData extends DashboardChrome {
    * to whatever was last actually saved.
    */
   weeklyDraft?: WeeklyDayDraft[]
+  /**
+   * Same reasoning as `weeklyDraft`, for the free-text overrides box: on a
+   * "+ Add range" round trip the typed text hasn't been validated yet (that
+   * only happens on an actual save), so it's echoed as raw text rather than
+   * parsed-then-reformatted — a half-finished line would otherwise silently
+   * revert to whatever was last saved, with no error to explain why.
+   */
+  overridesText?: string
 }
 
 export function scheduleForm(d: ScheduleFormData): string {
@@ -803,7 +811,7 @@ export function scheduleForm(d: ScheduleFormData): string {
 
     <h2 style="margin-top:1.5rem">Date overrides</h2>
     <label for="overrides">Specific dates</label>
-    <textarea id="overrides" name="overrides" rows="5" placeholder="2026-12-24"${describedBy('overrides', errors)}>${escapeHtml(formatOverrides(d.schedule.overrides))}</textarea>
+    <textarea id="overrides" name="overrides" rows="5" placeholder="2026-12-24"${describedBy('overrides', errors)}>${escapeHtml(d.overridesText ?? formatOverrides(d.schedule.overrides))}</textarea>
     <p class="pu-muted" style="font-size:.8125rem;margin:.25rem 0 0">
       One per line: <code>YYYY-MM-DD 10:00-14:00</code>. A date with no ranges is a day off, and an override
       replaces that day's weekly hours entirely.</p>

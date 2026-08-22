@@ -771,6 +771,28 @@ describe('availability — named schedules (CCC-581)', () => {
     expect(row?.overrides_json).toBe('[]')
   })
 
+  it('"+ Add range" echoes a half-typed, unparseable override line as raw text instead of reverting it', async () => {
+    const cookie = await seedSession(AVAIL_HOST_ID)
+    const csrf = await availCsrf(cookie)
+
+    const res = await post(
+      `/dashboard/availability/${DEFAULT_SCHEDULE_ID}`,
+      {
+        name: 'Working hours',
+        timezone: 'UTC',
+        'day-1-enabled': 'on',
+        'day-1-start-0': '09:00',
+        'day-1-end-0': '17:00',
+        overrides: '2026-12-2 10:00-14:00', // malformed: date needs a leading zero
+        'add-range': '1',
+        csrf,
+      },
+      cookie,
+    )
+    expect(res.status).toBe(200)
+    expect(await res.text()).toContain('2026-12-2 10:00-14:00')
+  })
+
   it('rejects a save with no new-format weekly fields at all rather than silently blanking the schedule', async () => {
     const cookie = await seedSession(AVAIL_HOST_ID)
     const csrf = await availCsrf(cookie)

@@ -794,12 +794,15 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     // "+ Add range" (CCC-582): a no-JS-safe `formnovalidate` submit that
     // appends one empty range row to ONE day and re-renders — never a save.
     // The rest of the form's in-progress values round-trip through
-    // `weeklyDraft` (every day, not just the one that changed), and through
-    // `nameValue`/the timezone/overrides fields below, rather than reverting
-    // to whatever is in D1 — same reasoning as the rejected-save path just
-    // below. Losing an edited timezone here would be worse than a display
-    // glitch: the eventual save would write the host's hours under the OLD
-    // zone, silently offering guests the wrong wall-clock times.
+    // `weeklyDraft` (every day, not just the one that changed), `nameValue`,
+    // `timezoneValue` and `overridesText`, rather than reverting to whatever
+    // is in D1 — same reasoning as the rejected-save path just below. Losing
+    // an edited timezone here would be worse than a display glitch: the
+    // eventual save would write the host's hours under the OLD zone,
+    // silently offering guests the wrong wall-clock times. Overrides is
+    // echoed as RAW TEXT rather than parsed — this branch never saves, so a
+    // half-finished line has no business being validated (let alone silently
+    // dropped) yet.
     const addRangeDay = form.get('add-range')
     if (typeof addRangeDay === 'string') {
       const day = Number(addRangeDay)
@@ -808,15 +811,14 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
       }
       const nameValue = String(form.get('name') ?? '')
       const timezoneValue = String(form.get('timezone') ?? '').trim()
-      const overridesValue = parseOverrides(String(form.get('overrides') ?? ''))
+      const overridesText = String(form.get('overrides') ?? '')
       const draft: Schedule = {
         ...schedule,
         name: nameValue || schedule.name,
         timezone: isValidTimeZone(timezoneValue) ? timezoneValue : schedule.timezone,
-        overrides: overridesValue ?? schedule.overrides,
       }
       return c.html(
-        scheduleForm({ brandName, user, csrf: c.get('csrf'), schedule: draft, nameValue, weeklyDraft }),
+        scheduleForm({ brandName, user, csrf: c.get('csrf'), schedule: draft, nameValue, weeklyDraft, overridesText }),
       )
     }
 
