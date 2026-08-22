@@ -636,6 +636,52 @@ describe('repository-level atomic guards', () => {
     await repos.eventTypes.update('et_del2', { scheduleId: null })
     expect(await repos.availability.delete('usr_del2', 'sch_del2_extra')).toBe(true)
   })
+
+  it('CCC-584: create/update never store a scheduleId the schedule table doesn\'t actually have', async () => {
+    // The TOCTOU this closes: dashboard-routes.ts and rest.ts both validate
+    // ownership via availability.byId() BEFORE this write; a concurrent
+    // delete of that exact schedule in the window between the check and the
+    // write used to commit a dangling reference. Simulated directly here —
+    // an id that was never created — rather than orchestrating the actual
+    // race, since the guard's job is to make what create/update ever WRITE
+    // independent of what the caller checked earlier.
+    const repos = createD1Repositories(db, { consistency: 'bookmark' })
+    const created = await repos.eventTypes.create({
+      id: 'et_dangling_1',
+      ownerUserId: 'usr_dangling',
+      ownerTeamId: null,
+      schedulingType: 'personal',
+      slug: 'dangling-create',
+      title: 'Dangling on create',
+      description: '',
+      durationMinutes: 30,
+      slotIntervalMinutes: null,
+      bufferBeforeMinutes: 0,
+      bufferAfterMinutes: 0,
+      minNoticeMinutes: 0,
+      maxHorizonDays: 60,
+      maxPerDay: null,
+      locationType: 'google_meet',
+      locationValue: null,
+      questions: [],
+      active: true,
+      scheduleId: 'sch_never_existed',
+    })
+    // `created` echoes the input, not a re-read (same as every other
+    // `create` in this file, for the same round-trip reason) — the
+    // guarantee this guard makes is about what's actually STORED, so assert
+    // against a fresh read, not the return value.
+    void created
+    const fetched = await repos.eventTypes.byId('et_dangling_1')
+    expect(fetched?.scheduleId).toBeNull()
+
+    // Same guard on update, and it must not disturb any OTHER column in the
+    // same call — only schedule_id resolves through the subquery.
+    await repos.eventTypes.update('et_dangling_1', { title: 'Renamed', scheduleId: 'sch_also_never_existed' })
+    const afterUpdate = await repos.eventTypes.byId('et_dangling_1')
+    expect(afterUpdate?.scheduleId).toBeNull()
+    expect(afterUpdate?.title).toBe('Renamed')
+  })
 })
 
 describe('slug_claims — the shared namespace constraint (CCC-559)', () => {

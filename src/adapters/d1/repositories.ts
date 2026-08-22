@@ -287,13 +287,25 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
     },
     async create(et) {
       const row = { ...et, createdAt: Date.now() }
+      // schedule_id resolves through a scalar subquery, not a bare bound
+      // value (CCC-584): the caller validated ownership with a separate
+      // `availability.byId` read before this write, and a concurrent delete
+      // of that exact schedule in between would otherwise commit a
+      // dangling reference. The guard runs inside the same statement, so no
+      // interleaving can slip past it — same idiom as `demoteAdmin`. Falls
+      // to NULL, not the stale id: NULL is exactly what `resolveSchedule()`
+      // already treats as "use the default", so a lost race degrades to
+      // that instead of storing a value that would silently lie about what
+      // it points to. `id = ?` against a NULL bind is never true, so this
+      // is correct unconditionally — no special-casing a null scheduleId.
       await run(
         `INSERT INTO event_types
          (id,owner_user_id,owner_team_id,scheduling_type,slug,title,description,duration_minutes,
           slot_interval_minutes,buffer_before_minutes,buffer_after_minutes,min_notice_minutes,
           max_horizon_days,max_per_day,location_type,location_value,questions_json,active,created_at,
           schedule_id)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,
+           (SELECT id FROM schedules WHERE id = ?))`,
         row.id, row.ownerUserId, row.ownerTeamId, row.schedulingType, row.slug, row.title,
         row.description, row.durationMinutes, row.slotIntervalMinutes, row.bufferBeforeMinutes,
         row.bufferAfterMinutes, row.minNoticeMinutes, row.maxHorizonDays, row.maxPerDay,
@@ -303,9 +315,15 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
       return row
     },
     async update(id, patch) {
+      // Each entry is the FULL `col = <expr>` clause, not just the column
+      // name — `putExpr` below needs a clause other than the bare `col = ?`
+      // every other column uses.
       const map: Record<string, [string, unknown]> = {}
       const put = (col: string, v: unknown) => {
-        map[col] = [col, v]
+        map[col] = [`${col} = ?`, v]
+      }
+      const putExpr = (col: string, clause: string, v: unknown) => {
+        map[col] = [clause, v]
       }
       // Owner and scheduling move TOGETHER through the dashboard's edit form
       // (exactly one owner column non-null, scheduling forced to match) —
@@ -329,11 +347,19 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
       if (patch.locationValue !== undefined) put('location_value', patch.locationValue)
       if (patch.questions !== undefined) put('questions_json', JSON.stringify(patch.questions))
       if (patch.active !== undefined) put('active', patch.active ? 1 : 0)
-      if (patch.scheduleId !== undefined) put('schedule_id', patch.scheduleId)
+      // Same scalar-subquery guard as `create` (CCC-584): a concurrent
+      // delete of this exact schedule between the caller's ownership check
+      // and this write resolves to NULL — "use the default", which is what
+      // `resolveSchedule()` already does for a dangling reference — rather
+      // than committing a value that would silently lie about what it
+      // points to.
+      if (patch.scheduleId !== undefined) {
+        putExpr('schedule_id', 'schedule_id = (SELECT id FROM schedules WHERE id = ?)', patch.scheduleId)
+      }
       const entries = Object.values(map)
       if (entries.length === 0) return
       await run(
-        `UPDATE event_types SET ${entries.map(([c]) => `${c} = ?`).join(', ')} WHERE id = ?`,
+        `UPDATE event_types SET ${entries.map(([clause]) => clause).join(', ')} WHERE id = ?`,
         ...entries.map(([, v]) => v),
         id,
       )
