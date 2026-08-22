@@ -10,6 +10,7 @@ import {
   hasD1Placeholder,
   hasKvPlaceholder,
   isPunctualToml,
+  isQueuePlanLimited,
   parseD1Id,
   parseDeployUrl,
   parseKvId,
@@ -121,5 +122,14 @@ describe('resume-target guard', () => {
   it('accepts the real template and rejects an unrelated Worker toml', () => {
     expect(isPunctualToml(template)).toBe(true)
     expect(isPunctualToml('name = "my-api"\nmain = "src/index.ts"')).toBe(false)
+  })
+})
+
+describe('queue-failure classification', () => {
+  it('a plan limitation disables queues; a transient error must surface and retry', () => {
+    expect(isQueuePlanLimited('Queues is not available on the free plan [code: 10023]')).toBe(true)
+    expect(isQueuePlanLimited('please upgrade to a paid plan')).toBe(true)
+    expect(isQueuePlanLimited('fetch failed: socket hang up')).toBe(false)
+    expect(isQueuePlanLimited('Internal error occurred [code: 10013]')).toBe(false)
   })
 })

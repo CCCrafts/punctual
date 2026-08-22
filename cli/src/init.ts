@@ -66,6 +66,17 @@ export function isPunctualToml(toml: string): boolean {
   return /^name\s*=\s*"punctual"$/m.test(toml) && /^database_name\s*=\s*"punctual"$/m.test(toml)
 }
 
+/**
+ * Queue creation failing because the PLAN doesn't offer Queues is the one
+ * case where disabling the bindings (inline email/webhook delivery) is the
+ * right response. Any other failure — a network blip, a 5xx — must surface
+ * and be retried on the next run, or a transient error would permanently
+ * degrade the install.
+ */
+export function isQueuePlanLimited(output: string): boolean {
+  return /plan|not available|upgrade|billing|paid|10023/i.test(output)
+}
+
 export function patchD1Id(toml: string, id: string): string {
   return toml.replace(/^(database_id\s*=\s*)".*"$/m, `$1"${id}"`)
 }
@@ -132,12 +143,13 @@ function needsShell(cmd: string): boolean {
   return process.platform === 'win32' && cmd !== 'git'
 }
 
-function run(cmd: string, args: string[], cwd: string): RunResult {
+function run(cmd: string, args: string[], cwd: string, input?: string): RunResult {
   const child = spawnSync(cmd, args, {
     cwd,
     encoding: 'utf8',
     maxBuffer: 16 * 1024 * 1024,
     shell: needsShell(cmd),
+    ...(input === undefined ? {} : { input }),
   })
   return {
     ok: child.status === 0,
@@ -190,6 +202,13 @@ export async function init(args: string[]): Promise<number> {
     throw new StepFailed(message)
   }
 
+  // A directory that already holds a Punctual wrangler.toml is a RESUME of
+  // an earlier run — remote resources named "punctual" are then presumed to
+  // be that run's own half-finished work and may be adopted. A fresh clone
+  // presumes nothing: colliding with same-named resources in the account
+  // means aborting, never adopting (see the preflight step below).
+  const resuming = existsSync(tomlPath)
+
   try {
     step('Checking prerequisites', () => {
       if (!run('git', ['--version'], '.').ok) fail('git is required — install it and re-run.')
@@ -198,7 +217,7 @@ export async function init(args: string[]): Promise<number> {
     })
 
     step('Fetching the engine', () => {
-      if (existsSync(tomlPath)) {
+      if (resuming) {
         // Never resume into some OTHER Worker's checkout — the later steps
         // patch its wrangler.toml, put secrets on it and deploy it.
         if (!isPunctualToml(readFileSync(tomlPath, 'utf8'))) {
@@ -212,7 +231,9 @@ export async function init(args: string[]): Promise<number> {
     })
 
     step('Installing dependencies', () => {
-      if (existsSync(join(dir, 'node_modules'))) return 'already installed'
+      // Always runs — npm install is idempotent and near-instant when the
+      // tree is complete, whereas treating node_modules' mere existence as
+      // "done" would skip forever after a half-finished install.
       const r = run('npm', ['install', '--no-fund', '--no-audit'], dir)
       if (!r.ok) fail(r.output)
     })
@@ -231,18 +252,46 @@ export async function init(args: string[]): Promise<number> {
       out.write(`${glyph('booked', term)} Signed in to Cloudflare\n`)
     }
 
+    if (!resuming) {
+      // A FRESH install must not touch anything that already exists: a
+      // Worker or database named "punctual" in this account belongs to an
+      // earlier install (resume from ITS directory instead) or to an
+      // unrelated project — either way, deploying over it or migrating its
+      // database from here would be destructive.
+      step('Checking the account is clear', () => {
+        const d1 = run('npx', ['wrangler', 'd1', 'list', '--json'], dir)
+        if (d1.ok && findD1IdInList(d1.output, 'punctual')) {
+          fail(
+            `This Cloudflare account already has a D1 database named "punctual".\n` +
+              `If it is an earlier install, re-run init from that checkout directory to resume it;\n` +
+              `otherwise remove it first (wrangler d1 delete punctual).`,
+          )
+        }
+        const worker = run('npx', ['wrangler', 'deployments', 'list'], dir)
+        if (worker.ok) {
+          fail(
+            `This Cloudflare account already has a deployed Worker named "punctual".\n` +
+              `If it is an earlier install, re-run init from that checkout directory to resume it;\n` +
+              `otherwise remove or rename it first.`,
+          )
+        }
+      })
+    }
+
     step('Creating the database (D1)', () => {
       let toml = readFileSync(tomlPath, 'utf8')
       if (!hasD1Placeholder(toml)) return 'already configured'
       const r = run('npx', ['wrangler', 'd1', 'create', 'punctual'], dir)
       let id = parseD1Id(r.output)
-      if (!id) {
-        // The database may exist from a run that died before patching the
-        // toml — recover its id from the list instead of dead-ending.
+      if (!id && resuming) {
+        // Only a RESUME may adopt an existing database by name: it is this
+        // install's own, created by a run that died before patching the
+        // toml. On a fresh install the preflight above has already ruled
+        // pre-existing resources out, so a missing id is a real failure.
         const listed = run('npx', ['wrangler', 'd1', 'list', '--json'], dir)
         id = listed.ok ? findD1IdInList(listed.output, 'punctual') : null
-        if (!id) fail(r.output)
       }
+      if (!id) fail(r.output)
       toml = patchD1Id(toml, id!)
       writeFileSync(tomlPath, toml)
     })
@@ -252,12 +301,12 @@ export async function init(args: string[]): Promise<number> {
       if (!hasKvPlaceholder(toml)) return 'already configured'
       const r = run('npx', ['wrangler', 'kv', 'namespace', 'create', 'CACHE'], dir)
       let id = parseKvId(r.output)
-      if (!id) {
-        // Same recovery as D1: created earlier, never written to the toml.
+      if (!id && resuming) {
+        // Same resume-only adoption rule as D1 above.
         const listed = run('npx', ['wrangler', 'kv', 'namespace', 'list'], dir)
         id = listed.ok ? findKvIdInList(listed.output, 'CACHE') : null
-        if (!id) fail(r.output)
       }
+      if (!id) fail(r.output)
       toml = patchKvId(toml, id!)
       writeFileSync(tomlPath, toml)
     })
@@ -273,11 +322,16 @@ export async function init(args: string[]): Promise<number> {
       const dlq = run('npx', ['wrangler', 'queues', 'create', 'punctual-tasks-dlq'], dir)
       const exists = (o: string) => /already exists/i.test(o)
       if ((main.ok || exists(main.output)) && (dlq.ok || exists(dlq.output))) return
-      // Queues unavailable on this account/plan: the engine's documented
-      // degradation is inline email/webhook delivery. Disable the bindings
-      // rather than fail the whole install.
-      writeFileSync(tomlPath, commentOutQueues(readFileSync(tomlPath, 'utf8')))
-      return 'unavailable — emails will send inline instead'
+      // Only a PLAN limitation justifies disabling the bindings (the
+      // engine's documented degradation: inline email/webhook delivery).
+      // Any other failure is transient until proven otherwise — surface it
+      // and let a re-run retry, or one network blip would permanently
+      // degrade the install.
+      if (isQueuePlanLimited(main.output + dlq.output)) {
+        writeFileSync(tomlPath, commentOutQueues(readFileSync(tomlPath, 'utf8')))
+        return 'not on this plan — emails will send inline instead'
+      }
+      fail(main.ok ? dlq.output : main.output)
     })
 
     out.write(`${glyph('held', term)} Applying database migrations — confirm when asked\n`)
@@ -307,13 +361,10 @@ export async function init(args: string[]): Promise<number> {
       for (const m of listed.output.matchAll(/"name":\s*"([A-Z0-9_]+)"/g)) have.add(m[1]!)
       for (const name of ['ENCRYPTION_KEY_V1', 'SIGNING_KEY']) {
         if (have.has(name)) continue
-        const value = randomBytes(32).toString('base64')
-        const child = spawnSync('npx', ['wrangler', 'secret', 'put', name], {
-          cwd: dir,
-          input: value,
-          encoding: 'utf8',
-        })
-        if (child.status !== 0) fail(`${child.stdout ?? ''}${child.stderr ?? ''}`)
+        // Through run(), like every other npx call — it carries the Windows
+        // shell requirement and surfaces spawn-level errors.
+        const r = run('npx', ['wrangler', 'secret', 'put', name], dir, randomBytes(32).toString('base64'))
+        if (!r.ok) fail(r.output)
       }
     })
 
