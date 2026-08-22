@@ -58,14 +58,28 @@ export function findD1IdInList(json: string, name: string): string | null {
   }
 }
 
-/** `wrangler kv namespace list` → the id of the namespace whose title ends with the binding name. */
+/**
+ * `wrangler kv namespace list` → the id of THIS install's cache namespace.
+ * Exact titles only — `CACHE` (created bare) or `punctual-CACHE` (wrangler's
+ * worker-prefixed form). A suffix match would seize or block on an unrelated
+ * project's `blog-CACHE`.
+ */
 export function findKvIdInList(json: string, binding: string): string | null {
   try {
     const rows = JSON.parse(json) as Array<{ id?: string; title?: string }>
-    return rows.find((r) => r.title === binding || r.title?.endsWith(`-${binding}`))?.id ?? null
+    return rows.find((r) => r.title === binding || r.title === `punctual-${binding}`)?.id ?? null
   } catch {
     return null
   }
+}
+
+/**
+ * The Cloudflare account ids a `wrangler whoami` can see, normalised for
+ * equality. The preflight record is only valid for the login that produced
+ * it — under a different account, "the account was clear" proves nothing.
+ */
+export function parseAccountIds(whoamiOutput: string): string {
+  return [...new Set([...whoamiOutput.matchAll(/\b[0-9a-f]{32}\b/g)].map((m) => m[0]))].sort().join(',')
 }
 
 /** Only resume in a directory that really is a Punctual checkout. */
@@ -85,14 +99,17 @@ export function isQueuePlanLimited(output: string): boolean {
 }
 
 /**
- * The Worker-collision check must FAIL CLOSED: `wrangler deployments list`
- * erroring for a transient reason is not evidence the name is free, and
- * deploying over an unrelated Worker is unrecoverable. Only an explicit
- * "no such Worker" reads as clear.
+ * Every collision check must FAIL CLOSED: a lookup (`deployments list`,
+ * `queues info`, `r2 bucket info`) erroring for a transient reason is not
+ * evidence the name is free, and deploying over an unrelated Worker or
+ * draining an unrelated queue is unrecoverable. Only an explicit
+ * "no such resource" reads as clear.
  */
-export function classifyWorkerLookup(ok: boolean, output: string): 'exists' | 'clear' | 'unknown' {
+export function classifyLookup(ok: boolean, output: string): 'exists' | 'clear' | 'unknown' {
   if (ok) return 'exists'
-  return /not\s*found|does not exist|no deployments|service_not_found|10007/i.test(output) ? 'clear' : 'unknown'
+  return /not\s*found|does not exist|no such|no deployments|service_not_found|10006|10007/i.test(output)
+    ? 'clear'
+    : 'unknown'
 }
 
 export function patchD1Id(toml: string, id: string): string {
@@ -188,9 +205,8 @@ function runInteractive(cmd: string, args: string[], cwd: string): boolean {
  * not the exit code, or the guided login never triggers for exactly the
  * fresh-machine user this installer exists for.
  */
-function loggedIn(dir: string): boolean {
-  const r = run('npx', ['wrangler', 'whoami'], dir)
-  return r.ok && !/not authenticated/i.test(r.output)
+function authenticated(who: RunResult): boolean {
+  return who.ok && !/not authenticated/i.test(who.output)
 }
 
 export async function init(args: string[]): Promise<number> {
@@ -229,14 +245,20 @@ export async function init(args: string[]): Promise<number> {
   // no login at all, and the next run could be signed into an account that
   // has a live, unrelated `punctual` Worker.
   const statePath = join(dir, '.punctual-init.json')
-  const readState = (): { preflightPassed?: boolean } => {
+  const readState = (): { preflightPassed?: boolean; accounts?: string } => {
     try {
-      return JSON.parse(readFileSync(statePath, 'utf8')) as { preflightPassed?: boolean }
+      return JSON.parse(readFileSync(statePath, 'utf8')) as { preflightPassed?: boolean; accounts?: string }
     } catch {
       return {}
     }
   }
-  const preflightPassed = (): boolean => readState().preflightPassed === true
+  // The record only counts under the SAME login that produced it: "the
+  // account was clear" proves nothing about a different account, so a
+  // changed login simply re-runs the preflight against the new one.
+  const preflightPassed = (accounts: string): boolean => {
+    const state = readState()
+    return state.preflightPassed === true && state.accounts === accounts
+  }
 
   try {
     step('Checking prerequisites', () => {
@@ -268,20 +290,23 @@ export async function init(args: string[]): Promise<number> {
     })
 
     // Login is the one step that must be interactive — it opens a browser.
-    if (!loggedIn(dir)) {
+    let who = run('npx', ['wrangler', 'whoami'], dir)
+    if (!authenticated(who)) {
       out.write(`${glyph('held', term)} Signing in to Cloudflare — a browser window will open\n`)
       runInteractive('npx', ['wrangler', 'login'], dir)
       // Re-check whoami rather than trusting login's exit code — wrangler
       // login exits 0 on some failures (e.g. a broken CLOUDFLARE_API_TOKEN
       // blocking the OAuth flow).
-      if (!loggedIn(dir)) {
+      who = run('npx', ['wrangler', 'whoami'], dir)
+      if (!authenticated(who)) {
         out.write(`${glyph('failed', term)} Cloudflare sign-in failed\n`)
         return 1
       }
       out.write(`${glyph('booked', term)} Signed in to Cloudflare\n`)
     }
+    const accounts = parseAccountIds(who.output)
 
-    if (!preflightPassed()) {
+    if (!preflightPassed(accounts)) {
       // Nothing may be created until the account is proven clear of every
       // name this install is about to claim: a same-named Worker, database,
       // cache namespace or queue in this account belongs to an earlier
@@ -302,22 +327,34 @@ export async function init(args: string[]): Promise<number> {
         if (findKvIdInList(kv.output, 'CACHE')) {
           fail(`This Cloudflare account already has a KV namespace titled "…CACHE".\n${also}\nOtherwise remove or rename it first.`)
         }
-        const queues = run('npx', ['wrangler', 'queues', 'list'], dir)
-        // A plan without Queues legitimately cannot list them — creation
-        // below classifies and degrades. Any other list failure fails closed.
-        if (!queues.ok && !isQueuePlanLimited(queues.output)) fail(queues.output)
-        if (queues.ok && /(^|\s)punctual-tasks(\s|$)/m.test(queues.output)) {
-          fail(`This Cloudflare account already has a queue named "punctual-tasks".\n${also}\nOtherwise remove it first (wrangler queues delete punctual-tasks).`)
+        // Exact per-name lookups, not paginated listings — a queue missing
+        // from a list's first page would read as a free name.
+        for (const queue of ['punctual-tasks', 'punctual-tasks-dlq']) {
+          const info = run('npx', ['wrangler', 'queues', 'info', queue], dir)
+          // A plan without Queues legitimately cannot look them up —
+          // creation below classifies and degrades.
+          if (isQueuePlanLimited(info.output)) continue
+          const lookup = classifyLookup(info.ok, info.output)
+          if (lookup === 'exists') {
+            fail(`This Cloudflare account already has a queue named "${queue}".\n${also}\nOtherwise remove it first (wrangler queues delete ${queue}).`)
+          }
+          if (lookup === 'unknown') fail(info.output)
         }
+        const bucket = run('npx', ['wrangler', 'r2', 'bucket', 'info', 'punctual-avatars'], dir)
+        const bucketLookup = classifyLookup(bucket.ok, bucket.output)
+        if (bucketLookup === 'exists') {
+          fail(`This Cloudflare account already has an R2 bucket named "punctual-avatars".\n${also}\nOtherwise remove or rename it first.`)
+        }
+        if (bucketLookup === 'unknown') fail(bucket.output)
         const worker = run('npx', ['wrangler', 'deployments', 'list'], dir)
-        const lookup = classifyWorkerLookup(worker.ok, worker.output)
+        const lookup = classifyLookup(worker.ok, worker.output)
         if (lookup === 'exists') {
           fail(`This Cloudflare account already has a deployed Worker named "punctual".\n${also}\nOtherwise remove or rename it first.`)
         }
         // 'unknown' — a transient lookup failure is NOT evidence the name
         // is free; deploying over an unrelated Worker is unrecoverable.
         if (lookup === 'unknown') fail(worker.output)
-        writeFileSync(statePath, JSON.stringify({ preflightPassed: true }))
+        writeFileSync(statePath, JSON.stringify({ preflightPassed: true, accounts }))
       })
     }
 
@@ -357,6 +394,8 @@ export async function init(args: string[]): Promise<number> {
 
     step('Creating the avatar bucket (R2)', () => {
       const r = run('npx', ['wrangler', 'r2', 'bucket', 'create', 'punctual-avatars'], dir)
+      // Post-preflight, an existing bucket is this install's own from an
+      // earlier run — the preflight aborts on a pre-existing one.
       if (!r.ok && !/already (exists|owned)/i.test(r.output)) fail(r.output)
       if (!r.ok) return 'already exists'
     })

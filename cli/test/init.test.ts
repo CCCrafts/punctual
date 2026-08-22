@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
-  classifyWorkerLookup,
+  classifyLookup,
   commentOutQueues,
   findD1IdInList,
   findKvIdInList,
@@ -12,6 +12,7 @@ import {
   hasKvPlaceholder,
   isPunctualToml,
   isQueuePlanLimited,
+  parseAccountIds,
   parseD1Id,
   parseDeployUrl,
   parseKvId,
@@ -108,14 +109,29 @@ describe('half-finished-run recovery', () => {
     expect(findD1IdInList('not json', 'punctual')).toBeNull()
   })
 
-  it('finds an already-created KV namespace by title, bare or worker-prefixed', () => {
+  it('finds the cache namespace by its exact titles only — never a suffix match on someone else\'s', () => {
     const json = JSON.stringify([
       { id: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', title: 'punctual-CACHE' },
-      { id: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', title: 'unrelated' },
+      { id: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', title: 'blog-CACHE' },
     ])
     expect(findKvIdInList(json, 'CACHE')).toBe('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')
     expect(findKvIdInList(JSON.stringify([{ id: 'cc', title: 'CACHE' }]), 'CACHE')).toBe('cc')
-    expect(findKvIdInList(json, 'MISSING')).toBeNull()
+    expect(findKvIdInList(JSON.stringify([{ id: 'bb', title: 'blog-CACHE' }]), 'CACHE')).toBeNull()
+  })
+})
+
+describe('parseAccountIds', () => {
+  it('normalises whoami output to a stable account fingerprint', () => {
+    const output = `┌─────────────┬──────────────────────────────────┐
+│ Account     │ 7538f7fc7c28e0d52b013f2b2945b6f1 │
+│ Second      │ 00000000000000000000000000000abc │
+└─────────────┴──────────────────────────────────┘`
+    expect(parseAccountIds(output)).toBe('00000000000000000000000000000abc,7538f7fc7c28e0d52b013f2b2945b6f1')
+    // Order and duplicates don't change the fingerprint.
+    expect(parseAccountIds(`${output}\n7538f7fc7c28e0d52b013f2b2945b6f1`)).toBe(
+      '00000000000000000000000000000abc,7538f7fc7c28e0d52b013f2b2945b6f1',
+    )
+    expect(parseAccountIds('You are not authenticated')).toBe('')
   })
 })
 
@@ -128,17 +144,17 @@ describe('resume-target guard', () => {
 
 describe('worker-lookup classification (fail closed)', () => {
   it('an explicit not-found is the ONLY output that reads as clear', () => {
-    expect(classifyWorkerLookup(false, 'X [code: 10007] workers.api.error.service_not_found')).toBe('clear')
-    expect(classifyWorkerLookup(false, 'Worker not found')).toBe('clear')
+    expect(classifyLookup(false, 'X [code: 10007] workers.api.error.service_not_found')).toBe('clear')
+    expect(classifyLookup(false, 'Worker not found')).toBe('clear')
   })
 
   it('a successful listing means the name is taken', () => {
-    expect(classifyWorkerLookup(true, 'Created: 2026-08-01 Version: abc')).toBe('exists')
+    expect(classifyLookup(true, 'Created: 2026-08-01 Version: abc')).toBe('exists')
   })
 
   it('any other failure is unknown — never treated as a free name', () => {
-    expect(classifyWorkerLookup(false, 'fetch failed: socket hang up')).toBe('unknown')
-    expect(classifyWorkerLookup(false, 'Too many requests [code: 10429]')).toBe('unknown')
+    expect(classifyLookup(false, 'fetch failed: socket hang up')).toBe('unknown')
+    expect(classifyLookup(false, 'Too many requests [code: 10429]')).toBe('unknown')
   })
 })
 
