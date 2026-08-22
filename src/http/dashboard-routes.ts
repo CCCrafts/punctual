@@ -845,8 +845,22 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     }
 
     if (Object.keys(errors).length > 0) {
+      // Same reasoning as the add-range branch's `overridesText`: echo the
+      // raw typed lines, not `draft.overrides` (which is `[]` whenever
+      // `overrides` is exactly the field that failed to parse) — otherwise a
+      // reject on ANY field wipes every override line the host just typed,
+      // including the ones that were valid, right when the error message is
+      // pointing at this box asking them to fix it.
       return c.html(
-        scheduleForm({ brandName, user, csrf: c.get('csrf'), schedule: draft, errors, weeklyDraft }),
+        scheduleForm({
+          brandName,
+          user,
+          csrf: c.get('csrf'),
+          schedule: draft,
+          errors,
+          weeklyDraft,
+          overridesText: String(form.get('overrides') ?? ''),
+        }),
         400,
       )
     }

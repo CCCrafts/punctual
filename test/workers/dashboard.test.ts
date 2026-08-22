@@ -793,6 +793,30 @@ describe('availability — named schedules (CCC-581)', () => {
     expect(await res.text()).toContain('2026-12-2 10:00-14:00')
   })
 
+  it('a rejected save echoes every typed override line, including the valid ones, not just the malformed one', async () => {
+    const cookie = await seedSession(AVAIL_HOST_ID)
+    const csrf = await availCsrf(cookie)
+
+    const res = await post(
+      `/dashboard/availability/${DEFAULT_SCHEDULE_ID}`,
+      {
+        name: 'Working hours',
+        timezone: 'UTC',
+        'day-1-enabled': 'on',
+        'day-1-start-0': '09:00',
+        'day-1-end-0': '17:00',
+        overrides: '2026-12-24 10:00-14:00\n2026-12-2 10:00-14:00',
+        csrf,
+      },
+      cookie,
+    )
+    expect(res.status).toBe(400)
+    const text = await res.text()
+    expect(text).toContain('2026-12-24 10:00-14:00')
+    expect(text).toContain('2026-12-2 10:00-14:00')
+    expect(text).toContain('Use lines like 2026-12-24 10:00-14:00')
+  })
+
   it('rejects a save with no new-format weekly fields at all rather than silently blanking the schedule', async () => {
     const cookie = await seedSession(AVAIL_HOST_ID)
     const csrf = await availCsrf(cookie)

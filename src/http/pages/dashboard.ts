@@ -865,8 +865,16 @@ function weeklyDraftFromSchedule(weekly: WeeklySchedule): WeeklyDayDraft[] {
  * `<input type="time">` cannot hold "24:00" (its own valid range tops out at
  * 23:59), so an end minute of 1440 renders as "23:59" here — and
  * `parseWeeklyDraft` below maps that string back to 1440 on the way in, so a
- * window that runs to midnight round-trips through the editor exactly, not
- * truncated by a minute.
+ * window that runs to midnight (settable via the REST API/MCP, which use raw
+ * minutes and have no such ceiling) round-trips through the editor exactly,
+ * not truncated by a minute.
+ *
+ * Accepted tradeoff, not an oversight: a host who types exactly "23:59"
+ * meaning THAT minute, not midnight, gets 1440 anyway — indistinguishable in
+ * the widget's own value space from a schedule that already ended at
+ * midnight. Rejected as unfixable within a native time input (which refuses
+ * "24:00" outright) and not worth a bespoke midnight checkbox for a value no
+ * host has a real reason to pick over a round number or midnight itself.
  */
 function minutesToTimeInput(minutes: number): string {
   return minutes >= 24 * 60 ? '23:59' : minutesToTime(minutes)
