@@ -667,11 +667,12 @@ describe('repository-level atomic guards', () => {
       active: true,
       scheduleId: 'sch_never_existed',
     })
-    // `created` echoes the input, not a re-read (same as every other
-    // `create` in this file, for the same round-trip reason) — the
-    // guarantee this guard makes is about what's actually STORED, so assert
-    // against a fresh read, not the return value.
-    void created
+    // Caught by review: create() used to echo the input scheduleId
+    // unchanged even when the subquery resolved it to NULL, so a 201
+    // response could claim a scheduleId the row didn't actually have —
+    // same class of bug the sibling PATCH path already guards against by
+    // re-reading. The return value must match a fresh read, not the input.
+    expect(created.scheduleId).toBeNull()
     const fetched = await repos.eventTypes.byId('et_dangling_1')
     expect(fetched?.scheduleId).toBeNull()
 

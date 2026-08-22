@@ -312,7 +312,17 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
         row.locationType, row.locationValue, JSON.stringify(row.questions), row.active ? 1 : 0,
         row.createdAt, row.scheduleId,
       )
-      return row
+      // Re-read schedule_id rather than echo the input (caught by review):
+      // the subquery above can resolve to NULL when the caller's own
+      // ownership check raced a concurrent delete, and returning `row`
+      // unchanged would answer with a scheduleId the row does not actually
+      // have — the same class of bug `update`'s caller in rest.ts already
+      // guards against by re-reading after a PATCH rather than echoing it.
+      const storedScheduleId = row.scheduleId
+        ? (await first<{ schedule_id: string | null }>('SELECT schedule_id FROM event_types WHERE id = ?', row.id))
+            ?.schedule_id ?? null
+        : null
+      return { ...row, scheduleId: storedScheduleId }
     },
     async update(id, patch) {
       // Each entry is the FULL `col = <expr>` clause, not just the column
