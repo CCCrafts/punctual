@@ -291,6 +291,7 @@ time,.pu-time{font-family:var(--pu-font-mono);font-variant-numeric:tabular-nums}
 .pu-day[data-has-slots="1"]{background:var(--pu-green-tint);color:var(--pu-green-700);font-weight:700}
 .pu-day[aria-disabled="true"]{color:var(--pu-text-disabled);cursor:default}
 .pu-day[aria-current="date"]{box-shadow:inset 0 0 0 2px var(--pu-border-focus);font-weight:700}
+.pu-day[aria-selected="true"]{background:var(--pu-green-700);color:var(--pu-paper);font-weight:700}
 .pu-day:hover[data-has-slots="1"]{background:var(--pu-green-700);color:var(--pu-paper);transform:translateY(-1px)}
 .pu-day:focus-visible,.pu-slot:focus-visible,.pu-btn:focus-visible{
   outline:2px solid var(--pu-border-focus);outline-offset:2px}

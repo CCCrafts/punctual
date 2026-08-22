@@ -370,16 +370,18 @@ export function monthGrid(d: BookingPageData): string {
     const date = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
     const has = d.daysWithSlots.get(date) === true
     const current = date === todayLocal ? ' aria-current="date"' : ''
+    const selected = date === d.selectedDate ? ' aria-selected="true"' : ''
     if (has) {
       const href =
         `${bookingPath(d)}?date=${date}&tz=${encodeURIComponent(d.guestTimezone)}` +
         (d.embed ? '&embed=1' : '')
       cells.push(
-        `<a class="pu-day" data-has-slots="1"${current} href="${escapeHtml(href)}" ` +
-          `aria-label="${escapeHtml(humanDate(date, d.guestTimezone))}, times available">${day}</a>`,
+        `<a class="pu-day" data-has-slots="1"${current}${selected} href="${escapeHtml(href)}" ` +
+          `aria-label="${escapeHtml(humanDate(date, d.guestTimezone))}, times available` +
+          `${selected ? ', selected' : ''}">${day}</a>`,
       )
     } else {
-      cells.push(`<span class="pu-day" aria-disabled="true"${current}>${day}</span>`)
+      cells.push(`<span class="pu-day" aria-disabled="true"${current}${selected}>${day}</span>`)
     }
   }
 

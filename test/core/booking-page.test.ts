@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { EventType, Slot, User } from '../../src/core/domain/types.js'
-import { eventHeader, shellFoot, slotList, type BookingPageData } from '../../src/http/pages/booking.js'
+import { eventHeader, monthGrid, shellFoot, slotList, type BookingPageData } from '../../src/http/pages/booking.js'
 
 const host: User = {
   id: 'u_host',
@@ -223,6 +223,40 @@ describe('eventHeader timezone picker', () => {
     // exception from the unrelated offset-label formatting.
     const html = eventHeader(pageData({ guestTimezone: 'US/Eastern' }))
     expect(html).toContain('value="US/Eastern" selected>')
+  })
+})
+
+/**
+ * Regression: the calendar never marked the chosen day — the only highlight
+ * was the aria-current="date" ring on *today*, so switching days changed the
+ * slot list while the calendar's apparent selection stayed put.
+ */
+describe('monthGrid selected day', () => {
+  const withSlots = new Map([
+    ['2026-09-10', true],
+    ['2026-09-11', true],
+  ])
+
+  it('marks exactly the selected day, and announces it in the label', () => {
+    const html = monthGrid(pageData({ daysWithSlots: withSlots, selectedDate: '2026-09-10' }))
+    const marked = (html.match(/aria-selected="true"/g) ?? []).length
+    expect(marked).toBe(1)
+    expect(html).toMatch(/<a class="pu-day"[^>]*aria-selected="true"[^>]*aria-label="[^"]*, selected">10<\/a>/)
+  })
+
+  it('marks nothing when no day is selected', () => {
+    const html = monthGrid(pageData({ daysWithSlots: withSlots }))
+    expect(html).not.toContain('aria-selected')
+  })
+
+  it('marks nothing when the selected day is in another month than the one displayed', () => {
+    const html = monthGrid(pageData({ daysWithSlots: withSlots, selectedDate: '2026-10-10' }))
+    expect(html).not.toContain('aria-selected')
+  })
+
+  it('still marks a selected day that has no slots — the slot list says "no times" for that same day', () => {
+    const html = monthGrid(pageData({ daysWithSlots: withSlots, selectedDate: '2026-09-12' }))
+    expect(html).toContain('<span class="pu-day" aria-disabled="true" aria-selected="true">12</span>')
   })
 })
 
