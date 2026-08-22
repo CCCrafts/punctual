@@ -1,0 +1,43 @@
+{
+  "name": "punctual-sh",
+  "version": "0.1.0",
+  "description": "Punctual in your terminal — deploy your own scheduling to Cloudflare and read live availability. Scheduling that shows up on time.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "punctual": "bin/punctual.js"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "prepublishOnly": "npm run build && npm test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CCCrafts/punctual.git",
+    "directory": "cli"
+  },
+  "homepage": "https://punctual.sh",
+  "keywords": [
+    "scheduling",
+    "calendly-alternative",
+    "cloudflare-workers",
+    "self-hosted",
+    "booking",
+    "cli"
+  ],
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0",
+    "vitest": "^4.0.0"
+  }
+}

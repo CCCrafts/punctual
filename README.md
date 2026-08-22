@@ -34,6 +34,16 @@ MIT makes this promise irrevocable: what we ship can never be taken back.
 
 ## Quick start
 
+One command, if you have Node 20+ and a Cloudflare account:
+
+```bash
+npx punctual-sh init
+```
+
+It clones this repo, creates the D1/KV/R2/Queues resources, writes their ids
+into `wrangler.toml`, generates secrets, migrates and deploys. Or do the same
+by hand:
+
 ```bash
 git clone https://github.com/CCCrafts/punctual.git
 cd punctual && npm install

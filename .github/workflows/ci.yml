@@ -17,3 +17,11 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+      - run: npm ci
+        working-directory: cli
+      - run: npm run typecheck
+        working-directory: cli
+      - run: npm test
+        working-directory: cli
+      - run: npm run build
+        working-directory: cli
