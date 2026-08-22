@@ -776,12 +776,30 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
 
     const weeklyDraft = readWeeklyDraftFromForm(form)
 
+    // Every day's editor renders at least one range row (`dayRow`,
+    // pages/dashboard.ts), so a POST from THIS form always carries a
+    // `day-N-start-0` field per day, even when it's blank. Zero ranges on
+    // every single day means the POST came from the OLD single-text-field
+    // layout instead (a tab left open across a deploy) — parsing that as
+    // "every day disabled" would silently blank the whole schedule on save.
+    if (weeklyDraft.every((d) => d.ranges.length === 0)) {
+      return c.html(
+        shellHead({ title: 'Request not accepted', brandName }) +
+          errorPage('Request not accepted', 'This page was open from before an update. Reload and try again.') +
+          shellFoot(),
+        409,
+      )
+    }
+
     // "+ Add range" (CCC-582): a no-JS-safe `formnovalidate` submit that
     // appends one empty range row to ONE day and re-renders — never a save.
     // The rest of the form's in-progress values round-trip through
-    // `weeklyDraft` (every day, not just the one that changed) rather than
-    // reverting to whatever is in D1, same reasoning as the rejected-save
-    // path just below.
+    // `weeklyDraft` (every day, not just the one that changed), and through
+    // `nameValue`/the timezone/overrides fields below, rather than reverting
+    // to whatever is in D1 — same reasoning as the rejected-save path just
+    // below. Losing an edited timezone here would be worse than a display
+    // glitch: the eventual save would write the host's hours under the OLD
+    // zone, silently offering guests the wrong wall-clock times.
     const addRangeDay = form.get('add-range')
     if (typeof addRangeDay === 'string') {
       const day = Number(addRangeDay)
@@ -789,7 +807,14 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
         weeklyDraft[day]!.ranges.push({ start: '', end: '' })
       }
       const nameValue = String(form.get('name') ?? '')
-      const draft: Schedule = { ...schedule, name: nameValue || schedule.name }
+      const timezoneValue = String(form.get('timezone') ?? '').trim()
+      const overridesValue = parseOverrides(String(form.get('overrides') ?? ''))
+      const draft: Schedule = {
+        ...schedule,
+        name: nameValue || schedule.name,
+        timezone: isValidTimeZone(timezoneValue) ? timezoneValue : schedule.timezone,
+        overrides: overridesValue ?? schedule.overrides,
+      }
       return c.html(
         scheduleForm({ brandName, user, csrf: c.get('csrf'), schedule: draft, nameValue, weeklyDraft }),
       )

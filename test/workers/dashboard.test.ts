@@ -735,6 +735,62 @@ describe('availability — named schedules (CCC-581)', () => {
     expect(JSON.parse(row!.weekly_json)[1]).toEqual([{ startMinute: 540, endMinute: 1020 }])
   })
 
+  it('"+ Add range" appends an empty row without saving, and preserves the typed timezone and overrides', async () => {
+    const cookie = await seedSession(AVAIL_HOST_ID)
+    const csrf = await availCsrf(cookie)
+
+    const res = await post(
+      `/dashboard/availability/${DEFAULT_SCHEDULE_ID}`,
+      {
+        name: 'Working hours',
+        timezone: 'America/New_York',
+        'day-1-enabled': 'on',
+        'day-1-start-0': '09:00',
+        'day-1-end-0': '17:00',
+        overrides: '2026-12-24',
+        'add-range': '1',
+        csrf,
+      },
+      cookie,
+    )
+    expect(res.status).toBe(200)
+    const text = await res.text()
+    // The typed timezone/overrides survive the re-render...
+    expect(text).toContain('value="America/New_York"')
+    expect(text).toContain('2026-12-24')
+    // ...a second, empty range row was appended to Monday...
+    expect(text).toContain('name="day-1-start-1" value=""')
+
+    // ...and nothing was actually saved to D1.
+    const row = await db
+      .prepare('SELECT timezone, weekly_json, overrides_json FROM schedules WHERE id = ?')
+      .bind(DEFAULT_SCHEDULE_ID)
+      .first<{ timezone: string; weekly_json: string; overrides_json: string }>()
+    expect(row?.timezone).toBe('UTC')
+    expect(JSON.parse(row!.weekly_json)[1]).toEqual([{ startMinute: 540, endMinute: 1020 }])
+    expect(row?.overrides_json).toBe('[]')
+  })
+
+  it('rejects a save with no new-format weekly fields at all rather than silently blanking the schedule', async () => {
+    const cookie = await seedSession(AVAIL_HOST_ID)
+    const csrf = await availCsrf(cookie)
+
+    // Mimics a stale tab still holding the OLD single-text-field form,
+    // submitted after the editor was redesigned.
+    const res = await post(
+      `/dashboard/availability/${DEFAULT_SCHEDULE_ID}`,
+      { name: 'Working hours', timezone: 'UTC', 'day-1': '09:00-17:00', overrides: '', csrf },
+      cookie,
+    )
+    expect(res.status).toBe(409)
+
+    const row = await db
+      .prepare('SELECT weekly_json FROM schedules WHERE id = ?')
+      .bind(DEFAULT_SCHEDULE_ID)
+      .first<{ weekly_json: string }>()
+    expect(JSON.parse(row!.weekly_json)[1]).toEqual([{ startMinute: 540, endMinute: 1020 }])
+  })
+
   it('duplicates a schedule, sets a new default, then refuses to delete the new default', async () => {
     const cookie = await seedSession(AVAIL_HOST_ID)
     let csrf = await availCsrf(cookie)
@@ -789,11 +845,27 @@ describe('availability — named schedules (CCC-581)', () => {
       .first<{ id: string; name: string }>()
     expect(row!.name.length).toBeLessThanOrEqual(120)
 
-    // The truncated name must itself still round-trip through a save.
+    // The truncated name must itself still round-trip through a save. Every
+    // day gets its (blank) `day-N-start-0` field, same as the real form
+    // always renders — omitting all of them looks like a stale pre-redesign
+    // submission, which the route now rejects rather than silently saving.
+    const blankDay = (day: number) => ({ [`day-${day}-start-0`]: '', [`day-${day}-end-0`]: '' })
     csrf = await availCsrf(cookie)
     const save = await post(
       `/dashboard/availability/${row!.id}`,
-      { name: row!.name, timezone: 'UTC', overrides: '', csrf },
+      {
+        name: row!.name,
+        timezone: 'UTC',
+        ...blankDay(0),
+        ...blankDay(1),
+        ...blankDay(2),
+        ...blankDay(3),
+        ...blankDay(4),
+        ...blankDay(5),
+        ...blankDay(6),
+        overrides: '',
+        csrf,
+      },
       cookie,
     )
     expect(save.status).toBe(200)

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Schedule, User, WeeklySchedule } from '../../src/core/domain/types.js'
-import { parseWeeklyDraft, scheduleForm, type WeeklyDayDraft } from '../../src/http/pages/dashboard.js'
+import { MAX_RANGES_PER_DAY, parseWeeklyDraft, scheduleForm, type WeeklyDayDraft } from '../../src/http/pages/dashboard.js'
 
 const user: User = {
   id: 'u_host',
@@ -136,5 +136,23 @@ describe('scheduleForm weekly editor', () => {
     })
     expect(html).toContain('name="day-1-start-0" value="09:00"')
     expect(html).toContain('name="day-1-start-1" value=""')
+  })
+
+  it('matches rest.ts\'s dayWindowSchema array cap, so a schedule saved with 12 windows via the API survives a dashboard save', () => {
+    expect(MAX_RANGES_PER_DAY).toBe(12)
+  })
+
+  it('puts a hidden default-submit Save button before Sunday\'s "+ Add range", so pressing Enter anywhere saves rather than adding a row', () => {
+    const html = scheduleForm({ brandName: 'Punctual', user, csrf: 'tok', schedule })
+    const hiddenSaveIndex = html.indexOf('class="pu-sr" tabindex="-1" formnovalidate')
+    const firstAddRangeIndex = html.indexOf('name="add-range"')
+    expect(hiddenSaveIndex).toBeGreaterThan(-1)
+    expect(firstAddRangeIndex).toBeGreaterThan(-1)
+    expect(hiddenSaveIndex).toBeLessThan(firstAddRangeIndex)
+  })
+
+  it('marks the real Save button formnovalidate, so a hidden disabled-day time input can never block submission', () => {
+    const html = scheduleForm({ brandName: 'Punctual', user, csrf: 'tok', schedule })
+    expect(html).toContain('<button class="pu-btn" type="submit" formnovalidate>Save schedule</button>')
   })
 })

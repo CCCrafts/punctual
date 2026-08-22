@@ -774,6 +774,12 @@ export function scheduleForm(d: ScheduleFormData): string {
   <h1>${escapeHtml(d.schedule.name)}${d.schedule.isDefault ? ' <span class="pu-badge">Default</span>' : ''}</h1>
   <form method="post" action="/dashboard/availability/${id}">
     ${csrfField(d.csrf)}
+    <!-- Implicit submission (pressing Enter in any field) activates the FIRST
+         submit button in tree order — without this, that would be Sunday's
+         "+ Add range" button, silently appending an empty row instead of
+         saving. formnovalidate matches the real Save button below: every
+         field is validated server-side with fieldError output regardless. -->
+    <button type="submit" class="pu-sr" tabindex="-1" formnovalidate>Save schedule</button>
 
     <label for="schedule-name">Name</label>
     <input id="schedule-name" name="name" required aria-required="true" maxlength="120"
@@ -803,7 +809,13 @@ export function scheduleForm(d: ScheduleFormData): string {
       replaces that day's weekly hours entirely.</p>
     ${fieldError('overrides', errors)}
 
-    <div style="margin-top:1.5rem"><button class="pu-btn" type="submit">Save schedule</button></div>
+    <div style="margin-top:1.5rem">
+      <!-- formnovalidate: a day switched off after its (hidden, still-invalid)
+           time inputs were partially typed would otherwise block submission
+           entirely — the browser can't report on a display:none control it
+           can't focus. Server-side validation already covers every field. -->
+      <button class="pu-btn" type="submit" formnovalidate>Save schedule</button>
+    </div>
   </form>
 </section>` +
     shellBottom(d.brandName)
@@ -825,8 +837,13 @@ export interface WeeklyDayDraft {
  * headroom, not an expected count) — bounds how large "+ Add range" can grow
  * a single day and how many `day-N-start-I`/`day-N-end-I` pairs the route
  * handler will ever read back, regardless of what a crafted POST claims.
+ *
+ * Must match `rest.ts`'s `dayWindowSchema` array cap (`.max(12)`): a schedule
+ * saved with 12 windows on one day via the REST API or MCP is still this
+ * user's default schedule, and a lower cap here would silently drop windows
+ * 9-12 the moment the host next saves this form from the dashboard.
  */
-export const MAX_RANGES_PER_DAY = 8
+export const MAX_RANGES_PER_DAY = 12
 
 function weeklyDraftFromSchedule(weekly: WeeklySchedule): WeeklyDayDraft[] {
   return weekly.map((windows) => ({
