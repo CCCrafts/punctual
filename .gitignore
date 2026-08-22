@@ -15,6 +15,10 @@ dist/
 # Agent worktrees (local orchestration scratch, not project content)
 .claude/worktrees/
 
+# punctual-sh init's own record that the account preflight passed — local
+# install state, never project content
+.punctual-init.json
+
 # OS / editor
 .DS_Store
 wrangler.production.toml

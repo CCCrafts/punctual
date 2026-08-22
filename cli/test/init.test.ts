@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
+  classifyWorkerLookup,
   commentOutQueues,
   findD1IdInList,
   findKvIdInList,
@@ -122,6 +123,22 @@ describe('resume-target guard', () => {
   it('accepts the real template and rejects an unrelated Worker toml', () => {
     expect(isPunctualToml(template)).toBe(true)
     expect(isPunctualToml('name = "my-api"\nmain = "src/index.ts"')).toBe(false)
+  })
+})
+
+describe('worker-lookup classification (fail closed)', () => {
+  it('an explicit not-found is the ONLY output that reads as clear', () => {
+    expect(classifyWorkerLookup(false, 'X [code: 10007] workers.api.error.service_not_found')).toBe('clear')
+    expect(classifyWorkerLookup(false, 'Worker not found')).toBe('clear')
+  })
+
+  it('a successful listing means the name is taken', () => {
+    expect(classifyWorkerLookup(true, 'Created: 2026-08-01 Version: abc')).toBe('exists')
+  })
+
+  it('any other failure is unknown — never treated as a free name', () => {
+    expect(classifyWorkerLookup(false, 'fetch failed: socket hang up')).toBe('unknown')
+    expect(classifyWorkerLookup(false, 'Too many requests [code: 10429]')).toBe('unknown')
   })
 })
 

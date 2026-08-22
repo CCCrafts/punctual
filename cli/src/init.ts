@@ -4,7 +4,14 @@
  * Every step is idempotent: it checks whether its outcome already exists
  * (directory cloned, id already patched into wrangler.toml, secret already
  * set) and skips if so. A failed run therefore resumes from where it stopped
- * by simply running `init` again — there is no state file to corrupt.
+ * by simply running `init` again.
+ *
+ * One fact IS persisted — `.punctual-init.json` records that the
+ * account-collision preflight passed, written before anything is created.
+ * That record is what makes a later name collision safely readable as "this
+ * install's own half-finished work" rather than someone else's resource;
+ * without it, adoption-by-name could seize an unrelated Worker, database or
+ * queue that happened to share a name.
  *
  * The one thing this automates that the README cannot: the "put the id in
  * wrangler.toml" steps. Wrangler prints ids; humans mistype them.
@@ -75,6 +82,17 @@ export function isPunctualToml(toml: string): boolean {
  */
 export function isQueuePlanLimited(output: string): boolean {
   return /plan|not available|upgrade|billing|paid|10023/i.test(output)
+}
+
+/**
+ * The Worker-collision check must FAIL CLOSED: `wrangler deployments list`
+ * erroring for a transient reason is not evidence the name is free, and
+ * deploying over an unrelated Worker is unrecoverable. Only an explicit
+ * "no such Worker" reads as clear.
+ */
+export function classifyWorkerLookup(ok: boolean, output: string): 'exists' | 'clear' | 'unknown' {
+  if (ok) return 'exists'
+  return /not\s*found|does not exist|no deployments|service_not_found|10007/i.test(output) ? 'clear' : 'unknown'
 }
 
 export function patchD1Id(toml: string, id: string): string {
@@ -202,12 +220,23 @@ export async function init(args: string[]): Promise<number> {
     throw new StepFailed(message)
   }
 
-  // A directory that already holds a Punctual wrangler.toml is a RESUME of
-  // an earlier run — remote resources named "punctual" are then presumed to
-  // be that run's own half-finished work and may be adopted. A fresh clone
-  // presumes nothing: colliding with same-named resources in the account
-  // means aborting, never adopting (see the preflight step below).
-  const resuming = existsSync(tomlPath)
+  // Adoption of same-named remote resources is allowed ONLY once this
+  // checkout has passed the account-collision preflight — a fact recorded
+  // in a state file BEFORE anything is created, so it can prove "the
+  // account was clear when this install started creating things; a name
+  // collision now is this install's own half-finished work". A merely
+  // cloned directory proves nothing: the clone may have happened against
+  // no login at all, and the next run could be signed into an account that
+  // has a live, unrelated `punctual` Worker.
+  const statePath = join(dir, '.punctual-init.json')
+  const readState = (): { preflightPassed?: boolean } => {
+    try {
+      return JSON.parse(readFileSync(statePath, 'utf8')) as { preflightPassed?: boolean }
+    } catch {
+      return {}
+    }
+  }
+  const preflightPassed = (): boolean => readState().preflightPassed === true
 
   try {
     step('Checking prerequisites', () => {
@@ -217,7 +246,7 @@ export async function init(args: string[]): Promise<number> {
     })
 
     step('Fetching the engine', () => {
-      if (resuming) {
+      if (existsSync(tomlPath)) {
         // Never resume into some OTHER Worker's checkout — the later steps
         // patch its wrangler.toml, put secrets on it and deploy it.
         if (!isPunctualToml(readFileSync(tomlPath, 'utf8'))) {
@@ -252,29 +281,43 @@ export async function init(args: string[]): Promise<number> {
       out.write(`${glyph('booked', term)} Signed in to Cloudflare\n`)
     }
 
-    if (!resuming) {
-      // A FRESH install must not touch anything that already exists: a
-      // Worker or database named "punctual" in this account belongs to an
-      // earlier install (resume from ITS directory instead) or to an
-      // unrelated project — either way, deploying over it or migrating its
-      // database from here would be destructive.
+    if (!preflightPassed()) {
+      // Nothing may be created until the account is proven clear of every
+      // name this install is about to claim: a same-named Worker, database,
+      // cache namespace or queue in this account belongs to an earlier
+      // install (resume from ITS directory) or to an unrelated project —
+      // either way, deploying over it, migrating it, or attaching a queue
+      // consumer to it would be destructive. Passing this check is recorded
+      // BEFORE anything is created, which is what later makes a name
+      // collision safely readable as "this install's own dead run".
       step('Checking the account is clear', () => {
+        const also = `If it is an earlier install, re-run init from that checkout directory to resume it.`
         const d1 = run('npx', ['wrangler', 'd1', 'list', '--json'], dir)
-        if (d1.ok && findD1IdInList(d1.output, 'punctual')) {
-          fail(
-            `This Cloudflare account already has a D1 database named "punctual".\n` +
-              `If it is an earlier install, re-run init from that checkout directory to resume it;\n` +
-              `otherwise remove it first (wrangler d1 delete punctual).`,
-          )
+        if (!d1.ok) fail(d1.output)
+        if (findD1IdInList(d1.output, 'punctual')) {
+          fail(`This Cloudflare account already has a D1 database named "punctual".\n${also}\nOtherwise remove it first (wrangler d1 delete punctual).`)
+        }
+        const kv = run('npx', ['wrangler', 'kv', 'namespace', 'list'], dir)
+        if (!kv.ok) fail(kv.output)
+        if (findKvIdInList(kv.output, 'CACHE')) {
+          fail(`This Cloudflare account already has a KV namespace titled "…CACHE".\n${also}\nOtherwise remove or rename it first.`)
+        }
+        const queues = run('npx', ['wrangler', 'queues', 'list'], dir)
+        // A plan without Queues legitimately cannot list them — creation
+        // below classifies and degrades. Any other list failure fails closed.
+        if (!queues.ok && !isQueuePlanLimited(queues.output)) fail(queues.output)
+        if (queues.ok && /(^|\s)punctual-tasks(\s|$)/m.test(queues.output)) {
+          fail(`This Cloudflare account already has a queue named "punctual-tasks".\n${also}\nOtherwise remove it first (wrangler queues delete punctual-tasks).`)
         }
         const worker = run('npx', ['wrangler', 'deployments', 'list'], dir)
-        if (worker.ok) {
-          fail(
-            `This Cloudflare account already has a deployed Worker named "punctual".\n` +
-              `If it is an earlier install, re-run init from that checkout directory to resume it;\n` +
-              `otherwise remove or rename it first.`,
-          )
+        const lookup = classifyWorkerLookup(worker.ok, worker.output)
+        if (lookup === 'exists') {
+          fail(`This Cloudflare account already has a deployed Worker named "punctual".\n${also}\nOtherwise remove or rename it first.`)
         }
+        // 'unknown' — a transient lookup failure is NOT evidence the name
+        // is free; deploying over an unrelated Worker is unrecoverable.
+        if (lookup === 'unknown') fail(worker.output)
+        writeFileSync(statePath, JSON.stringify({ preflightPassed: true }))
       })
     }
 
@@ -283,11 +326,12 @@ export async function init(args: string[]): Promise<number> {
       if (!hasD1Placeholder(toml)) return 'already configured'
       const r = run('npx', ['wrangler', 'd1', 'create', 'punctual'], dir)
       let id = parseD1Id(r.output)
-      if (!id && resuming) {
-        // Only a RESUME may adopt an existing database by name: it is this
-        // install's own, created by a run that died before patching the
-        // toml. On a fresh install the preflight above has already ruled
-        // pre-existing resources out, so a missing id is a real failure.
+      if (!id) {
+        // Every create step runs strictly after the recorded preflight, so
+        // a database named "punctual" existing NOW can only be this
+        // install's own, from a run that died before patching the toml —
+        // adopting it by name is safe. (A pre-existing one would have
+        // aborted the preflight before anything was created.)
         const listed = run('npx', ['wrangler', 'd1', 'list', '--json'], dir)
         id = listed.ok ? findD1IdInList(listed.output, 'punctual') : null
       }
@@ -301,8 +345,8 @@ export async function init(args: string[]): Promise<number> {
       if (!hasKvPlaceholder(toml)) return 'already configured'
       const r = run('npx', ['wrangler', 'kv', 'namespace', 'create', 'CACHE'], dir)
       let id = parseKvId(r.output)
-      if (!id && resuming) {
-        // Same resume-only adoption rule as D1 above.
+      if (!id) {
+        // Same post-preflight adoption reasoning as D1 above.
         const listed = run('npx', ['wrangler', 'kv', 'namespace', 'list'], dir)
         id = listed.ok ? findKvIdInList(listed.output, 'CACHE') : null
       }
@@ -320,6 +364,10 @@ export async function init(args: string[]): Promise<number> {
     step('Creating the task queues', () => {
       const main = run('npx', ['wrangler', 'queues', 'create', 'punctual-tasks'], dir)
       const dlq = run('npx', ['wrangler', 'queues', 'create', 'punctual-tasks-dlq'], dir)
+      // "already exists" is safe to accept here for the same post-preflight
+      // reason as D1: a pre-existing queue would have aborted the preflight,
+      // so an existing one now is this install's own from an earlier run —
+      // never an unrelated queue whose messages our consumer would drain.
       const exists = (o: string) => /already exists/i.test(o)
       if ((main.ok || exists(main.output)) && (dlq.ok || exists(dlq.output))) return
       // Only a PLAN limitation justifies disabling the bindings (the
