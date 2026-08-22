@@ -192,6 +192,18 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
     const guestTimezone = resolveGuestTimezone(c.req.query('tz'), c.req.raw, host.tz)
     const embed = c.req.query('embed') === '1'
     const currentMonth = localDateString(ports.clock.now(), host.tz).slice(0, 7)
+    // The floor `clampMonth` snaps back to, below (CCC-588): the EARLIER of
+    // the two parties' current months, not just the host's. A guest near the
+    // opposite extreme of the date line from the host can have their own
+    // "today" fall a calendar month behind the host's — Kiritimati (UTC+14)
+    // already on Sep 1 while Los Angeles (UTC-7) is still on Aug 31 — and a
+    // host-only floor clamped exactly that guest's default "today" away,
+    // onto a month grid with no cell for it. This leaves the CEILING
+    // (maxHorizonDays) anchored purely to the host's month below, unchanged:
+    // that is a host-local scheduling constraint, not something a guest's
+    // timezone should stretch or shrink.
+    const guestCurrentMonth = localDateString(ports.clock.now(), guestTimezone).slice(0, 7)
+    const monthFloor = guestCurrentMonth < currentMonth ? guestCurrentMonth : currentMonth
     // Clamp to the event type's own horizon. Without this, walking ?month=
     // forever mints a new freeBusy cache key each time and forces one live
     // provider call per connection per request — which burns the deployment's
@@ -221,6 +233,7 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
     // available" — the calendar offered days it then refused to show.
     const month = clampMonth(
       monthParam ?? requestedDate?.slice(0, 7) ?? currentMonth,
+      monthFloor,
       currentMonth,
       eventType.maxHorizonDays,
     )
@@ -512,10 +525,23 @@ function validMonth(v: string | undefined): string | undefined {
   return v && /^\d{4}-\d{2}$/.test(v) ? v : undefined
 }
 
-/** Keep `month` inside [current, current + horizon]; anything else snaps back. */
-function clampMonth(month: string, currentMonth: string, horizonDays: number): string {
-  if (month < currentMonth) return currentMonth
-  const [cy, cm] = currentMonth.split('-').map(Number) as [number, number]
+/**
+ * Keep `month` inside [floorMonth, horizonAnchorMonth + horizonDays];
+ * anything else snaps back.
+ *
+ * The floor and the horizon anchor are deliberately separate parameters
+ * (CCC-588), not the same "current month" used for both: the floor exists so
+ * a guest's own default "today" is never clamped away by a HOST-local month
+ * that has already ticked over across a date-line split (host already on
+ * Sep 1, guest still on Aug 31) — the caller passes it the earlier of the
+ * two parties' current months. The ceiling stays anchored purely to the
+ * host's month regardless, because `maxHorizonDays` is a host-local
+ * scheduling constraint (how far out the host accepts bookings), not
+ * something a guest's timezone should be able to stretch or shrink.
+ */
+export function clampMonth(month: string, floorMonth: string, horizonAnchorMonth: string, horizonDays: number): string {
+  if (month < floorMonth) return floorMonth
+  const [cy, cm] = horizonAnchorMonth.split('-').map(Number) as [number, number]
   const last = new Date(Date.UTC(cy, cm - 1 + Math.ceil(Math.max(0, horizonDays) / 28), 1))
   const lastMonth = `${last.getUTCFullYear()}-${String(last.getUTCMonth() + 1).padStart(2, '0')}`
   return month > lastMonth ? lastMonth : month

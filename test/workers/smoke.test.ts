@@ -1,5 +1,6 @@
 import { createExecutionContext, env } from 'cloudflare:test'
 import { beforeAll, describe, expect, it } from 'vitest'
+import { clampMonth } from '../../src/http/router.js'
 
 /**
  * Proves the Workers-project harness itself works: real runtime, real D1,
@@ -109,6 +110,37 @@ describe('month resolution follows the selected date', () => {
     // The host does not exist, so 404 — but the point is that resolving the
     // month from the date must not throw before we get there.
     expect(res.status).toBe(404)
+  })
+})
+
+/**
+ * CCC-588: the floor clampMonth snaps back to is the earlier of the two
+ * parties' current months, not just the host's — so a guest whose own
+ * "today" falls a calendar month behind the host's (a date-line split: host
+ * already on Sep 1, guest still on Aug 31) never has their default "today"
+ * clamped onto a month grid with no cell for it. The ceiling stays anchored
+ * purely to the host's month regardless — maxHorizonDays is a host-local
+ * scheduling constraint, not something a guest's timezone should stretch or
+ * shrink. `clampMonth` is pure (no clock/IO), so this calls it directly
+ * rather than needing to straddle a real month boundary in an HTTP test.
+ */
+describe('clampMonth floor is the earlier of host and guest current months (CCC-588)', () => {
+  it('does not clamp the guest-local month forward to a HOST month that has already ticked over', () => {
+    // Host already on 2026-09-01 (Kiritimati, UTC+14); guest still on
+    // 2026-08-31 (Los Angeles, UTC-7). The floor the caller computes and
+    // passes in is the earlier of the two: 2026-08.
+    expect(clampMonth('2026-08', '2026-08', '2026-09', 60)).toBe('2026-08')
+  })
+
+  it('still clamps forward to the floor when the requested month is genuinely before BOTH parties', () => {
+    expect(clampMonth('2026-06', '2026-08', '2026-09', 60)).toBe('2026-08')
+  })
+
+  it('the ceiling stays anchored to the HOST month, not the (possibly earlier) floor', () => {
+    // A 60-day horizon from the host's Sep anchor reaches into December; if
+    // the ceiling were computed from the earlier Aug floor instead, this
+    // would wrongly clamp back to November.
+    expect(clampMonth('2026-12', '2026-08', '2026-09', 60)).toBe('2026-12')
   })
 })
 
