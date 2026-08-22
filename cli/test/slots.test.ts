@@ -1,5 +1,34 @@
 import { describe, expect, it } from 'vitest'
-import { groupByDay, parseSlotsArgs } from '../src/slots.js'
+import { groupByDay, parseSlotsArgs, pickEventType } from '../src/slots.js'
+
+describe('pickEventType', () => {
+  const personal = { id: 'et_1', slug: '30min', title: 'Quick chat', durationMinutes: 30 }
+  const team = { id: 'et_2', slug: '30min', title: 'Sales intro', durationMinutes: 30 }
+  const other = { id: 'et_3', slug: 'deep-dive', title: 'Deep dive', durationMinutes: 60 }
+
+  it('an empty instance is its own case, never "several — pick one"', () => {
+    expect(pickEventType([], undefined)).toEqual({ kind: 'empty' })
+    expect(pickEventType([], '30min')).toEqual({ kind: 'empty' })
+  })
+
+  it('a slug shared by a personal and a team event type is ambiguous, never first-match-wins', () => {
+    expect(pickEventType([personal, team], '30min')).toEqual({ kind: 'ambiguous', matches: [personal, team] })
+  })
+
+  it('an id always resolves uniquely, which is the escape hatch for ambiguous slugs', () => {
+    expect(pickEventType([personal, team], 'et_2')).toEqual({ kind: 'ok', match: team })
+  })
+
+  it('a unique slug resolves; a single event type needs no --event at all', () => {
+    expect(pickEventType([personal, other], 'deep-dive')).toEqual({ kind: 'ok', match: other })
+    expect(pickEventType([other], undefined)).toEqual({ kind: 'ok', match: other })
+  })
+
+  it('several event types with no --event lists them; a wrong slug is not-found', () => {
+    expect(pickEventType([personal, other], undefined)).toEqual({ kind: 'unspecified', all: [personal, other] })
+    expect(pickEventType([personal, other], 'nope')).toEqual({ kind: 'not-found' })
+  })
+})
 
 describe('parseSlotsArgs', () => {
   it('takes a bare URL as the positional argument', () => {

@@ -4,9 +4,12 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
   commentOutQueues,
+  findD1IdInList,
+  findKvIdInList,
   hasBaseUrlPlaceholder,
   hasD1Placeholder,
   hasKvPlaceholder,
+  isPunctualToml,
   parseD1Id,
   parseDeployUrl,
   parseKvId,
@@ -89,5 +92,34 @@ Current Version ID: aaa`
     expect(parseD1Id('error: not authorized')).toBeNull()
     expect(parseKvId('error')).toBeNull()
     expect(parseDeployUrl('error')).toBeNull()
+  })
+})
+
+describe('half-finished-run recovery', () => {
+  it('finds an already-created D1 database by name in `d1 list --json`', () => {
+    const json = JSON.stringify([
+      { name: 'other-db', uuid: '99999999-9999-9999-9999-999999999999' },
+      { name: 'punctual', uuid: 'f8254c85-0fb2-4fea-b604-e20486799be6' },
+    ])
+    expect(findD1IdInList(json, 'punctual')).toBe('f8254c85-0fb2-4fea-b604-e20486799be6')
+    expect(findD1IdInList(json, 'missing')).toBeNull()
+    expect(findD1IdInList('not json', 'punctual')).toBeNull()
+  })
+
+  it('finds an already-created KV namespace by title, bare or worker-prefixed', () => {
+    const json = JSON.stringify([
+      { id: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', title: 'punctual-CACHE' },
+      { id: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', title: 'unrelated' },
+    ])
+    expect(findKvIdInList(json, 'CACHE')).toBe('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')
+    expect(findKvIdInList(JSON.stringify([{ id: 'cc', title: 'CACHE' }]), 'CACHE')).toBe('cc')
+    expect(findKvIdInList(json, 'MISSING')).toBeNull()
+  })
+})
+
+describe('resume-target guard', () => {
+  it('accepts the real template and rejects an unrelated Worker toml', () => {
+    expect(isPunctualToml(template)).toBe(true)
+    expect(isPunctualToml('name = "my-api"\nmain = "src/index.ts"')).toBe(false)
   })
 })

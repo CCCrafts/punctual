@@ -37,6 +37,35 @@ export function parseDeployUrl(output: string): string | null {
   return /https:\/\/[a-z0-9-]+(?:\.[a-z0-9-]+)*\.workers\.dev/.exec(output)?.[0] ?? null
 }
 
+/**
+ * `wrangler d1 list --json` → the id of the database with this name.
+ * The recovery path for a half-finished run: the database was created but
+ * the process died before its id reached wrangler.toml.
+ */
+export function findD1IdInList(json: string, name: string): string | null {
+  try {
+    const rows = JSON.parse(json) as Array<{ name?: string; uuid?: string }>
+    return rows.find((r) => r.name === name)?.uuid ?? null
+  } catch {
+    return null
+  }
+}
+
+/** `wrangler kv namespace list` → the id of the namespace whose title ends with the binding name. */
+export function findKvIdInList(json: string, binding: string): string | null {
+  try {
+    const rows = JSON.parse(json) as Array<{ id?: string; title?: string }>
+    return rows.find((r) => r.title === binding || r.title?.endsWith(`-${binding}`))?.id ?? null
+  } catch {
+    return null
+  }
+}
+
+/** Only resume in a directory that really is a Punctual checkout. */
+export function isPunctualToml(toml: string): boolean {
+  return /^name\s*=\s*"punctual"$/m.test(toml) && /^database_name\s*=\s*"punctual"$/m.test(toml)
+}
+
 export function patchD1Id(toml: string, id: string): string {
   return toml.replace(/^(database_id\s*=\s*)".*"$/m, `$1"${id}"`)
 }
@@ -92,17 +121,46 @@ interface RunResult {
   output: string
 }
 
+/**
+ * Windows can only execute npm.cmd/npx.cmd through a shell (and Node
+ * refuses to spawn .cmd files without one since the CVE-2024-27980 fix).
+ * Every npm/npx invocation here uses static, space-free arguments, so the
+ * shell's word splitting cannot misparse anything; git ships as a real
+ * executable and never needs it.
+ */
+function needsShell(cmd: string): boolean {
+  return process.platform === 'win32' && cmd !== 'git'
+}
+
 function run(cmd: string, args: string[], cwd: string): RunResult {
-  const child = spawnSync(cmd, args, { cwd, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 })
+  const child = spawnSync(cmd, args, {
+    cwd,
+    encoding: 'utf8',
+    maxBuffer: 16 * 1024 * 1024,
+    shell: needsShell(cmd),
+  })
   return {
     ok: child.status === 0,
-    output: `${child.stdout ?? ''}${child.stderr ?? ''}`,
+    // child.error is the spawn-level failure (ENOENT and friends) that
+    // produces no stdout/stderr at all — without it, a step would die blank.
+    output: `${child.stdout ?? ''}${child.stderr ?? ''}${child.error ? child.error.message : ''}`,
   }
 }
 
 /** For wrangler login / migration confirms: the user sees and answers. */
 function runInteractive(cmd: string, args: string[], cwd: string): boolean {
-  return spawnSync(cmd, args, { cwd, stdio: 'inherit' }).status === 0
+  return spawnSync(cmd, args, { cwd, stdio: 'inherit', shell: needsShell(cmd) }).status === 0
+}
+
+/**
+ * `wrangler whoami` exits 0 even when nobody is signed in — it *prints*
+ * "You are not authenticated" and returns normally. Gate on the output,
+ * not the exit code, or the guided login never triggers for exactly the
+ * fresh-machine user this installer exists for.
+ */
+function loggedIn(dir: string): boolean {
+  const r = run('npx', ['wrangler', 'whoami'], dir)
+  return r.ok && !/not authenticated/i.test(r.output)
 }
 
 export async function init(args: string[]): Promise<number> {
@@ -140,7 +198,14 @@ export async function init(args: string[]): Promise<number> {
     })
 
     step('Fetching the engine', () => {
-      if (existsSync(tomlPath)) return 'already cloned, resuming'
+      if (existsSync(tomlPath)) {
+        // Never resume into some OTHER Worker's checkout — the later steps
+        // patch its wrangler.toml, put secrets on it and deploy it.
+        if (!isPunctualToml(readFileSync(tomlPath, 'utf8'))) {
+          fail(`${dir} contains a wrangler.toml that is not Punctual's — pick another directory.`)
+        }
+        return 'already cloned, resuming'
+      }
       if (existsSync(dir)) fail(`${dir} exists but is not a Punctual checkout — pick another directory.`)
       const r = run('git', ['clone', '--depth', '1', REPO_URL, dir], '.')
       if (!r.ok) fail(r.output)
@@ -153,12 +218,13 @@ export async function init(args: string[]): Promise<number> {
     })
 
     // Login is the one step that must be interactive — it opens a browser.
-    if (!run('npx', ['wrangler', 'whoami'], dir).ok) {
+    if (!loggedIn(dir)) {
       out.write(`${glyph('held', term)} Signing in to Cloudflare — a browser window will open\n`)
       runInteractive('npx', ['wrangler', 'login'], dir)
-      // Trust whoami, not login's exit code — wrangler login exits 0 on some
-      // failures (e.g. a broken CLOUDFLARE_API_TOKEN blocking OAuth).
-      if (!run('npx', ['wrangler', 'whoami'], dir).ok) {
+      // Re-check whoami rather than trusting login's exit code — wrangler
+      // login exits 0 on some failures (e.g. a broken CLOUDFLARE_API_TOKEN
+      // blocking the OAuth flow).
+      if (!loggedIn(dir)) {
         out.write(`${glyph('failed', term)} Cloudflare sign-in failed\n`)
         return 1
       }
@@ -169,8 +235,14 @@ export async function init(args: string[]): Promise<number> {
       let toml = readFileSync(tomlPath, 'utf8')
       if (!hasD1Placeholder(toml)) return 'already configured'
       const r = run('npx', ['wrangler', 'd1', 'create', 'punctual'], dir)
-      const id = parseD1Id(r.output)
-      if (!id) fail(r.output)
+      let id = parseD1Id(r.output)
+      if (!id) {
+        // The database may exist from a run that died before patching the
+        // toml — recover its id from the list instead of dead-ending.
+        const listed = run('npx', ['wrangler', 'd1', 'list', '--json'], dir)
+        id = listed.ok ? findD1IdInList(listed.output, 'punctual') : null
+        if (!id) fail(r.output)
+      }
       toml = patchD1Id(toml, id!)
       writeFileSync(tomlPath, toml)
     })
@@ -179,8 +251,13 @@ export async function init(args: string[]): Promise<number> {
       let toml = readFileSync(tomlPath, 'utf8')
       if (!hasKvPlaceholder(toml)) return 'already configured'
       const r = run('npx', ['wrangler', 'kv', 'namespace', 'create', 'CACHE'], dir)
-      const id = parseKvId(r.output)
-      if (!id) fail(r.output)
+      let id = parseKvId(r.output)
+      if (!id) {
+        // Same recovery as D1: created earlier, never written to the toml.
+        const listed = run('npx', ['wrangler', 'kv', 'namespace', 'list'], dir)
+        id = listed.ok ? findKvIdInList(listed.output, 'CACHE') : null
+        if (!id) fail(r.output)
+      }
       toml = patchKvId(toml, id!)
       writeFileSync(tomlPath, toml)
     })
@@ -221,10 +298,13 @@ export async function init(args: string[]): Promise<number> {
 
     step('Generating secrets', () => {
       const listed = run('npx', ['wrangler', 'secret', 'list'], dir)
+      // "Couldn't check" is NOT "doesn't exist": ENCRYPTION_KEY_V1 encrypts
+      // stored calendar refresh tokens and SIGNING_KEY signs manage links —
+      // regenerating either on a live install orphans both. If the list
+      // fails, stop rather than guess.
+      if (!listed.ok) fail(listed.output)
       const have = new Set<string>()
-      if (listed.ok) {
-        for (const m of listed.output.matchAll(/"name":\s*"([A-Z0-9_]+)"/g)) have.add(m[1]!)
-      }
+      for (const m of listed.output.matchAll(/"name":\s*"([A-Z0-9_]+)"/g)) have.add(m[1]!)
       for (const name of ['ENCRYPTION_KEY_V1', 'SIGNING_KEY']) {
         if (have.has(name)) continue
         const value = randomBytes(32).toString('base64')

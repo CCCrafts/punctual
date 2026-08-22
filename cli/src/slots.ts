@@ -55,6 +55,33 @@ export function parseSlotsArgs(args: string[]): {
   return out
 }
 
+export type EventTypePick =
+  | { kind: 'ok'; match: EventTypeRow }
+  | { kind: 'empty' }
+  | { kind: 'not-found' }
+  | { kind: 'ambiguous'; matches: EventTypeRow[] }
+  | { kind: 'unspecified'; all: EventTypeRow[] }
+
+/**
+ * Resolve `--event` against the instance's event types. Slugs are unique per
+ * OWNER, not globally — a personal `/alice/30min` and a team `/sales/30min`
+ * can coexist — so a slug that matches twice is ambiguous, never
+ * first-match-wins: silently showing the wrong calendar's availability is
+ * the worst outcome this command has.
+ */
+export function pickEventType(all: EventTypeRow[], requested: string | undefined): EventTypePick {
+  if (all.length === 0) return { kind: 'empty' }
+  if (requested === undefined) {
+    return all.length === 1 ? { kind: 'ok', match: all[0]! } : { kind: 'unspecified', all }
+  }
+  const byId = all.find((e) => e.id === requested)
+  if (byId) return { kind: 'ok', match: byId }
+  const bySlug = all.filter((e) => e.slug === requested)
+  if (bySlug.length === 1) return { kind: 'ok', match: bySlug[0]! }
+  if (bySlug.length > 1) return { kind: 'ambiguous', matches: bySlug }
+  return { kind: 'not-found' }
+}
+
 /** Group into `date → aligned time cells`, ready for tabular printing. */
 export function groupByDay(slots: SlotRow[], timezone: string): Array<{ day: string; times: string[] }> {
   const byDate = new Map<string, { day: string; times: string[] }>()
@@ -112,28 +139,34 @@ export async function slots(args: string[]): Promise<number> {
   try {
     spinner.start('Loading event types')
     const eventTypes = await api<{ data: EventTypeRow[] }>(base, key, '/event-types')
+    const picked = pickEventType(eventTypes.data, parsed.event)
 
-    const match = parsed.event
-      ? eventTypes.data.find((e) => e.id === parsed.event || e.slug === parsed.event)
-      : eventTypes.data.length === 1
-        ? eventTypes.data[0]
-        : undefined
-
-    if (!match) {
-      spinner.stop(parsed.event ? 'failed' : 'held', parsed.event ? `No event type "${parsed.event}"` : 'Several event types — pick one with --event')
-      if (eventTypes.data.length > 0) {
-        out.write('\n')
-        out.write(
-          table(
-            eventTypes.data.map((e) => [e.slug, e.title, `${e.durationMinutes} min`]),
-            [{ paint: (c, t) => color(c, 'green', t) }, {}, { align: 'right' }],
-            term,
-          ),
-        )
-        out.write('\n')
+    if (picked.kind !== 'ok') {
+      const listing = (rows: EventTypeRow[]) =>
+        `\n${table(
+          rows.map((e) => [e.slug, e.title, `${e.durationMinutes} min`, e.id]),
+          [{ paint: (c, t) => color(c, 'green', t) }, {}, { align: 'right' }, { paint: (c, t) => dim(c, t) }],
+          term,
+        )}\n`
+      switch (picked.kind) {
+        case 'empty':
+          spinner.stop('failed', 'No event types yet — create one in the dashboard first')
+          return 1
+        case 'not-found':
+          spinner.stop('failed', `No event type "${parsed.event}"`)
+          out.write(listing(eventTypes.data))
+          return 1
+        case 'ambiguous':
+          spinner.stop('failed', `"${parsed.event}" matches more than one event type — use its id`)
+          out.write(listing(picked.matches))
+          return 1
+        case 'unspecified':
+          spinner.stop('held', 'Several event types — pick one with --event')
+          out.write(listing(picked.all))
+          return 0
       }
-      return parsed.event ? 1 : 0
     }
+    const match = picked.match
 
     spinner.update(`Loading slots for ${match.title}`)
     const from = new Date()
