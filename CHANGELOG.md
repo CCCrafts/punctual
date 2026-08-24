@@ -6,6 +6,67 @@ still change interfaces.
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-08-24
+
+Named availability schedules, a redesigned weekly-hours editor, a CLI
+installer, and a body of race-condition and booking-page fixes — most found
+by the dual-model review process this repo runs on every change.
+
+### Added
+
+- **Named availability schedules** (migration `0007`): a host can keep
+  several schedules ("Working hours", "Evenings") and assign one per event
+  type; unassigned event types follow the default. Guarded at the database,
+  not in application code: one default per user via a partial unique index,
+  delete blocked while an event type still points at a schedule, and the
+  event-type ↔ schedule link written with a scalar-subquery guard so a
+  concurrent schedule delete cannot leave a dangling reference.
+- **Redesigned weekly-hours editor**: per-day toggle switches and native
+  time inputs with one or more ranges per day (lunch-break splits), a
+  no-JavaScript "+ Add range" round trip, and a CSS-only show/hide — the
+  whole editor works with scripts disabled. In-progress typing survives
+  validation errors and add-range round trips instead of reverting.
+- **`punctual-sh` CLI** (`cli/`, published to npm; installs a `punctual`
+  binary): `punctual init` runs the whole self-host quick start — creates
+  the D1/KV/R2/Queues resources, writes their ids into `wrangler.toml`,
+  generates secrets, migrates and deploys, idempotently and resumably —
+  and refuses to adopt or overwrite any resource it did not create, in any
+  Cloudflare account, by design. `punctual slots` prints live availability
+  from a running instance. Terminal identity per the brand: the wordmark's
+  green colon, shape-distinct status glyphs, no color when piped or under
+  `NO_COLOR`.
+- Booking page defaults to today's slots on first load instead of "Pick a
+  day", and the calendar highlights the selected day (and moves the
+  highlight when the guest switches days).
+- New accounts are bookable from creation: a default schedule is
+  provisioned at signup and backfilled on login for accounts that predate
+  it — previously a new host had no availability until they saved the form
+  once.
+- Optional GA4 analytics, scoped strictly to the marketing/docs pages.
+
+### Fixed
+
+- **Cross-table slug race** (migration `0008`): user signup and team
+  creation share one slug namespace but arbitrated it in application code;
+  two concurrent requests could claim the same slug. A `slug_claims` table
+  now makes the database the arbiter, written in the same atomic batch as
+  the row that claims the name.
+- A family of agenda-question edge cases: duplicated question when a
+  host's custom wording matches the builtin, legacy answers hidden after a
+  same-labeled replacement, stale-form loss of answers when a host edits
+  mid-fill, and a blank direct answer shadowing a filled older one.
+- Calendar month clamping no longer hides the last bookable day from
+  guests far behind the host's timezone, and the day panel can no longer
+  render for a month the calendar isn't showing.
+- Email templates: rendered and verified in real clients; fixed a broken
+  avatar-alt fallback, a raw IANA timezone id in the footer, and spacing
+  between the secondary action and the footer rule.
+- The public-page footer wordmark links to punctual.sh (new tab) rather
+  than the deployment's own homepage, and no longer inherits a
+  deployment's custom brand name.
+- Flaky wall-clock tests (rate limiter, "defaults to today") made
+  deterministic by measuring elapsed time instead of assuming it.
+
 ## [0.1.1] — 2026-08-19
 
 Release-readiness fixes found while checking 0.1.0 against its own claims —
