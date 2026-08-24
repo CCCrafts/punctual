@@ -276,7 +276,9 @@ function shell(input: ShellInput): string {
     `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%;">${rows}</table>` +
     `</td></tr></table></td></tr>` +
     (primary ? `<tr><td style="padding:22px 28px 0 28px;">${primary}</td></tr>` : '') +
-    (secondary ? `<tr><td style="padding:4px 28px 0 28px;">${secondary}</td></tr>` : '') +
+    // Bottom padding matters here: the notes block below starts with a
+    // border-top, and without it the rule sits directly under the link text.
+    (secondary ? `<tr><td style="padding:4px 28px 20px 28px;">${secondary}</td></tr>` : '') +
     (notes
       ? `<tr><td style="padding:22px 28px 24px 28px;border-top:1px solid ${LINE};">${notes}</td></tr>`
       : `<tr><td style="padding:24px;"></td></tr>`) +
