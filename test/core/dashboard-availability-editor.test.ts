@@ -114,7 +114,7 @@ describe('parseWeeklyDraft', () => {
 
 describe('scheduleForm weekly editor', () => {
   it('renders a switch and one empty range row for a day with no saved windows', () => {
-    const html = scheduleForm({ brandName: 'Punctual', user, csrf: 'tok', schedule })
+    const html = scheduleForm({ brandName: 'Punctual', user, csrf: 'tok', emailDelivery: 'brevo', schedule })
     expect(html).toContain('name="day-1-enabled"')
     expect(html).toContain('name="day-1-start-0"')
     expect(html).not.toContain('day-1-enabled" class="pu-switch-input" checked')
@@ -124,7 +124,7 @@ describe('scheduleForm weekly editor', () => {
     const html = scheduleForm({
       brandName: 'Punctual',
       user,
-      csrf: 'tok',
+      csrf: 'tok', emailDelivery: 'brevo',
       schedule,
       weeklyDraft: draftWeek({
         enabled: true,
@@ -143,7 +143,7 @@ describe('scheduleForm weekly editor', () => {
   })
 
   it('puts a hidden default-submit Save button before Sunday\'s "+ Add range", so pressing Enter anywhere saves rather than adding a row', () => {
-    const html = scheduleForm({ brandName: 'Punctual', user, csrf: 'tok', schedule })
+    const html = scheduleForm({ brandName: 'Punctual', user, csrf: 'tok', emailDelivery: 'brevo', schedule })
     const hiddenSaveIndex = html.indexOf('class="pu-sr" tabindex="-1" formnovalidate')
     const firstAddRangeIndex = html.indexOf('name="add-range"')
     expect(hiddenSaveIndex).toBeGreaterThan(-1)
@@ -152,7 +152,7 @@ describe('scheduleForm weekly editor', () => {
   })
 
   it('marks the real Save button formnovalidate, so a hidden disabled-day time input can never block submission', () => {
-    const html = scheduleForm({ brandName: 'Punctual', user, csrf: 'tok', schedule })
+    const html = scheduleForm({ brandName: 'Punctual', user, csrf: 'tok', emailDelivery: 'brevo', schedule })
     expect(html).toContain('<button class="pu-btn" type="submit" formnovalidate>Save schedule</button>')
   })
 })

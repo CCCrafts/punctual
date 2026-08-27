@@ -26,7 +26,7 @@ const user: User = {
  */
 describe('settingsPage slug-change caution', () => {
   it('does not reuse .pu-err (flex, built for one-line field errors) for the standing warning', () => {
-    const html = settingsPage({ brandName: 'Punctual', user, csrf: 'tok' })
+    const html = settingsPage({ brandName: 'Punctual', user, csrf: 'tok', emailDelivery: 'brevo' })
     expect(html).toContain('pu-callout')
     // .pu-err is still fine elsewhere on the page (an actual field error).
     const calloutSection = html.slice(html.indexOf('pu-callout'), html.indexOf('</div>', html.indexOf('pu-callout')))
@@ -34,14 +34,14 @@ describe('settingsPage slug-change caution', () => {
   })
 
   it('still names the current slug in the warning text', () => {
-    const html = settingsPage({ brandName: 'Punctual', user, csrf: 'tok' })
+    const html = settingsPage({ brandName: 'Punctual', user, csrf: 'tok', emailDelivery: 'brevo' })
     expect(html).toContain('<code>grace</code>')
   })
 })
 
 describe('settingsPage photo section', () => {
   it('shows an initials badge and no Remove button when nothing is uploaded', () => {
-    const html = settingsPage({ brandName: 'Punctual', user, csrf: 'tok' })
+    const html = settingsPage({ brandName: 'Punctual', user, csrf: 'tok', emailDelivery: 'brevo' })
     expect(html).toContain('>G<') // initial of "Grace Hopper"
     expect(html).not.toContain('/dashboard/settings/avatar/delete')
     expect(html).toContain('action="/dashboard/settings/avatar"')
@@ -50,7 +50,7 @@ describe('settingsPage photo section', () => {
 
   it('shows the uploaded photo and a Remove button once avatarKey is set', () => {
     const withAvatar = { ...user, avatarKey: 'abc123-thumb.webp' }
-    const html = settingsPage({ brandName: 'Punctual', user: withAvatar, csrf: 'tok' })
+    const html = settingsPage({ brandName: 'Punctual', user: withAvatar, csrf: 'tok', emailDelivery: 'brevo' })
     expect(html).toContain('/avatars/abc123-thumb.webp')
     expect(html).toContain('action="/dashboard/settings/avatar/delete"')
   })
@@ -59,7 +59,7 @@ describe('settingsPage photo section', () => {
     const html = settingsPage({
       brandName: 'Punctual',
       user,
-      csrf: 'tok',
+      csrf: 'tok', emailDelivery: 'brevo',
       errors: { avatar: 'PNG, JPEG or WebP images only' },
     })
     expect(html).toContain('PNG, JPEG or WebP images only')

@@ -53,20 +53,20 @@ describe('email-not-configured banner', () => {
     }
   })
 
-  it('is silent when the page does not carry the field at all', () => {
-    // Optional so a page can opt out — an absent field must never be read as
-    // "degraded", or every caller that has not been updated starts crying wolf.
-    expect(dashboardHome(home)).not.toContain('Email is not configured')
-  })
-
   /**
    * The banner lives in `shellTop`, so it rides the shared chrome rather than
-   * being pasted per page. Checking a second, unrelated page is what proves
-   * that — if it were inlined into the home page only, this fails.
+   * being pasted per page. Checking unrelated pages is what proves that — if
+   * it were inlined into the home page only, these fail.
+   *
+   * `emailDelivery` is a REQUIRED field on `DashboardChrome` precisely so a
+   * new page cannot quietly omit it: that is a compile error, not a page
+   * that renders fine while mail goes nowhere. `/dashboard/settings` was
+   * caught missing it while the field was still optional, which is why it is
+   * named explicitly here.
    */
-  it('rides the shared chrome, so any page carrying the field shows it', () => {
-    const html = settingsPage({ ...base, emailDelivery: 'console' })
-    expect(html).toContain('Email is not configured')
+  it('rides the shared chrome, so every dashboard page shows it', () => {
+    expect(settingsPage({ ...base, emailDelivery: 'console' })).toContain('Email is not configured')
+    expect(dashboardHome({ ...home, emailDelivery: 'console' })).toContain('Email is not configured')
   })
 
   it('is not dismissible and not admin-gated', () => {

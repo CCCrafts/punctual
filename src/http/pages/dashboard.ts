@@ -78,10 +78,18 @@ export interface DashboardChrome {
    * `EngineConfig.emailDelivery`. When `'console'`, `shellTop` renders a
    * standing warning: this instance is not delivering ANY mail, and a host
    * whose guests get no confirmation needs to know that whether or not they
-   * are the admin who can fix it. Optional so a page can opt out, not so it
-   * can be forgotten — pages that omit it simply do not carry the banner.
+   * are the admin who can fix it.
+   *
+   * REQUIRED, deliberately. It was optional for exactly one review cycle,
+   * and in that cycle `/dashboard/settings` was already silently missing it
+   * — a page that looks healthy while mail goes nowhere, which is the very
+   * failure this banner exists to catch. Optional made the warning something
+   * each new page has to REMEMBER; required makes forgetting a compile
+   * error. Guest-facing pages (the manage page, the login page) are
+   * unaffected: they do not carry `DashboardChrome` and must not show an
+   * operator's config problems to a booker.
    */
-  emailDelivery?: 'resend' | 'brevo' | 'console'
+  emailDelivery: 'resend' | 'brevo' | 'console'
 }
 
 /**

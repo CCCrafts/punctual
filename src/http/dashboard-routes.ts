@@ -1355,7 +1355,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
   // ===========================================================================
 
   app.get('/dashboard/settings', requireSession, (c) =>
-    c.html(settingsPage({ brandName, user: c.get('user'), csrf: c.get('csrf') })),
+    c.html(settingsPage({ brandName, user: c.get('user'), csrf: c.get('csrf'), emailDelivery })),
   )
 
   app.post('/dashboard/settings', requireSession, async (c) => {
