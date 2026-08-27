@@ -137,8 +137,11 @@ screen shows an "unverified app" warning; for an internal team that is fine.
 ## 6. Email (optional, but you want it)
 
 Without an email provider, Punctual logs emails instead of sending them —
-useful for local testing, not for real bookings. To send for real, set
-**either** provider's key (Resend is tried first if both are set):
+useful for local testing, not for real bookings. This is a real trap: nothing
+in the product looks broken, because only the recipients can tell. If you skip
+this step, the dashboard and `/health` will both keep saying so (see
+Troubleshooting). To send for real, set **either** provider's key (Resend is
+tried first if both are set):
 
 ```bash
 npx wrangler secret put RESEND_API_KEY
@@ -238,7 +241,7 @@ Two features need a paid plan, and both degrade gracefully:
 | `SIGNING_KEY` | secret | HMAC key for guest manage links |
 | `GOOGLE_CLIENT_ID` / `_SECRET` | secret | Your Google OAuth app |
 | `MICROSOFT_CLIENT_ID` / `_SECRET` | secret | Your Microsoft app |
-| `RESEND_API_KEY` | secret | Omit to log emails instead of sending |
+| `RESEND_API_KEY` | secret | Omit to log emails instead of sending — `/health` and the dashboard both warn when neither key is set |
 | `BREVO_API_KEY` | secret | Alternative to Resend; Resend wins if both are set |
 
 ## Telemetry
@@ -256,8 +259,20 @@ rather than take our word for it.
 **"unverified app" on Google sign-in.** Expected until Google finishes
 verification. Add yourself as a test user on the consent screen.
 
-**Emails are not arriving.** With no `RESEND_API_KEY` they are logged, not
-sent. Check `npx wrangler tail`.
+**Emails are not arriving.** With no `RESEND_API_KEY` or `BREVO_API_KEY` they
+are logged, not sent — bookings still commit and calendars still sync, so
+nothing else looks wrong. Two places say so without your having to read logs:
+the dashboard shows a standing banner on every page, and `/health` reports it:
+
+```bash
+curl -s https://your-deployment/health
+# {"ok":true,"service":"punctual","emailDelivery":"console",
+#  "warnings":["email_not_configured: ..."]}
+```
+
+`emailDelivery` is `resend`, `brevo` or `console`. `console` means nothing is
+being delivered to anyone. `ok` stays `true` because the service itself is
+up — point monitoring at `warnings` being non-empty, not at `ok`.
 
 **A host's calendar stopped syncing.** Their refresh token was revoked —
 usually a password change or an admin policy. Their connections page shows a

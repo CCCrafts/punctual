@@ -47,7 +47,27 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
   const app = new Hono<{ Bindings: Env }>()
   const publicScope: RequestScope = { consistency: 'unconstrained' }
 
-  app.get('/health', (c) => c.json({ ok: true, service: 'punctual' }))
+  // `ok` stays a pure liveness signal — a deployment deliberately running
+  // without an email provider (local dev, a first boot) is UP, and flipping
+  // `ok` to false for it would train whoever wired the monitor to ignore the
+  // field. Degradations that are invisible from the outside go in `warnings`
+  // instead, so a monitor can alert on `warnings.length > 0` and a human can
+  // curl this and immediately see what is silently not happening.
+  app.get('/health', (c) => {
+    const warnings: string[] = []
+    if (ports.config.emailDelivery === 'console') {
+      warnings.push(
+        'email_not_configured: no RESEND_API_KEY or BREVO_API_KEY — booking confirmations, ' +
+          'reschedule and cancellation notices and reminders are logged, not delivered',
+      )
+    }
+    return c.json({
+      ok: true,
+      service: 'punctual',
+      emailDelivery: ports.config.emailDelivery,
+      warnings,
+    })
+  })
 
   // Marketing landing page and docs index. Registered before every other
   // route so they win regardless of what else claims '/' — same reasoning as

@@ -403,6 +403,10 @@ export function fakeConfig(overrides: Partial<EngineConfig> = {}): EngineConfig 
     supportEmail: 'help@punctual.test',
     fromEmail: 'no-reply@punctual.test',
     fromName: 'Punctual',
+    // A configured deployment by default: the fake stands in for a healthy
+    // instance, and defaulting to 'console' would make every dashboard test
+    // render the not-configured banner. Tests that want it override this.
+    emailDelivery: 'brevo',
     telemetryEnabled: false,
     ...overrides,
   }

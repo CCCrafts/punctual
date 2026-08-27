@@ -24,7 +24,7 @@ import { createRateLimiterAdapter } from './adapters/rate-limiter.js'
 import { handleOne, handleQueueBatch } from './adapters/queue/consumer.js'
 import { runScheduledTasks } from './adapters/scheduled.js'
 import { parseSignupPolicy } from './core/domain/auth-flows.js'
-import type { EnginePorts, RequestScope } from './ports.js'
+import type { EmailDelivery, EnginePorts, RequestScope } from './ports.js'
 
 export { HostCalendar } from './do/host-calendar.js'
 export { RateLimiter } from './do/rate-limiter.js'
@@ -124,11 +124,27 @@ export function buildPorts(env: Env): EnginePorts {
   // not a gate).
   const emailFrom = env.FROM_EMAIL ?? 'hello@example.com'
   const emailFromName = env.FROM_NAME ?? 'Punctual'
-  const email = env.RESEND_API_KEY
-    ? createResendSender({ apiKey: env.RESEND_API_KEY, from: emailFrom, fromName: emailFromName })
-    : env.BREVO_API_KEY
-      ? createBrevoSender({ apiKey: env.BREVO_API_KEY, from: emailFrom, fromName: emailFromName })
-      : createConsoleSender()
+  // Resolved ONCE, next to the sender it describes, so the two cannot drift:
+  // a mode that claimed 'brevo' while the console sender was actually wired
+  // would be worse than no signal at all.
+  const emailDelivery: EmailDelivery = env.RESEND_API_KEY ? 'resend' : env.BREVO_API_KEY ? 'brevo' : 'console'
+  const email =
+    emailDelivery === 'resend'
+      ? createResendSender({ apiKey: env.RESEND_API_KEY!, from: emailFrom, fromName: emailFromName })
+      : emailDelivery === 'brevo'
+        ? createBrevoSender({ apiKey: env.BREVO_API_KEY!, from: emailFrom, fromName: emailFromName })
+        : createConsoleSender()
+
+  if (emailDelivery === 'console') {
+    // Loud, once, at boot. On its own this catches nothing (nobody tails a
+    // healthy Worker), which is why /health and the dashboard carry the same
+    // signal — but it costs nothing and it is the first place someone
+    // debugging "where did my confirmation go" will look.
+    console.warn(
+      '[punctual] No RESEND_API_KEY or BREVO_API_KEY is set. Emails are being LOGGED, NOT SENT — ' +
+        'guests will receive no booking confirmations. See /health and docs/self-hosting.md.',
+    )
+  }
 
   // Queues is not on the free tier, and docs/self-hosting.md promises inline
   // delivery without it. The handler was never passed, so an unbound TASKS
@@ -162,6 +178,7 @@ export function buildPorts(env: Env): EnginePorts {
       supportEmail: env.SUPPORT_EMAIL ?? 'hello@example.com',
       fromEmail: env.FROM_EMAIL ?? 'hello@example.com',
       fromName: env.FROM_NAME ?? 'Punctual',
+      emailDelivery,
       telemetryEnabled: env.TELEMETRY_ENABLED === '1',
     },
     // Constructed last: it needs the other ports.

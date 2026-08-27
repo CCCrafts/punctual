@@ -637,6 +637,12 @@ export interface RateLimitResult {
 // Config
 // ---------------------------------------------------------------------------
 
+/**
+ * The email path in effect. Provider names are not secrets (the KEYS are), so
+ * this is safe to expose on `/health` for external monitoring.
+ */
+export type EmailDelivery = 'resend' | 'brevo' | 'console'
+
 export interface EngineConfig {
   /** Public origin, e.g. https://punctual.sh — used in links and .ics URLs. */
   baseUrl: string
@@ -660,6 +666,20 @@ export interface EngineConfig {
   supportEmail: string
   fromEmail: string
   fromName: string
+  /**
+   * Which email path this deployment actually resolved to at boot.
+   *
+   * `'console'` means NO provider key was set, so `createConsoleSender` is in
+   * use and every confirmation, reschedule, cancellation and reminder is
+   * written to the log instead of delivered. That fallback is deliberate —
+   * it is what lets a self-hoster have a working product on day one — but it
+   * is indistinguishable from a healthy deployment from the outside, which
+   * is exactly how one real instance took nine bookings over a week while
+   * silently mailing nobody. Recording the resolved mode here is what lets
+   * `/health` and the dashboard SAY so, rather than leaving it to whoever
+   * happens to read the logs.
+   */
+  emailDelivery: EmailDelivery
   /** Off unless explicitly enabled (ADR-0006 §5). */
   telemetryEnabled: boolean
   /** Abuse-limit overrides; operator-tunable. */

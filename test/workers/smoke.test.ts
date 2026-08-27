@@ -3,6 +3,49 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { clampMonth } from '../../src/http/router.js'
 
 /**
+ * `/health` must SAY when the deployment is silently degraded.
+ *
+ * Added after a live instance spent a week with no email provider key,
+ * logging every confirmation instead of sending it, across nine real
+ * bookings. Nothing was externally observable: the page rendered, bookings
+ * committed, calendars synced, `/health` said `ok: true`. This suite's env
+ * sets no RESEND/BREVO key, so it resolves to the console sender — the exact
+ * degraded state, which makes this the natural place to assert the signal.
+ */
+describe('/health surfaces silent degradation', () => {
+  it('reports the resolved email mode and warns when nothing is being delivered', async () => {
+    const { default: worker } = await import('../../src/index.js')
+    const res = await worker.fetch(
+      new Request('https://punctual.sh/health'),
+      env,
+      createExecutionContext(),
+    )
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { ok: boolean; emailDelivery: string; warnings: string[] }
+
+    // `ok` stays pure liveness — the Worker IS up. Flipping it for a
+    // deliberately mail-less dev instance would train operators to ignore it.
+    expect(body.ok).toBe(true)
+    expect(body.emailDelivery).toBe('console')
+    // Machine-checkable: a monitor can alert on a non-empty `warnings`.
+    expect(body.warnings.length).toBeGreaterThan(0)
+    expect(body.warnings.join(' ')).toContain('email_not_configured')
+  })
+
+  it('never leaks the provider key itself, only the mode', async () => {
+    const { default: worker } = await import('../../src/index.js')
+    const res = await worker.fetch(
+      new Request('https://punctual.sh/health'),
+      env,
+      createExecutionContext(),
+    )
+    const raw = await res.text()
+    // /health is unauthenticated. Provider NAMES are not secrets; keys are.
+    expect(raw).not.toMatch(/xkeysib-|re_[A-Za-z0-9]/)
+  })
+})
+
+/**
  * Proves the Workers-project harness itself works: real runtime, real D1,
  * real migrations. If this fails, every other Workers test is meaningless.
  */

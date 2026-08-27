@@ -74,6 +74,30 @@ export interface DashboardChrome {
   user: User
   /** Double-submit token for this session (ADR-0005 §5). */
   csrf: string
+  /**
+   * `EngineConfig.emailDelivery`. When `'console'`, `shellTop` renders a
+   * standing warning: this instance is not delivering ANY mail, and a host
+   * whose guests get no confirmation needs to know that whether or not they
+   * are the admin who can fix it. Optional so a page can opt out, not so it
+   * can be forgotten — pages that omit it simply do not carry the banner.
+   */
+  emailDelivery?: 'resend' | 'brevo' | 'console'
+}
+
+/**
+ * The one degradation that is invisible from the product itself: bookings
+ * commit, calendars sync, the dashboard looks healthy, and every guest gets
+ * nothing. Deliberately not dismissible and not admin-gated.
+ */
+function emailWarningBanner(chrome: DashboardChrome): string {
+  if (chrome.emailDelivery !== 'console') return ''
+  return `<div role="alert" class="pu-callout" style="margin:0 0 1.25rem">
+  <p style="margin:0"><strong>Email is not configured — no one is receiving confirmations.</strong>
+    Bookings are being saved and synced to calendars, but every confirmation, reschedule notice,
+    cancellation and reminder is written to the log instead of sent. Set
+    <code>RESEND_API_KEY</code> or <code>BREVO_API_KEY</code> as a secret, then redeploy
+    &mdash; see <a href="/docs/self-hosting">self-hosting</a>.</p>
+</div>`
 }
 
 export function csrfField(csrf: string): string {
@@ -107,7 +131,8 @@ function shellTop(chrome: DashboardChrome, title: string, active: NavKey | null)
     <button class="pu-btn pu-btn-ghost" type="submit" style="padding:.4rem .8rem;font-size:.875rem">Sign out</button>
   </form>
 </header>
-<p class="pu-sr">Signed in as ${escapeHtml(chrome.user.email)}</p>`
+<p class="pu-sr">Signed in as ${escapeHtml(chrome.user.email)}</p>` +
+    emailWarningBanner(chrome)
   )
 }
 
