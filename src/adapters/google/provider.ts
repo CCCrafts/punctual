@@ -89,7 +89,7 @@ export function createGoogleProvider(deps: CalendarProviderDeps): CalendarProvid
           body: JSON.stringify(created).slice(0, 500),
         })
       }
-      return created['id']
+      return { id: created['id'], ...(googleConferenceUrl(created) ?? {}) }
     },
 
     async updateEvent(conn, externalId, event) {
@@ -230,6 +230,36 @@ function parseGoogleInstant(value: unknown, calendarId: string): number {
 }
 
 /** The Events resource body. `conferenceRequestId` is set only when minting a new Meet. */
+/**
+ * The Meet link Google just minted, from the create response.
+ *
+ * `hangoutLink` is the convenient top-level field, but it is not guaranteed
+ * to be present on every response shape, so `conferenceData.entryPoints` is
+ * the documented source of truth — filtered to the VIDEO entry point, since
+ * the same array also carries dial-in phone numbers and an `more` info URL,
+ * none of which a guest can click to join.
+ *
+ * Returns a spreadable partial rather than `string | undefined` so the call
+ * site never sets `conferenceUrl: undefined` explicitly, which
+ * `exactOptionalPropertyTypes` rejects.
+ */
+export function googleConferenceUrl(created: Record<string, unknown>): { conferenceUrl: string } | null {
+  const direct = created['hangoutLink']
+  if (typeof direct === 'string' && direct !== '') return { conferenceUrl: direct }
+
+  const conf = created['conferenceData']
+  if (!isRecord(conf)) return null
+  const entries = conf['entryPoints']
+  if (!Array.isArray(entries)) return null
+  for (const entry of entries) {
+    if (!isRecord(entry)) continue
+    if (entry['entryPointType'] !== 'video') continue
+    const uri = entry['uri']
+    if (typeof uri === 'string' && uri !== '') return { conferenceUrl: uri }
+  }
+  return null
+}
+
 export function toGoogleEvent(event: ExternalEvent, conferenceRequestId?: string): Record<string, unknown> {
   const body: Record<string, unknown> = {
     summary: event.title,

@@ -277,10 +277,18 @@ export function icsDateTimeUtc(ts: number): string {
 }
 
 /** Human-readable location, shared with the email templates so the two agree. */
-export function describeLocation(et: EventType): string {
+export function describeLocation(et: EventType, conferenceUrl?: string | null): string {
   switch (et.locationType) {
     case 'google_meet':
-      return et.locationValue ?? 'Google Meet (link in the calendar invite)'
+      // The real link when the provider minted one. Before CCC-647 this
+      // always returned the placeholder below, which told the guest the link
+      // was "in the calendar invite" — while sitting IN that very invite,
+      // and while `sendUpdates=none` stopped Google sending its own. A guest
+      // on a non-Google mailbox had no way to join at all.
+      if (conferenceUrl) return conferenceUrl
+      // No link yet (sync has not run, or the provider minted none). Say
+      // that plainly rather than pointing at an invite that does not have it.
+      return et.locationValue ?? 'Online meeting link to follow'
     case 'custom_link':
       return et.locationValue ?? 'Online'
     case 'phone':
@@ -337,7 +345,7 @@ export function buildIcs(input: IcsInput): string {
     `DTEND:${icsDateTimeUtc(booking.endUtc)}`,
     `SUMMARY:${escapeText(et.title)}`,
     `DESCRIPTION:${escapeText(input.description ?? defaultDescription(booking, et))}`,
-    `LOCATION:${escapeText(describeLocation(et))}`,
+    `LOCATION:${escapeText(describeLocation(et, booking.conferenceUrl))}`,
     `STATUS:${status}`,
     // Cancelled time no longer blocks the attendee's calendar.
     `TRANSP:${status === 'CANCELLED' ? 'TRANSPARENT' : 'OPAQUE'}`,

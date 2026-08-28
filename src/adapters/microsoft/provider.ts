@@ -101,7 +101,7 @@ export function createMicrosoftProvider(deps: CalendarProviderDeps): CalendarPro
           body: JSON.stringify(created).slice(0, 500),
         })
       }
-      return created['id']
+      return { id: created['id'], ...(graphConferenceUrl(created) ?? {}) }
     },
 
     async updateEvent(conn, externalId, event) {
@@ -260,6 +260,28 @@ export function toGraphDateTimeZone(ms: number): { dateTime: string; timeZone: s
 }
 
 /** The Graph Event body. `transactionId` is create-only. */
+/**
+ * The Teams link Graph just minted, from the create response.
+ *
+ * `onlineMeeting.joinUrl` is the join link; `onlineMeetingUrl` is a legacy
+ * field Graph still populates on some tenants, so it is the fallback rather
+ * than the primary. Present only when `isOnlineMeeting` was set, which
+ * `toGraphEvent` does for a conference event type.
+ *
+ * Shape matches `googleConferenceUrl` deliberately — the two adapters should
+ * be readable side by side, since the guest-facing outcome is identical.
+ */
+export function graphConferenceUrl(created: Record<string, unknown>): { conferenceUrl: string } | null {
+  const meeting = created['onlineMeeting']
+  if (isRecord(meeting)) {
+    const join = meeting['joinUrl']
+    if (typeof join === 'string' && join !== '') return { conferenceUrl: join }
+  }
+  const legacy = created['onlineMeetingUrl']
+  if (typeof legacy === 'string' && legacy !== '') return { conferenceUrl: legacy }
+  return null
+}
+
 export function toGraphEvent(event: ExternalEvent, transactionId?: string): Record<string, unknown> {
   const body: Record<string, unknown> = {
     subject: event.title,

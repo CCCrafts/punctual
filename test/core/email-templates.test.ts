@@ -72,6 +72,7 @@ function booking(patch: Partial<Booking> = {}): Booking {
     status: 'confirmed',
     answers: {},
     externalEventIds: {},
+    conferenceUrl: null,
     rescheduleOf: null,
     rescheduledTo: null,
     manageTokenHash: 'hash',

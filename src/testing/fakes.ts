@@ -76,6 +76,8 @@ export function createFakeRepositories(): FakeRepositories {
   const magicLinks = new Map<string, MagicLinkToken>()
   const apiKeys = new Map<string, ApiKey>()
   const bookings = new Map<string, Booking>()
+  /** Booking id → when its confirmation was claimed; see `claimConfirmation`. */
+  const confirmationClaims = new Map<string, number>()
   const teams = new Map<string, Team>()
   const connections = new Map<string, CalendarConnection>()
   /** Keyed by schedule id, not userId — a host can have more than one (CCC-581). */
@@ -237,6 +239,19 @@ export function createFakeRepositories(): FakeRepositories {
     async setExternalEventIds(bookingId: string, ids: Record<string, string>) {
       const existing = bookings.get(bookingId)
       if (existing) bookings.set(bookingId, { ...existing, externalEventIds: ids })
+    },
+    async setSyncResult(bookingId: string, ids: Record<string, string>, conferenceUrl: string | null) {
+      const existing = bookings.get(bookingId)
+      if (existing) bookings.set(bookingId, { ...existing, externalEventIds: ids, conferenceUrl })
+    },
+    async claimConfirmation(bookingId: string, at: number) {
+      // Mirrors the D1 guard's OUTCOME, which is what callers depend on: the
+      // first caller wins, every later one is refused.
+      const existing = bookings.get(bookingId)
+      if (!existing) return false
+      if (confirmationClaims.has(bookingId)) return false
+      confirmationClaims.set(bookingId, at)
+      return true
     },
     async rotateManageToken(bookingId: string, tokenHash: string) {
       const existing = bookings.get(bookingId)

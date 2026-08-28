@@ -221,6 +221,23 @@ export interface BookingRepository {
    * a cancelled meeting stays on the host's real calendar forever.
    */
   setExternalEventIds(bookingId: string, ids: Record<string, string>): Promise<void>
+  /**
+   * Record the event ids AND the conference link the provider minted, in one
+   * write. Separate from `setExternalEventIds` only because the ids alone are
+   * still the right write for a delete, which has no link to record.
+   */
+  setSyncResult(bookingId: string, ids: Record<string, string>, conferenceUrl: string | null): Promise<void>
+  /**
+   * Claim the right to send this booking's confirmation, exactly once.
+   *
+   * Returns true to the single caller that won. The calendar-sync handler is
+   * what dispatches confirmations now (it is the first point that knows the
+   * conference link), and `message.retry()` re-runs that handler — so without
+   * a DB-arbitrated claim a retried sync sends the guest a second
+   * confirmation. Same discipline as `demoteAdmin`: the condition lives
+   * inside the UPDATE, not in a read the caller does first.
+   */
+  claimConfirmation(bookingId: string, at: number): Promise<boolean>
 }
 
 /** One 5-minute bucket claimed by a booking, for one host. */
@@ -381,10 +398,25 @@ export interface CalendarProvider {
   readonly name: CalendarProviderName
   /** Raw busy intervals, never buffer-expanded — buffers belong to the slot engine. */
   getBusy(conn: CalendarConnection, range: Interval): Promise<Interval[]>
-  createEvent(conn: CalendarConnection, event: ExternalEvent): Promise<string>
+  createEvent(conn: CalendarConnection, event: ExternalEvent): Promise<CreatedEvent>
   updateEvent(conn: CalendarConnection, externalId: string, event: ExternalEvent): Promise<void>
   deleteEvent(conn: CalendarConnection, externalId: string): Promise<void>
   listCalendars(conn: CalendarConnection): Promise<Array<{ id: string; name: string; primary: boolean }>>
+}
+
+/**
+ * What a provider hands back from a create.
+ *
+ * `conferenceUrl` is the whole point of this being a record rather than a
+ * bare id: both Google and Graph return the meeting link they just minted in
+ * the create response, and the engine used to read only the id and throw the
+ * link away — leaving guests with an invite that said "link in the calendar
+ * invite" and contained no link (CCC-647).
+ */
+export interface CreatedEvent {
+  id: string
+  /** Absent for a non-conference event type, or if the provider minted none. */
+  conferenceUrl?: string
 }
 
 export interface ExternalEvent {

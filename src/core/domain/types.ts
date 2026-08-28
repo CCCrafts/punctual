@@ -189,6 +189,13 @@ export interface Booking {
   answers: Record<string, string>
   /** Provider event ids, keyed by connection id, for later update/delete. */
   externalEventIds: Record<string, string>
+  /**
+   * The meeting link the calendar provider minted (Google Meet / Teams), or
+   * null for a non-conference event type or before the calendar sync has
+   * run. Per-booking, not per-event-type: a reschedule creates a fresh
+   * external event and therefore a fresh link (CCC-647).
+   */
+  conferenceUrl: string | null
   rescheduleOf: string | null
   rescheduledTo: string | null
   /** Rotated on reschedule so links in superseded emails die (ADR-0005 §4). */

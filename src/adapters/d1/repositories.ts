@@ -663,6 +663,32 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
       )
     },
 
+    async setSyncResult(bookingId, ids, conferenceUrl) {
+      // One statement rather than two: the ids and the link are produced by
+      // the same provider call, and a partial write would leave a booking
+      // whose calendar event exists but whose guest email cannot name the
+      // meeting link.
+      await run(
+        'UPDATE bookings SET external_event_ids_json = ?, conference_url = ? WHERE id = ?',
+        JSON.stringify(ids),
+        conferenceUrl,
+        bookingId,
+      )
+    },
+
+    async claimConfirmation(bookingId, at) {
+      // The condition lives INSIDE the update, same discipline as
+      // `demoteAdmin`: a queue retry re-runs the sync handler, and a
+      // read-then-write here would let two attempts both observe "not sent"
+      // and both enqueue, sending the guest two confirmations.
+      const res = await q(
+        'UPDATE bookings SET confirmation_queued_at = ? WHERE id = ? AND confirmation_queued_at IS NULL',
+        at,
+        bookingId,
+      ).run()
+      return (res.meta.changes ?? 0) > 0
+    },
+
     async rotateManageToken(bookingId, tokenHash) {
       await run('UPDATE bookings SET manage_token_hash = ? WHERE id = ?', tokenHash, bookingId)
     },
@@ -1262,6 +1288,7 @@ function mapBooking(row: Record<string, unknown> | null): Booking | null {
     status: String(row['status']) as Booking['status'],
     answers: JSON.parse(String(row['answers_json'] ?? '{}')),
     externalEventIds: JSON.parse(String(row['external_event_ids_json'] ?? '{}')),
+    conferenceUrl: row['conference_url'] == null ? null : String(row['conference_url']),
     rescheduleOf: row['reschedule_of'] == null ? null : String(row['reschedule_of']),
     rescheduledTo: row['rescheduled_to'] == null ? null : String(row['rescheduled_to']),
     manageTokenHash: String(row['manage_token_hash']),

@@ -352,7 +352,7 @@ function baseRows(ctx: BookingEmailContext, audience: EmailAudience, tz: string)
     { label: 'What', value: eventType.title },
     { label: 'When', value: formatWhen(booking.startUtc, booking.endUtc, tz) },
     { label: 'Duration', value: `${eventType.durationMinutes} minutes` },
-    { label: 'Where', value: describeLocation(eventType) },
+    { label: 'Where', value: describeLocation(eventType, booking.conferenceUrl) },
   ]
   if (audience === 'guest') {
     rows.push({ label: 'Host', value: hostNamesWithCompany(ctx) })

@@ -29,7 +29,7 @@
 
 import { Hono } from 'hono'
 import { isValidEmail } from '../../core/domain/booking-service.js'
-import { notifyBookingCancelled, notifyBookingRescheduled } from '../../adapters/notify.js'
+import { notifyBookingCancelled } from '../../adapters/notify.js'
 import { z } from 'zod'
 import type { EnginePorts, RequestScope } from '../../ports.js'
 import type { SlotService } from '../../engine.js'
@@ -749,14 +749,11 @@ async function rescheduleBooking(
   // learn about it only from this mail. Host resolved from the NEW booking,
   // since round-robin re-picks at commit time.
   const newHost = (await repos.users.byId(outcome.booking.hostUserId)) ?? user
-  await notifyBookingRescheduled({
-    ports: deps.ports,
-    booking: outcome.booking,
-    previous: original,
-    eventType,
-    host: newHost,
-    ...(outcome.manageToken ? { manageToken: outcome.manageToken } : {}),
-  }).catch((err) => console.error('[punctual] mcp reschedule emails failed', err))
+    // The "Rescheduled" mail for the NEW leg is dispatched by the
+    // calendar-sync handler, not here (CCC-647): the new booking's Meet link
+    // does not exist until its calendar event does, and the email body is
+    // rendered at enqueue time. The handler branches on `rescheduleOf` to
+    // send the rescheduled copy rather than a fresh confirmation.
 
   return text({
     rescheduled: true,

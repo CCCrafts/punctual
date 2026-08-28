@@ -257,7 +257,7 @@ describe('creating the event on the host calendar', () => {
     const provider = createGoogleProvider(deps(fetchImpl) as never)
     const start = localTimeToInstant('2026-06-15', 10 * 60, TZ)
 
-    const id = await provider.createEvent(connection(), {
+    const created = await provider.createEvent(connection(), {
       title: '30 min intro',
       description: 'Booked via Punctual',
       start,
@@ -267,7 +267,12 @@ describe('creating the event on the host calendar', () => {
       createConference: true,
     })
 
-    expect(id).toBe('evt_123')
+    expect(created.id).toBe('evt_123')
+    // The link Google minted, captured rather than discarded (CCC-647). This
+    // fixture always returned `hangoutLink`; until now the adapter read only
+    // the id and threw it away, which is why guests were told the link was
+    // "in the calendar invite" when nothing anywhere held it.
+    expect(created.conferenceUrl).toBe('https://meet.google.com/abc')
     const call = calls[0]!
     // conferenceDataVersion=1 is REQUIRED or Google silently drops the Meet
     // link, which is the whole point of the location type.

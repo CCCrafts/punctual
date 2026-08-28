@@ -39,7 +39,7 @@ import type { SlotService } from '../../engine.js'
 import { authenticateApiKey } from '../../core/domain/auth-flows.js'
 import { parseApiKey } from '../../core/domain/auth-service.js'
 import { effectiveQuestions, isValidEmail, pickDeclaredAnswers, validateAnswers } from '../../core/domain/booking-service.js'
-import { notifyBookingCancelled, notifyBookingRescheduled } from '../../adapters/notify.js'
+import { notifyBookingCancelled } from '../../adapters/notify.js'
 import { formatInZone, isValidTimeZone, localDateString } from '../../core/time/zone.js'
 
 // ---------------------------------------------------------------------------
@@ -868,22 +868,11 @@ export function buildApiRoutes(ports: EnginePorts, slots: SlotService): Hono<Api
       const fresh = await repos.bookings.byId(original.id)
       return problem(409, 'Not reschedulable', `This booking is already ${fresh?.status ?? 'no longer confirmed'}.`)
     }
-    // The host of the NEW booking, not the API key's owner: round-robin
-    // re-picks at commit time, so the two differ for team event types and the
-    // mail would name — and reach — the wrong person.
-    const newHost = (await repos.users.byId(outcome.booking.hostUserId)) ?? user
-    // Shared with the guest-manage and dashboard reschedule paths: sends to
-    // BOTH parties, attaches the .ics with the chain's UID and a bumped
-    // SEQUENCE, includes the new manage link, and fires `booking.rescheduled`
-    // — none of which the REST route's own guest-only helper did.
-    await notifyBookingRescheduled({
-      ports,
-      booking: outcome.booking,
-      previous: original,
-      eventType,
-      host: newHost,
-      ...(outcome.manageToken ? { manageToken: outcome.manageToken } : {}),
-    }).catch((err) => console.error('[punctual] rest reschedule notify failed', err))
+    // The "Rescheduled" mail for the NEW leg is dispatched by the
+    // calendar-sync handler, not here (CCC-647): the new booking's Meet link
+    // does not exist until its calendar event does, and the email body is
+    // rendered at enqueue time. The handler branches on `rescheduleOf` to
+    // send the rescheduled copy rather than a fresh confirmation.
     await ports.queue
       .send({ kind: 'calendar.sync', bookingId: original.id, action: 'delete' })
       .catch(() => {})

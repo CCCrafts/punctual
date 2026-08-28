@@ -93,6 +93,7 @@ function booking(overrides: Partial<Booking> = {}): Booking {
     status: 'confirmed',
     answers: {},
     externalEventIds: {},
+    conferenceUrl: null,
     rescheduleOf: null,
     rescheduledTo: null,
     manageTokenHash: '',

@@ -158,6 +158,7 @@ describe('agenda answers through the pipeline', () => {
       status: 'confirmed',
       answers: { agenda: 'Quarterly roadmap review' },
       externalEventIds: {},
+      conferenceUrl: null,
       rescheduleOf: null,
       rescheduledTo: null,
     } as unknown as Booking
@@ -202,6 +203,7 @@ describe('agenda answers through the pipeline', () => {
       status: 'confirmed',
       answers,
       externalEventIds: {},
+      conferenceUrl: null,
       rescheduleOf: null,
       rescheduledTo: null,
     } as unknown as Booking

@@ -30,7 +30,7 @@
  */
 
 import { Hono, type Context, type MiddlewareHandler } from 'hono'
-import { notifyBookingCancelled, notifyBookingRescheduled } from '../adapters/notify.js'
+import { notifyBookingCancelled } from '../adapters/notify.js'
 import type {
   CalendarProviderName,
   EnginePorts,
@@ -1931,15 +1931,11 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     // re-picks a host at commit time, so reusing the old one mails whoever is
     // no longer on the meeting, leaves the newly-assigned host uninformed, and
     // prints the wrong name in the guest's copy.
-    const newHost = (await repos.users.byId(outcome.booking.hostUserId)) ?? host
-    await notifyBookingRescheduled({
-      ports,
-      booking: outcome.booking,
-      previous: old,
-      eventType,
-      host: newHost,
-      ...(outcome.manageToken ? { manageToken: outcome.manageToken } : {}),
-    }).catch((err) => console.error('[punctual] reschedule emails failed', err))
+    // The "Rescheduled" mail for the NEW leg is dispatched by the
+    // calendar-sync handler, not here (CCC-647): the new booking's Meet link
+    // does not exist until its calendar event does, and the email body is
+    // rendered at enqueue time. The handler branches on `rescheduleOf` to
+    // send the rescheduled copy rather than a fresh confirmation.
     await ports.queue
       .send({ kind: 'calendar.sync', bookingId: old.id, action: 'delete' })
       .catch(() => {})

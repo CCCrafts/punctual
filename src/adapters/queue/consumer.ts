@@ -9,6 +9,8 @@
 
 import type { EnginePorts, QueueMessage } from '../../ports.js'
 import { needsReconnect } from '../oauth.js'
+import { issueManageToken } from '../../core/domain/auth-flows.js'
+import { notifyBookingCreated, notifyBookingRescheduled } from '../notify.js'
 
 export async function handleQueueBatch(batch: MessageBatch, ports: EnginePorts): Promise<void> {
   for (const message of batch.messages) {
@@ -114,6 +116,10 @@ async function syncCalendar(
 
   // Accumulated across every host and connection, then persisted once.
   const createdIds: Record<string, string> = { ...booking.externalEventIds }
+  // The first conference link any connection minted. One per booking, not per
+  // connection: it is the link the GUEST is told to join, and a guest has one
+  // meeting to attend however many host calendars it was written to.
+  let conferenceUrl: string | null = booking.conferenceUrl
 
   for (const hostId of booking.hostUserIds) {
     const host = await repos.users.byId(hostId)
@@ -163,7 +169,11 @@ async function syncCalendar(
           if (booking.externalEventIds[conn.id]) continue
           // Keep the id: reschedule and cancel need it, and without it a
           // cancelled meeting stays on the host's real calendar forever.
-          createdIds[conn.id] = await provider.createEvent(conn, external)
+          const result = await provider.createEvent(conn, external)
+          createdIds[conn.id] = result.id
+          // First writer wins. Re-minting per connection would hand different
+          // hosts different links for one meeting.
+          if (!conferenceUrl && result.conferenceUrl) conferenceUrl = result.conferenceUrl
         } else if (msg.action === 'update') {
           const existing = booking.externalEventIds[conn.id]
           if (existing) await provider.updateEvent(conn, existing, external)
@@ -185,8 +195,24 @@ async function syncCalendar(
     // Compare by VALUE, not key count. Counting keys meant a second create for
     // the same connection (same key, new id) looked unchanged, so the newer
     // event id was never stored and the event became undeletable.
-    const changed = JSON.stringify(createdIds) !== JSON.stringify(booking.externalEventIds)
-    if (changed) await repos.bookings.setExternalEventIds(booking.id, createdIds)
+    const changed =
+      JSON.stringify(createdIds) !== JSON.stringify(booking.externalEventIds) ||
+      conferenceUrl !== booking.conferenceUrl
+    if (changed) await repos.bookings.setSyncResult(booking.id, createdIds, conferenceUrl)
+
+    // The confirmation is dispatched HERE, not by the coordinator, because
+    // this is the first point that knows the conference link — and the email
+    // body is rendered at enqueue time, so sending it any earlier bakes in a
+    // "link to follow" that never gets followed up (CCC-647).
+    //
+    // Reached unconditionally: every per-connection failure above is caught
+    // and `continue`d, and a host with no writable connection simply runs an
+    // empty loop. So a calendar outage delays nothing here — it only means
+    // the email goes out without a link, which is the honest outcome and the
+    // same one guests got before this change.
+    await dispatchConfirmation(booking.id, ports).catch((err) =>
+      console.error('[punctual] confirmation dispatch failed', err),
+    )
   } else if (msg.action === 'delete') {
     // Persist what actually got deleted, not an empty map. A per-connection
     // failure is caught and logged above, so an unconditional wipe would
@@ -194,6 +220,69 @@ async function syncCalendar(
     const changed = JSON.stringify(createdIds) !== JSON.stringify(booking.externalEventIds)
     if (changed) await repos.bookings.setExternalEventIds(booking.id, createdIds)
   }
+}
+
+/**
+ * Send this booking's confirmation, exactly once, now that the conference
+ * link is known.
+ *
+ * Ownership of this moved out of the coordinator (CCC-647): the coordinator
+ * fires immediately after commit, which is BEFORE any calendar event exists,
+ * and the email body is rendered at enqueue time — so the link could never
+ * make it in from there no matter how the queue happened to interleave.
+ *
+ * The manage token is re-issued rather than carried through the queue. Only
+ * its hash is stored, so the original raw token is unrecoverable here — and
+ * putting a live credential into a queue message to work around that would
+ * widen its exposure for no benefit. Rotating is already a supported
+ * operation (ADR-0005 §4 rotates on reschedule), and nothing is invalidated
+ * because the confirmation carrying the previous token has not been sent.
+ */
+async function dispatchConfirmation(bookingId: string, ports: EnginePorts): Promise<void> {
+  const repos = ports.repositories({ consistency: 'bookmark' })
+
+  // Claimed BEFORE any work: Queues is at-least-once, and a redelivered sync
+  // message would otherwise send the guest a second confirmation. The
+  // condition is inside the UPDATE, so two concurrent attempts cannot both win.
+  if (!(await repos.bookings.claimConfirmation(bookingId, ports.clock.now()))) return
+
+  const booking = await repos.bookings.byId(bookingId)
+  if (!booking || booking.status !== 'confirmed') return
+  const eventType = await repos.eventTypes.byId(booking.eventTypeId)
+  if (!eventType) return
+  const host = await repos.users.byId(booking.hostUserId)
+  if (!host) return
+  const hosts = (await Promise.all(booking.hostUserIds.map((id) => repos.users.byId(id)))).filter(
+    (u): u is NonNullable<typeof u> => u !== null,
+  )
+
+  const issued = await issueManageToken(
+    { crypto: ports.crypto },
+    { id: booking.id, startUtc: booking.startUtc },
+    'manage',
+  )
+  await repos.bookings.rotateManageToken(booking.id, issued.tokenHash)
+
+  // A reschedule's replacement leg gets the "Rescheduled" mail, not
+  // "Confirmed" — `notifyBookingCreated` early-returns on `rescheduleOf` for
+  // exactly this reason, so branching here is what makes the new leg's link
+  // reach the guest at all.
+  if (booking.rescheduleOf) {
+    const previous = await repos.bookings.byId(booking.rescheduleOf)
+    if (!previous) return
+    await notifyBookingRescheduled({
+      ports,
+      booking,
+      previous,
+      eventType,
+      host,
+      hosts,
+      manageToken: issued.token,
+    })
+    return
+  }
+
+  await notifyBookingCreated({ ports, booking, eventType, host, hosts, manageToken: issued.token })
 }
 
 function buildDescription(

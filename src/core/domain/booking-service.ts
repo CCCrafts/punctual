@@ -212,6 +212,8 @@ export function prepareBooking(req: BookingRequest): BookingResult {
     status: 'confirmed',
     answers: req.answers,
     externalEventIds: {},
+    // Filled by the calendar sync once a provider mints one (CCC-647).
+    conferenceUrl: null,
     rescheduleOf: req.rescheduleOf ?? null,
     rescheduledTo: null,
     manageTokenHash: req.manageTokenHash,

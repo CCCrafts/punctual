@@ -18,7 +18,6 @@ import { combineBusy, partitionConnections, prepareBooking } from '../core/domai
 import { bookingFootprint } from '../core/slots/engine.js'
 import { intervalToBuckets } from '../core/slots/intervals.js'
 import { issueManageToken } from '../core/domain/auth-flows.js'
-import { notifyBookingCreated } from './notify.js'
 import { localDateString } from '../core/time/zone.js'
 import { dayRange, resolveSchedule } from '../engine.js'
 import { needsReconnect } from './oauth.js'
@@ -240,23 +239,14 @@ export function createCoordinator(deps: CoordinatorDeps): HostCoordinator {
           .send({ kind: 'calendar.sync', bookingId: written.id, action: 'create' })
           .catch(() => {})
 
-        // Confirmations with the .ics. This lives here rather than at each call
-        // site because the coordinator is the single path every booking takes —
-        // the web flow previously sent nothing at all.
-        const primaryHost = await repos.users.byId(written.hostUserId)
-        if (primaryHost) {
-          const allHosts = (
-            await Promise.all(written.hostUserIds.map((id) => repos.users.byId(id)))
-          ).filter((u): u is NonNullable<typeof u> => u !== null)
-          await notifyBookingCreated({
-            ports,
-            booking: written,
-            eventType,
-            host: primaryHost,
-            hosts: allHosts,
-            manageToken: issued.token,
-          }).catch((err) => console.error('[punctual] confirmation emails failed', err))
-        }
+        // The confirmation is NOT sent here any more (CCC-647). It is
+        // dispatched by the calendar-sync handler above, which is the first
+        // point that knows the conference link Google/Graph minted — and the
+        // email body is rendered at enqueue time, so sending it from here
+        // baked in a "link to follow" that nothing ever followed up. The
+        // handler claims the send with a conditional UPDATE, so a queue
+        // redelivery cannot double-send, and it reaches that dispatch even
+        // when every calendar connection fails or the host has none.
 
         // The raw token leaves here exactly once — only its hash is stored.
         return { ok: true, booking: { ...written, manageTokenHash }, manageToken: issued.token }
