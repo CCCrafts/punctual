@@ -8,6 +8,7 @@
  */
 
 import type { EnginePorts, QueueMessage } from '../../ports.js'
+import type { Booking } from '../../core/domain/types.js'
 import { needsReconnect } from '../oauth.js'
 import { notifyBookingCreated, notifyBookingRescheduled } from '../notify.js'
 
@@ -268,11 +269,6 @@ async function dispatchConfirmation(
 ): Promise<void> {
   const repos = ports.repositories({ consistency: 'bookmark' })
 
-  // Claimed BEFORE any work: Queues is at-least-once, and a redelivered sync
-  // message would otherwise send the guest a second confirmation. The
-  // condition is inside the UPDATE, so two concurrent attempts cannot both win.
-  if (!(await repos.bookings.claimConfirmation(bookingId, ports.clock.now()))) return
-
   const booking = await repos.bookings.byId(bookingId)
   if (!booking || booking.status !== 'confirmed') return
   const eventType = await repos.eventTypes.byId(booking.eventTypeId)
@@ -287,16 +283,29 @@ async function dispatchConfirmation(
   // "Confirmed" — `notifyBookingCreated` early-returns on `rescheduleOf` for
   // exactly this reason, so branching here is what makes the new leg's link
   // reach the guest at all.
+  let previous: Booking | null = null
   if (booking.rescheduleOf) {
-    const previous = await repos.bookings.byId(booking.rescheduleOf)
+    previous = await repos.bookings.byId(booking.rescheduleOf)
     if (!previous) return
-    // Only the reschedule that actually WON may mail. Two racing reschedules
-    // both create a replacement booking, but `markRescheduled` lets exactly
-    // one point the original at its replacement; the loser is cancelled by
-    // its route moments later. Without this the loser's sync would already
-    // have told the guest their meeting moved to a time that is about to be
-    // cancelled.
+    // Only the reschedule that actually WON may mail, and only once the win
+    // is recorded. Two racing reschedules both create a replacement, but
+    // `markRescheduled` lets exactly one point the original at its
+    // replacement; the loser is cancelled moments later by its own route.
+    //
+    // This is ALSO not-yet-landed on the first pass: on the inline
+    // (no-TASKS) path the sync runs synchronously inside `coordinator.book`,
+    // before the route has marked anything. Declining here — crucially
+    // WITHOUT claiming — is what lets the route's second pass do the real
+    // notification. Claiming first would burn the one claim on a pass that
+    // deliberately sends nothing, and the reschedule mail would never go out.
     if (previous.rescheduledTo !== booking.id) return
+  }
+
+  // Claimed as late as possible, but still before sending: Queues is
+  // at-least-once, so a redelivery must not send a second confirmation.
+  if (!(await repos.bookings.claimConfirmation(bookingId, ports.clock.now()))) return
+
+  if (previous) {
     await notifyBookingRescheduled({
       ports,
       booking,

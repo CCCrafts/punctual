@@ -749,6 +749,23 @@ async function rescheduleBooking(
   // learn about it only from this mail. Host resolved from the NEW booking,
   // since round-robin re-picks at commit time.
   const newHost = (await repos.users.byId(outcome.booking.hostUserId)) ?? user
+    // Re-trigger the sync now that `markRescheduled` has actually landed.
+    // Dispatch requires `previous.rescheduledTo` to point back at this
+    // booking, so the pass the coordinator fired ran BEFORE that was true and
+    // correctly declined to mail — on the inline/no-TASKS path it runs
+    // synchronously inside `coordinator.book`, i.e. always before this line.
+    // The calendar create is idempotent (guarded by externalEventIds) and the
+    // confirmation is claimed exactly once, so this second pass only ever
+    // completes the notification.
+    await deps.ports.queue
+      .send({
+        kind: 'calendar.sync',
+        bookingId: outcome.booking.id,
+        action: 'create',
+        ...(outcome.manageToken ? { manageToken: outcome.manageToken } : {}),
+      })
+      .catch(() => {})
+
     // The "Rescheduled" mail for the NEW leg is dispatched by the
     // calendar-sync handler, not here (CCC-647): the new booking's Meet link
     // does not exist until its calendar event does, and the email body is

@@ -110,7 +110,7 @@ function harness(opts: HarnessOptions = {}) {
     ...opts.bookingPatch,
   }
 
-  const store = { booking }
+  const store: { booking: Booking; previous: Booking | null } = { booking, previous: null }
   let claimed = false
   let rotated = false
   const queued: QueueMessage[] = []
@@ -126,7 +126,8 @@ function harness(opts: HarnessOptions = {}) {
     repositories: () => ({
       bookings: {
         async byId(id: string) {
-          return id === store.booking.id ? store.booking : null
+          if (id === store.booking.id) return store.booking
+          return store.previous && id === store.previous.id ? store.previous : null
         },
         async setSyncResult(_id: string, ids: Record<string, string>, conferenceUrl: string | null) {
           store.booking = { ...store.booking, externalEventIds: ids, conferenceUrl }
@@ -160,8 +161,16 @@ function harness(opts: HarnessOptions = {}) {
     createEvent,
     sync,
     wasRotated: () => rotated,
+    setPrevious: (b: Booking) => {
+      store.previous = b
+    },
     emails: () => queued.filter((m) => m.kind === 'email'),
   }
+}
+
+/** A bare harness, only for borrowing its default booking shape. */
+function h0() {
+  return harness()
 }
 
 describe('calendar sync captures the conference link', () => {
@@ -303,6 +312,30 @@ describe('confirmation dispatch', () => {
     expect(h.emails()).toHaveLength(0)
 
     // The retry finds the claim released and sends for real.
+    await handleOne(h.sync, h.ports)
+    expect(h.emails().length).toBeGreaterThan(0)
+  })
+
+  /**
+   * The reschedule guard vs the inline (no-TASKS) queue path.
+   *
+   * Inline, `queue.send` runs the handler synchronously inside
+   * `coordinator.book` — i.e. BEFORE the route calls `markRescheduled`. So
+   * the first pass legitimately sees `rescheduledTo` unset and must decline
+   * to mail, and the route's second pass (fired after the mark lands) is what
+   * actually notifies. Getting only the first half of that shipped meant no
+   * reschedule email at all on the free tier.
+   */
+  it('declines to mail a replacement until the reschedule has actually landed', async () => {
+    const previous: Booking = { ...h0().store.booking, id: 'bk_old', rescheduledTo: null }
+    const h = harness({ bookingPatch: { id: 'bk_1', rescheduleOf: 'bk_old' } })
+    h.setPrevious(previous)
+
+    await handleOne(h.sync, h.ports)
+    expect(h.emails()).toHaveLength(0)
+
+    // The route marks the move, then re-fires the sync — now it mails.
+    h.setPrevious({ ...previous, rescheduledTo: 'bk_1' })
     await handleOne(h.sync, h.ports)
     expect(h.emails().length).toBeGreaterThan(0)
   })
