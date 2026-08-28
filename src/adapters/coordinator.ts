@@ -18,10 +18,10 @@ import { combineBusy, partitionConnections, prepareBooking } from '../core/domai
 import { bookingFootprint } from '../core/slots/engine.js'
 import { intervalToBuckets } from '../core/slots/intervals.js'
 import { issueManageToken } from '../core/domain/auth-flows.js'
-import { notifyBookingCreated } from './notify.js'
 import { localDateString } from '../core/time/zone.js'
 import { dayRange, resolveSchedule } from '../engine.js'
 import { needsReconnect } from './oauth.js'
+import { dispatchConfirmation } from './queue/consumer.js'
 import type { HostAvailabilityInput } from '../core/slots/engine.js'
 
 export interface CoordinatorDeps {
@@ -262,24 +262,17 @@ export function createCoordinator(deps: CoordinatorDeps): HostCoordinator {
         }
 
         if (!syncQueued) {
-          const primaryHost = await repos.users.byId(written.hostUserId)
-          if (primaryHost && !written.rescheduleOf) {
-            const allHosts = (
-              await Promise.all(written.hostUserIds.map((id) => repos.users.byId(id)))
-            ).filter((u): u is NonNullable<typeof u> => u !== null)
-            // Claimed here too, so the fallback and a later redelivery of the
-            // sync message can never both send.
-            if (await repos.bookings.claimConfirmation(written.id, now)) {
-              await notifyBookingCreated({
-                ports,
-                booking: written,
-                eventType,
-                host: primaryHost,
-                hosts: allHosts,
-                manageToken: issued.token,
-              }).catch((err) => console.error('[punctual] fallback confirmation failed', err))
-            }
-          }
+          // Routed through the SAME dispatcher the queue would have used,
+          // rather than notifying from the in-memory booking. On the inline
+          // (no-TASKS) path the sync has already run by the time we get
+          // here, so it may have stored a conference link that `written`
+          // predates — notifying from `written` would send the guest an
+          // email missing a link that is sitting in the database. It also
+          // takes the same claim, so this and any later redelivery stay
+          // mutually exclusive.
+          await dispatchConfirmation(written.id, ports, issued.token).catch((err) =>
+            console.error('[punctual] fallback confirmation failed', err),
+          )
         }
 
         // The confirmation is NOT sent here any more (CCC-647). It is

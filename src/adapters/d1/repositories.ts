@@ -681,8 +681,14 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
       // `demoteAdmin`: a queue retry re-runs the sync handler, and a
       // read-then-write here would let two attempts both observe "not sent"
       // and both enqueue, sending the guest two confirmations.
+      //
+      // `status = 'confirmed'` is part of that condition, not a separate
+      // check: the caller reads the status first, but a cancel landing
+      // between that read and this write would otherwise send a "meeting
+      // confirmed" email for a booking that no longer exists.
       const res = await q(
-        'UPDATE bookings SET confirmation_queued_at = ? WHERE id = ? AND confirmation_queued_at IS NULL',
+        `UPDATE bookings SET confirmation_queued_at = ?
+         WHERE id = ? AND confirmation_queued_at IS NULL AND status = 'confirmed'`,
         at,
         bookingId,
       ).run()

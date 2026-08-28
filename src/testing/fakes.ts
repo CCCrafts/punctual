@@ -248,7 +248,7 @@ export function createFakeRepositories(): FakeRepositories {
       // Mirrors the D1 guard's OUTCOME, which is what callers depend on: the
       // first caller wins, every later one is refused.
       const existing = bookings.get(bookingId)
-      if (!existing) return false
+      if (!existing || existing.status !== 'confirmed') return false
       if (confirmationClaims.has(bookingId)) return false
       confirmationClaims.set(bookingId, at)
       return true

@@ -381,4 +381,28 @@ describe('confirmation dispatch', () => {
     await handleOne(h.sync, h.ports)
     expect(h.emails()).toHaveLength(0)
   })
+
+  it('the claim itself refuses a booking cancelled after the status read', async () => {
+    // The status is read first, but a cancel landing between that read and
+    // the claim would otherwise send "your meeting is confirmed" for a
+    // booking that no longer exists. The condition lives in the UPDATE.
+    const h = harness()
+    const realRepos = h.ports.repositories
+    h.ports.repositories = ((scope) => {
+      const repos = realRepos(scope)
+      return {
+        ...repos,
+        bookings: {
+          ...repos.bookings,
+          // Confirmed at read time, cancelled by the time the claim runs.
+          async claimConfirmation() {
+            return false
+          },
+        },
+      }
+    }) as typeof h.ports.repositories
+
+    await handleOne(h.sync, h.ports)
+    expect(h.emails()).toHaveLength(0)
+  })
 })
