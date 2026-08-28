@@ -156,8 +156,20 @@ async function syncCalendar(
             { email: host.email, name: host.name },
           ],
           timezone: host.tz,
-          createConference: eventType.locationType === 'google_meet',
-          location: eventType.locationType === 'in_person' ? (eventType.locationValue ?? undefined) : undefined,
+          // Mint a conference only until ONE exists for this booking; every
+          // later connection reuses it as the event location instead.
+          //
+          // Minting per connection put a collective booking's hosts in
+          // DIFFERENT rooms: two writable calendars meant two Meet links, and
+          // the guest was confidently sent to whichever was captured first
+          // while the second host sat in the other one. The divergence
+          // predates capturing the link at all — it was simply invisible
+          // while nobody was told any link.
+          createConference: eventType.locationType === 'google_meet' && !conferenceUrl,
+          location:
+            eventType.locationType === 'in_person'
+              ? (eventType.locationValue ?? undefined)
+              : (conferenceUrl ?? undefined),
         }
 
         if (msg.action === 'create') {
@@ -170,8 +182,8 @@ async function syncCalendar(
           // cancelled meeting stays on the host's real calendar forever.
           const result = await provider.createEvent(conn, external)
           createdIds[conn.id] = result.id
-          // First writer wins. Re-minting per connection would hand different
-          // hosts different links for one meeting.
+          // Captured on the first connection that mints one; `createConference`
+          // above is false from here on, so nothing re-mints.
           if (!conferenceUrl && result.conferenceUrl) conferenceUrl = result.conferenceUrl
         } else if (msg.action === 'update') {
           const existing = booking.externalEventIds[conn.id]
@@ -209,15 +221,19 @@ async function syncCalendar(
     // empty loop. So a calendar outage delays nothing here — it only means
     // the email goes out without a link, which is the honest outcome and the
     // same one guests got before this change.
-    await dispatchConfirmation(booking.id, ports, msg.manageToken).catch(async (err) => {
+    try {
+      await dispatchConfirmation(booking.id, ports, msg.manageToken)
+    } catch (err) {
       console.error('[punctual] confirmation dispatch failed', err)
-      // Release the claim so a queue retry can try again. Claiming BEFORE
-      // sending is what makes a redelivery safe, but it also means a failure
-      // between claim and send would otherwise strand the booking as
-      // "queued" with nothing ever sent — the silent-non-delivery shape this
-      // whole area is meant to be rid of.
+      // Release the claim, then RETHROW. Releasing alone was not enough:
+      // resolving here lets `handleQueueBatch` ack the message, so the retry
+      // the release exists for never arrives and the confirmation is lost
+      // exactly as silently as before. Rethrowing makes the queue redeliver,
+      // and the calendar work above is idempotent (guarded by
+      // `externalEventIds`), so re-running it is safe.
       await repos.bookings.releaseConfirmationClaim(booking.id).catch(() => {})
-    })
+      throw err
+    }
   } else if (msg.action === 'delete') {
     // Persist what actually got deleted, not an empty map. A per-connection
     // failure is caught and logged above, so an unconditional wipe would
@@ -274,6 +290,13 @@ async function dispatchConfirmation(
   if (booking.rescheduleOf) {
     const previous = await repos.bookings.byId(booking.rescheduleOf)
     if (!previous) return
+    // Only the reschedule that actually WON may mail. Two racing reschedules
+    // both create a replacement booking, but `markRescheduled` lets exactly
+    // one point the original at its replacement; the loser is cancelled by
+    // its route moments later. Without this the loser's sync would already
+    // have told the guest their meeting moved to a time that is about to be
+    // cancelled.
+    if (previous.rescheduledTo !== booking.id) return
     await notifyBookingRescheduled({
       ports,
       booking,

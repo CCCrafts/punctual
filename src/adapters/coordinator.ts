@@ -18,6 +18,7 @@ import { combineBusy, partitionConnections, prepareBooking } from '../core/domai
 import { bookingFootprint } from '../core/slots/engine.js'
 import { intervalToBuckets } from '../core/slots/intervals.js'
 import { issueManageToken } from '../core/domain/auth-flows.js'
+import { notifyBookingCreated } from './notify.js'
 import { localDateString } from '../core/time/zone.js'
 import { dayRange, resolveSchedule } from '../engine.js'
 import { needsReconnect } from './oauth.js'
@@ -235,6 +236,12 @@ export function createCoordinator(deps: CoordinatorDeps): HostCoordinator {
         // Side effects come AFTER the commit, deliberately: a calendar API or
         // a mail provider failing must not lose a booking we already promised
         // the guest on screen.
+        // Swallowing this used to be harmless — the confirmation was sent
+        // right below. Now that the sync message is the ONLY thing that
+        // sends it, a failed enqueue would mean the guest hears nothing at
+        // all, so the fallback sends directly (without a link, which is the
+        // honest outcome when no calendar work will ever run).
+        let syncQueued = true
         await ports.queue
           .send({
             kind: 'calendar.sync',
@@ -242,7 +249,30 @@ export function createCoordinator(deps: CoordinatorDeps): HostCoordinator {
             action: 'create',
             manageToken: issued.token,
           })
-          .catch(() => {})
+          .catch(() => {
+            syncQueued = false
+          })
+
+        if (!syncQueued) {
+          const primaryHost = await repos.users.byId(written.hostUserId)
+          if (primaryHost && !written.rescheduleOf) {
+            const allHosts = (
+              await Promise.all(written.hostUserIds.map((id) => repos.users.byId(id)))
+            ).filter((u): u is NonNullable<typeof u> => u !== null)
+            // Claimed here too, so the fallback and a later redelivery of the
+            // sync message can never both send.
+            if (await repos.bookings.claimConfirmation(written.id, now)) {
+              await notifyBookingCreated({
+                ports,
+                booking: written,
+                eventType,
+                host: primaryHost,
+                hosts: allHosts,
+                manageToken: issued.token,
+              }).catch((err) => console.error('[punctual] fallback confirmation failed', err))
+            }
+          }
+        }
 
         // The confirmation is NOT sent here any more (CCC-647). It is
         // dispatched by the calendar-sync handler above, which is the first

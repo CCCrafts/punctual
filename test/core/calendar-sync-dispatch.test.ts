@@ -172,6 +172,33 @@ describe('calendar sync captures the conference link', () => {
     expect(h.store.booking.externalEventIds).toEqual({ conn_1: 'evt_1' })
   })
 
+  it('mints ONE room for a booking, whatever number of calendars it is written to', async () => {
+    // Caught by review. A collective booking with two writable calendars
+    // minted two Meet links: the guest was confidently sent to the first
+    // while the second host sat in the other room. Every connection after
+    // the first must reuse the room, not create one.
+    let minted = 0
+    const h = harness({
+      connections: [connection(), connection({ id: 'conn_2' })],
+      createEvent: async () => {
+        minted += 1
+        return { id: `evt_${minted}`, conferenceUrl: `https://meet.google.com/room-${minted}` }
+      },
+    })
+    await handleOne(h.sync, h.ports)
+
+    expect(h.createEvent).toHaveBeenCalledTimes(2)
+    // Only the FIRST call may ask for a conference.
+    const args = h.createEvent.mock.calls.map(
+      (c) => (c as unknown[])[1] as { createConference?: boolean; location?: string },
+    )
+    const asked = args.map((a) => a.createConference)
+    expect(asked).toEqual([true, false])
+    // And the second event points at the room the first one minted.
+    expect(args[1]!.location).toBe('https://meet.google.com/room-1')
+    expect(h.store.booking.conferenceUrl).toBe('https://meet.google.com/room-1')
+  })
+
   it('leaves it null when the provider minted none', async () => {
     const h = harness({ createEvent: async () => ({ id: 'evt_1' }) })
     await handleOne(h.sync, h.ports)
@@ -269,7 +296,10 @@ describe('confirmation dispatch', () => {
       }
     }) as typeof h.ports.repositories
 
-    await handleOne(h.sync, h.ports)
+    // Rethrows, so `handleQueueBatch` retries the message rather than acking
+    // it — releasing the claim without rethrowing would have left the
+    // confirmation lost exactly as silently as before.
+    await expect(handleOne(h.sync, h.ports)).rejects.toThrow('D1 unavailable')
     expect(h.emails()).toHaveLength(0)
 
     // The retry finds the claim released and sends for real.
