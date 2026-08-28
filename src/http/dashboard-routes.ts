@@ -31,6 +31,7 @@
 
 import { Hono, type Context, type MiddlewareHandler } from 'hono'
 import { notifyBookingCancelled } from '../adapters/notify.js'
+import { dispatchConfirmation } from '../adapters/queue/consumer.js'
 import type {
   CalendarProviderName,
   EnginePorts,
@@ -1948,7 +1949,19 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
         action: 'create',
         ...(outcome.manageToken ? { manageToken: outcome.manageToken } : {}),
       })
-      .catch(() => {})
+      .catch(async (err) => {
+        // This is the ONLY message for a replacement booking, so losing it
+        // costs the guest both the calendar event and the "Rescheduled"
+        // email. Notify directly instead — without a conference link, since
+        // no calendar work will run, which is the honest outcome. The claim
+        // inside makes this and any later redelivery mutually exclusive.
+        console.error('[punctual] reschedule sync enqueue failed', err)
+        await dispatchConfirmation(
+          outcome.booking.id,
+          ports,
+          outcome.manageToken,
+        ).catch((e) => console.error('[punctual] reschedule fallback failed', e))
+      })
 
     // The "Rescheduled" mail for the NEW leg is dispatched by the
     // calendar-sync handler, not here (CCC-647): the new booking's Meet link

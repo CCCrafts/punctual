@@ -245,6 +245,11 @@ async function syncCalendar(
  * and the email body is rendered at enqueue time — so the link could never
  * make it in from there no matter how the queue happened to interleave.
  *
+ * Exported so a route can fall back to it directly when its queue send
+ * fails: for a reschedule that message is now the ONLY one, so losing it
+ * would cost the guest both the calendar event and the email. The claim
+ * inside makes the fallback and a later redelivery mutually exclusive.
+ *
  * The manage token arrives on the message rather than being re-issued here.
  * Re-issuing looks safer — only the hash is stored, so the raw token is
  * otherwise unrecoverable — but it is actively wrong: the coordinator hands
@@ -254,7 +259,7 @@ async function syncCalendar(
  * no exposure: the rendered confirmation email already contains this token
  * and is itself a queue message.
  */
-async function dispatchConfirmation(
+export async function dispatchConfirmation(
   bookingId: string,
   ports: EnginePorts,
   manageToken: string | undefined,
