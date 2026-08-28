@@ -36,6 +36,9 @@ export async function handleOne(msg: QueueMessage, ports: EnginePorts): Promise<
       await deliverWebhook(msg, ports)
       return
 
+    case 'booking.notify':
+      await dispatchConfirmation(msg.bookingId, ports, msg.manageToken)
+      return
     case 'calendar.sync':
       await syncCalendar(msg, ports)
       return
@@ -222,19 +225,11 @@ async function syncCalendar(
     // empty loop. So a calendar outage delays nothing here — it only means
     // the email goes out without a link, which is the honest outcome and the
     // same one guests got before this change.
-    try {
-      await dispatchConfirmation(booking.id, ports, msg.manageToken)
-    } catch (err) {
-      console.error('[punctual] confirmation dispatch failed', err)
-      // Release the claim, then RETHROW. Releasing alone was not enough:
-      // resolving here lets `handleQueueBatch` ack the message, so the retry
-      // the release exists for never arrives and the confirmation is lost
-      // exactly as silently as before. Rethrowing makes the queue redeliver,
-      // and the calendar work above is idempotent (guarded by
-      // `externalEventIds`), so re-running it is safe.
-      await repos.bookings.releaseConfirmationClaim(booking.id).catch(() => {})
-      throw err
-    }
+    // Throws on failure so `handleQueueBatch` retries rather than acking —
+    // the calendar work above is idempotent (guarded by `externalEventIds`),
+    // so redelivery is safe. Releasing the claim is `dispatchConfirmation`'s
+    // job, because only it knows whether THIS attempt won one.
+    await dispatchConfirmation(booking.id, ports, msg.manageToken)
   } else if (msg.action === 'delete') {
     // Persist what actually got deleted, not an empty map. A per-connection
     // failure is caught and logged above, so an unconditional wipe would
@@ -305,20 +300,30 @@ async function dispatchConfirmation(
   // at-least-once, so a redelivery must not send a second confirmation.
   if (!(await repos.bookings.claimConfirmation(bookingId, ports.clock.now()))) return
 
-  if (previous) {
-    await notifyBookingRescheduled({
-      ports,
-      booking,
-      previous,
-      eventType,
-      host,
-      hosts,
-      ...(manageToken ? { manageToken } : {}),
-    })
-    return
+  // Released ONLY on a claim this attempt won. Releasing from an outer catch
+  // was wrong in a way that undoes the migration backfill: an attempt that
+  // threw BEFORE claiming would clear a claim someone else holds — including
+  // the one the backfill wrote for a booking the old code path had already
+  // confirmed — and the retry would then send that guest a second
+  // confirmation for a meeting they already know about.
+  try {
+    if (previous) {
+      await notifyBookingRescheduled({
+        ports,
+        booking,
+        previous,
+        eventType,
+        host,
+        hosts,
+        ...(manageToken ? { manageToken } : {}),
+      })
+      return
+    }
+    await notifyBookingCreated({ ports, booking, eventType, host, hosts, ...(manageToken ? { manageToken } : {}) })
+  } catch (err) {
+    await repos.bookings.releaseConfirmationClaim(bookingId).catch(() => {})
+    throw err
   }
-
-  await notifyBookingCreated({ ports, booking, eventType, host, hosts, ...(manageToken ? { manageToken } : {}) })
 }
 
 function buildDescription(

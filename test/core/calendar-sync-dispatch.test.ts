@@ -334,10 +334,49 @@ describe('confirmation dispatch', () => {
     await handleOne(h.sync, h.ports)
     expect(h.emails()).toHaveLength(0)
 
-    // The route marks the move, then re-fires the sync — now it mails.
+    // The route marks the move, then sends a notify-only message — now it
+    // mails, without repeating any calendar work.
     h.setPrevious({ ...previous, rescheduledTo: 'bk_1' })
-    await handleOne(h.sync, h.ports)
+    const before = h.createEvent.mock.calls.length
+    await handleOne({ kind: 'booking.notify', bookingId: 'bk_1', manageToken: 'tok_from_coordinator' }, h.ports)
     expect(h.emails().length).toBeGreaterThan(0)
+    // Notify-only: re-firing a full create-sync is what could write a second
+    // calendar event that nothing can later delete.
+    expect(h.createEvent.mock.calls.length).toBe(before)
+  })
+
+  it('a failure before the claim never clears someone else\'s claim', async () => {
+    // Including the claim the migration backfilled for a booking the OLD code
+    // path already confirmed — clearing that would send the guest a second
+    // confirmation for a meeting they already know about.
+    const h = harness()
+    let alreadyClaimed = true
+    const realRepos = h.ports.repositories
+    let released = false
+    h.ports.repositories = ((scope) => {
+      const repos = realRepos(scope)
+      return {
+        ...repos,
+        bookings: {
+          ...repos.bookings,
+          async byId() {
+            throw new Error('D1 unavailable')
+          },
+          async claimConfirmation() {
+            return !alreadyClaimed
+          },
+          async releaseConfirmationClaim() {
+            released = true
+          },
+        },
+      }
+    }) as typeof h.ports.repositories
+
+    await expect(
+      handleOne({ kind: 'booking.notify', bookingId: 'bk_1' }, h.ports),
+    ).rejects.toThrow('D1 unavailable')
+    expect(released).toBe(false)
+    expect(alreadyClaimed).toBe(true)
   })
 
   it('does not dispatch for a booking that is no longer confirmed', async () => {

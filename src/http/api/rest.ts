@@ -868,19 +868,18 @@ export function buildApiRoutes(ports: EnginePorts, slots: SlotService): Hono<Api
       const fresh = await repos.bookings.byId(original.id)
       return problem(409, 'Not reschedulable', `This booking is already ${fresh?.status ?? 'no longer confirmed'}.`)
     }
-    // Re-trigger the sync now that `markRescheduled` has actually landed.
+    // Notify now that `markRescheduled` has actually landed.
     // Dispatch requires `previous.rescheduledTo` to point back at this
     // booking, so the pass the coordinator fired ran BEFORE that was true and
     // correctly declined to mail — on the inline/no-TASKS path it runs
     // synchronously inside `coordinator.book`, i.e. always before this line.
-    // The calendar create is idempotent (guarded by externalEventIds) and the
-    // confirmation is claimed exactly once, so this second pass only ever
-    // completes the notification.
+    // Notify-ONLY on purpose: re-firing a full create-sync would let two
+    // passes race the externalEventIds guard and write two calendar events,
+    // only one of which stays deletable.
     await ports.queue
       .send({
-        kind: 'calendar.sync',
+        kind: 'booking.notify',
         bookingId: outcome.booking.id,
-        action: 'create',
         ...(outcome.manageToken ? { manageToken: outcome.manageToken } : {}),
       })
       .catch(() => {})
