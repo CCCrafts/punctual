@@ -1931,18 +1931,21 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     // re-picks a host at commit time, so reusing the old one mails whoever is
     // no longer on the meeting, leaves the newly-assigned host uninformed, and
     // prints the wrong name in the guest's copy.
-    // Notify now that `markRescheduled` has actually landed.
+    // The replacement's calendar sync is enqueued HERE, not by the
+    // coordinator, so it runs after `markRescheduled` has landed.
     // Dispatch requires `previous.rescheduledTo` to point back at this
-    // booking, so the pass the coordinator fired ran BEFORE that was true and
-    // correctly declined to mail — on the inline/no-TASKS path it runs
-    // synchronously inside `coordinator.book`, i.e. always before this line.
-    // Notify-ONLY on purpose: re-firing a full create-sync would let two
-    // passes race the externalEventIds guard and write two calendar events,
-    // only one of which stays deletable.
+    // booking, which is only true once the line above has run. One message
+    // rather than two: Cloudflare Queues guarantees no ordering between
+    // independent messages, so a separate notify could claim and send before
+    // the calendar write recorded the new Meet link — permanently omitting
+    // it from the very email this work exists to put it in.
+    // Exactly one create-sync per replacement booking, so nothing races the
+    // read-then-act guard on `externalEventIds`.
     await ports.queue
       .send({
-        kind: 'booking.notify',
+        kind: 'calendar.sync',
         bookingId: outcome.booking.id,
+        action: 'create',
         ...(outcome.manageToken ? { manageToken: outcome.manageToken } : {}),
       })
       .catch(() => {})

@@ -241,17 +241,25 @@ export function createCoordinator(deps: CoordinatorDeps): HostCoordinator {
         // sends it, a failed enqueue would mean the guest hears nothing at
         // all, so the fallback sends directly (without a link, which is the
         // honest outcome when no calendar work will ever run).
+        // A RESCHEDULE's sync is enqueued by its route instead, after
+        // `markRescheduled` lands (CCC-647). Enqueuing here too would mean two
+        // independent messages, and Cloudflare Queues guarantees no ordering
+        // between them — the notification could claim and send before the
+        // calendar write recorded the new Meet link, permanently omitting it
+        // from the very email this work exists to put it in.
         let syncQueued = true
-        await ports.queue
-          .send({
-            kind: 'calendar.sync',
-            bookingId: written.id,
-            action: 'create',
-            manageToken: issued.token,
-          })
-          .catch(() => {
-            syncQueued = false
-          })
+        if (!request.rescheduleOf) {
+          await ports.queue
+            .send({
+              kind: 'calendar.sync',
+              bookingId: written.id,
+              action: 'create',
+              manageToken: issued.token,
+            })
+            .catch(() => {
+              syncQueued = false
+            })
+        }
 
         if (!syncQueued) {
           const primaryHost = await repos.users.byId(written.hostUserId)

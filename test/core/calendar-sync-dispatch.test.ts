@@ -334,15 +334,12 @@ describe('confirmation dispatch', () => {
     await handleOne(h.sync, h.ports)
     expect(h.emails()).toHaveLength(0)
 
-    // The route marks the move, then sends a notify-only message — now it
-    // mails, without repeating any calendar work.
+    // The route marks the move, then enqueues the replacement's create-sync
+    // — one message, ordered after the mark, so it both writes the calendar
+    // and mails with the link it just captured.
     h.setPrevious({ ...previous, rescheduledTo: 'bk_1' })
-    const before = h.createEvent.mock.calls.length
-    await handleOne({ kind: 'booking.notify', bookingId: 'bk_1', manageToken: 'tok_from_coordinator' }, h.ports)
+    await handleOne(h.sync, h.ports)
     expect(h.emails().length).toBeGreaterThan(0)
-    // Notify-only: re-firing a full create-sync is what could write a second
-    // calendar event that nothing can later delete.
-    expect(h.createEvent.mock.calls.length).toBe(before)
   })
 
   it('a failure before the claim never clears someone else\'s claim', async () => {
@@ -373,7 +370,7 @@ describe('confirmation dispatch', () => {
     }) as typeof h.ports.repositories
 
     await expect(
-      handleOne({ kind: 'booking.notify', bookingId: 'bk_1' }, h.ports),
+      handleOne(h.sync, h.ports),
     ).rejects.toThrow('D1 unavailable')
     expect(released).toBe(false)
     expect(alreadyClaimed).toBe(true)

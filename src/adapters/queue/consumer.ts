@@ -36,9 +36,6 @@ export async function handleOne(msg: QueueMessage, ports: EnginePorts): Promise<
       await deliverWebhook(msg, ports)
       return
 
-    case 'booking.notify':
-      await dispatchConfirmation(msg.bookingId, ports, msg.manageToken)
-      return
     case 'calendar.sync':
       await syncCalendar(msg, ports)
       return

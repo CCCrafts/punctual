@@ -610,18 +610,6 @@ export type QueueMessage =
        */
       manageToken?: string
     }
-  /**
-   * Send a booking's confirmation, nothing else.
-   *
-   * A reschedule needs a second pass at notification — its first one runs
-   * before `markRescheduled` lands and correctly declines — but re-firing a
-   * full `calendar.sync create` for that would let two passes race the
-   * read-then-act guard on `externalEventIds` and create two real calendar
-   * events, only one of whose ids gets persisted, leaving the other
-   * undeletable. This carries no calendar work at all, so there is nothing
-   * to duplicate.
-   */
-  | { kind: 'booking.notify'; bookingId: string; manageToken?: string }
 
 // ---------------------------------------------------------------------------
 // Coordination
