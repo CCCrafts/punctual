@@ -238,6 +238,12 @@ export interface BookingRepository {
    * inside the UPDATE, not in a read the caller does first.
    */
   claimConfirmation(bookingId: string, at: number): Promise<boolean>
+  /**
+   * Undo a claim whose send then failed, so a queue retry can re-send.
+   * Without it, claim-before-send turns any failure after the claim into a
+   * permanently missing confirmation that the record calls sent.
+   */
+  releaseConfirmationClaim(bookingId: string): Promise<void>
 }
 
 /** One 5-minute bucket claimed by a booking, for one host. */
@@ -587,7 +593,23 @@ export interface QueuePort {
 export type QueueMessage =
   | { kind: 'email'; message: EmailMessage }
   | { kind: 'webhook'; webhookId: string; event: string; payload: unknown; attempt: number }
-  | { kind: 'calendar.sync'; bookingId: string; action: 'create' | 'update' | 'delete' }
+  | {
+      kind: 'calendar.sync'
+      bookingId: string
+      action: 'create' | 'update' | 'delete'
+      /**
+       * The booking's raw manage token, carried so the create handler can
+       * dispatch the confirmation without re-issuing one (CCC-647).
+       *
+       * Re-issuing looked safer but is not: the coordinator hands this same
+       * token to the just-booked page, whose "Reschedule or cancel" button
+       * embeds it, and rotating the stored hash would kill that button
+       * seconds after the guest was shown it. Carrying it adds no exposure —
+       * the rendered confirmation email already contains this token and is
+       * itself a queue message.
+       */
+      manageToken?: string
+    }
 
 // ---------------------------------------------------------------------------
 // Coordination

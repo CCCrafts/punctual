@@ -18,3 +18,13 @@ ALTER TABLE bookings ADD COLUMN conference_url TEXT;
 -- confirmation ever go out?", which nothing could answer during the
 -- silent-email incident that preceded this work.
 ALTER TABLE bookings ADD COLUMN confirmation_queued_at INTEGER;
+
+-- Backfill every EXISTING booking as already-confirmed-sent.
+--
+-- Those bookings got their confirmation from the old coordinator path before
+-- this deploy. Leaving the column NULL would let a `calendar.sync create`
+-- message that straddles the deploy — redelivery with backoff makes that a
+-- real window — pass the new exactly-once claim and send the guest a SECOND
+-- confirmation for a meeting they already know about. `created_at` is the
+-- honest timestamp: it is when that confirmation actually went out.
+UPDATE bookings SET confirmation_queued_at = created_at WHERE confirmation_queued_at IS NULL;

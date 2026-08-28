@@ -689,6 +689,10 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
       return (res.meta.changes ?? 0) > 0
     },
 
+    async releaseConfirmationClaim(bookingId) {
+      await run('UPDATE bookings SET confirmation_queued_at = NULL WHERE id = ?', bookingId)
+    },
+
     async rotateManageToken(bookingId, tokenHash) {
       await run('UPDATE bookings SET manage_token_hash = ? WHERE id = ?', tokenHash, bookingId)
     },

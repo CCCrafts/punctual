@@ -9,7 +9,6 @@
 
 import type { EnginePorts, QueueMessage } from '../../ports.js'
 import { needsReconnect } from '../oauth.js'
-import { issueManageToken } from '../../core/domain/auth-flows.js'
 import { notifyBookingCreated, notifyBookingRescheduled } from '../notify.js'
 
 export async function handleQueueBatch(batch: MessageBatch, ports: EnginePorts): Promise<void> {
@@ -210,9 +209,15 @@ async function syncCalendar(
     // empty loop. So a calendar outage delays nothing here — it only means
     // the email goes out without a link, which is the honest outcome and the
     // same one guests got before this change.
-    await dispatchConfirmation(booking.id, ports).catch((err) =>
-      console.error('[punctual] confirmation dispatch failed', err),
-    )
+    await dispatchConfirmation(booking.id, ports, msg.manageToken).catch(async (err) => {
+      console.error('[punctual] confirmation dispatch failed', err)
+      // Release the claim so a queue retry can try again. Claiming BEFORE
+      // sending is what makes a redelivery safe, but it also means a failure
+      // between claim and send would otherwise strand the booking as
+      // "queued" with nothing ever sent — the silent-non-delivery shape this
+      // whole area is meant to be rid of.
+      await repos.bookings.releaseConfirmationClaim(booking.id).catch(() => {})
+    })
   } else if (msg.action === 'delete') {
     // Persist what actually got deleted, not an empty map. A per-connection
     // failure is caught and logged above, so an unconditional wipe would
@@ -231,14 +236,20 @@ async function syncCalendar(
  * and the email body is rendered at enqueue time — so the link could never
  * make it in from there no matter how the queue happened to interleave.
  *
- * The manage token is re-issued rather than carried through the queue. Only
- * its hash is stored, so the original raw token is unrecoverable here — and
- * putting a live credential into a queue message to work around that would
- * widen its exposure for no benefit. Rotating is already a supported
- * operation (ADR-0005 §4 rotates on reschedule), and nothing is invalidated
- * because the confirmation carrying the previous token has not been sent.
+ * The manage token arrives on the message rather than being re-issued here.
+ * Re-issuing looks safer — only the hash is stored, so the raw token is
+ * otherwise unrecoverable — but it is actively wrong: the coordinator hands
+ * that same token to the just-booked page, whose "Reschedule or cancel"
+ * button embeds it, so rotating the stored hash kills a link the guest is
+ * already looking at, seconds after they were shown it. And carrying it adds
+ * no exposure: the rendered confirmation email already contains this token
+ * and is itself a queue message.
  */
-async function dispatchConfirmation(bookingId: string, ports: EnginePorts): Promise<void> {
+async function dispatchConfirmation(
+  bookingId: string,
+  ports: EnginePorts,
+  manageToken: string | undefined,
+): Promise<void> {
   const repos = ports.repositories({ consistency: 'bookmark' })
 
   // Claimed BEFORE any work: Queues is at-least-once, and a redelivered sync
@@ -256,13 +267,6 @@ async function dispatchConfirmation(bookingId: string, ports: EnginePorts): Prom
     (u): u is NonNullable<typeof u> => u !== null,
   )
 
-  const issued = await issueManageToken(
-    { crypto: ports.crypto },
-    { id: booking.id, startUtc: booking.startUtc },
-    'manage',
-  )
-  await repos.bookings.rotateManageToken(booking.id, issued.tokenHash)
-
   // A reschedule's replacement leg gets the "Rescheduled" mail, not
   // "Confirmed" — `notifyBookingCreated` early-returns on `rescheduleOf` for
   // exactly this reason, so branching here is what makes the new leg's link
@@ -277,12 +281,12 @@ async function dispatchConfirmation(bookingId: string, ports: EnginePorts): Prom
       eventType,
       host,
       hosts,
-      manageToken: issued.token,
+      ...(manageToken ? { manageToken } : {}),
     })
     return
   }
 
-  await notifyBookingCreated({ ports, booking, eventType, host, hosts, manageToken: issued.token })
+  await notifyBookingCreated({ ports, booking, eventType, host, hosts, ...(manageToken ? { manageToken } : {}) })
 }
 
 function buildDescription(

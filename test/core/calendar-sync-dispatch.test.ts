@@ -112,6 +112,7 @@ function harness(opts: HarnessOptions = {}) {
 
   const store = { booking }
   let claimed = false
+  let rotated = false
   const queued: QueueMessage[] = []
 
   const createEvent = vi.fn(opts.createEvent ?? (async () => ({ id: 'evt_1', conferenceUrl: MEET })))
@@ -138,7 +139,8 @@ function harness(opts: HarnessOptions = {}) {
           claimed = true
           return true
         },
-        async rotateManageToken() {},
+        async rotateManageToken() { rotated = true },
+        async releaseConfirmationClaim() { claimed = false },
       },
       eventTypes: { async byId() { return eventType } },
       users: { async byId() { return host } },
@@ -150,8 +152,16 @@ function harness(opts: HarnessOptions = {}) {
     }),
   } as unknown as EnginePorts
 
-  const sync = { kind: 'calendar.sync', bookingId: 'bk_1', action: 'create' } as const
-  return { ports, store, queued, createEvent, sync, emails: () => queued.filter((m) => m.kind === 'email') }
+  const sync = { kind: 'calendar.sync', bookingId: 'bk_1', action: 'create', manageToken: 'tok_from_coordinator' } as const
+  return {
+    ports,
+    store,
+    queued,
+    createEvent,
+    sync,
+    wasRotated: () => rotated,
+    emails: () => queued.filter((m) => m.kind === 'email'),
+  }
 }
 
 describe('calendar sync captures the conference link', () => {
@@ -204,6 +214,65 @@ describe('confirmation dispatch', () => {
         throw new Error('google is down')
       },
     })
+    await handleOne(h.sync, h.ports)
+    expect(h.emails().length).toBeGreaterThan(0)
+  })
+
+  /**
+   * Caught by review. The coordinator hands the SAME raw token to the
+   * just-booked page, whose "Reschedule or cancel" button embeds it. Rotating
+   * the stored hash here killed that button seconds after the guest was shown
+   * it — a link dead on arrival in the browser they are still looking at.
+   */
+  it('does not rotate the manage token the guest is already holding', async () => {
+    const h = harness()
+    await handleOne(h.sync, h.ports)
+    expect(h.wasRotated()).toBe(false)
+  })
+
+  it('uses the token the coordinator issued, so the emailed link matches the on-screen one', async () => {
+    const h = harness()
+    await handleOne(h.sync, h.ports)
+    const body = JSON.stringify(h.emails())
+    expect(body).toContain('tok_from_coordinator')
+  })
+
+  it('releases the claim when dispatch throws, so a retry can still send', async () => {
+    // Claim-before-send is what makes redelivery safe, but without a release
+    // any failure after the claim strands the booking as "queued" with
+    // nothing ever sent — silent non-delivery, the exact shape this area is
+    // meant to be rid of.
+    //
+    // The failure injected here is a D1 read, because that is what actually
+    // propagates. Note the limit of this guard: `notifyBookingCreated`
+    // swallows individual `queue.send` failures internally
+    // (notify.ts's `.catch`), so a mail provider outage is invisible to the
+    // claim and is NOT recovered by it — pre-existing behaviour, worth
+    // knowing rather than assuming away.
+    const h = harness()
+    // `syncCalendar` reads the event type first, then `dispatchConfirmation`
+    // reads it again — so failing the SECOND call targets dispatch
+    // specifically, after the claim has been taken.
+    let calls = 0
+    const realRepos = h.ports.repositories
+    h.ports.repositories = ((scope) => {
+      const repos = realRepos(scope)
+      return {
+        ...repos,
+        eventTypes: {
+          async byId(id: string) {
+            calls += 1
+            if (calls === 2) throw new Error('D1 unavailable')
+            return repos.eventTypes.byId(id)
+          },
+        },
+      }
+    }) as typeof h.ports.repositories
+
+    await handleOne(h.sync, h.ports)
+    expect(h.emails()).toHaveLength(0)
+
+    // The retry finds the claim released and sends for real.
     await handleOne(h.sync, h.ports)
     expect(h.emails().length).toBeGreaterThan(0)
   })

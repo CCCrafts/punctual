@@ -253,6 +253,9 @@ export function createFakeRepositories(): FakeRepositories {
       confirmationClaims.set(bookingId, at)
       return true
     },
+    async releaseConfirmationClaim(bookingId: string) {
+      confirmationClaims.delete(bookingId)
+    },
     async rotateManageToken(bookingId: string, tokenHash: string) {
       const existing = bookings.get(bookingId)
       if (existing) bookings.set(bookingId, { ...existing, manageTokenHash: tokenHash })

@@ -236,7 +236,12 @@ export function createCoordinator(deps: CoordinatorDeps): HostCoordinator {
         // a mail provider failing must not lose a booking we already promised
         // the guest on screen.
         await ports.queue
-          .send({ kind: 'calendar.sync', bookingId: written.id, action: 'create' })
+          .send({
+            kind: 'calendar.sync',
+            bookingId: written.id,
+            action: 'create',
+            manageToken: issued.token,
+          })
           .catch(() => {})
 
         // The confirmation is NOT sent here any more (CCC-647). It is
