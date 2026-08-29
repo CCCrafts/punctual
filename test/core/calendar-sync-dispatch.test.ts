@@ -116,12 +116,13 @@ function harness(opts: HarnessOptions = {}) {
   const queued: QueueMessage[] = []
 
   const createEvent = vi.fn(opts.createEvent ?? (async () => ({ id: 'evt_1', conferenceUrl: MEET })))
+  const deleteEvent = vi.fn(async () => {})
 
   const ports = {
     clock: { now: () => Date.UTC(2026, 8, 1) },
     crypto: { randomToken: (n = 16) => 'r'.repeat(n), hash: async (v: string) => `h:${v}`, sign: async () => 'sig' },
     config: { baseUrl: 'https://punctual.test', brandName: 'Punctual', supportEmail: 'help@punctual.test' },
-    calendars: { get: () => ({ createEvent, updateEvent: vi.fn(), deleteEvent: vi.fn() }) },
+    calendars: { get: () => ({ createEvent, updateEvent: vi.fn(), deleteEvent }) },
     queue: { send: async (m: QueueMessage) => void queued.push(m) },
     repositories: () => ({
       bookings: {
@@ -161,6 +162,7 @@ function harness(opts: HarnessOptions = {}) {
     createEvent,
     sync,
     wasRotated: () => rotated,
+    deleteEvent,
     setPrevious: (b: Booking) => {
       store.previous = b
     },
@@ -206,6 +208,40 @@ describe('calendar sync captures the conference link', () => {
     // And the second event points at the room the first one minted.
     expect(args[1]!.location).toBe('https://meet.google.com/room-1')
     expect(h.store.booking.conferenceUrl).toBe('https://meet.google.com/room-1')
+  })
+
+  it('removes an event it just created if the booking was cancelled meanwhile', async () => {
+    // Waiting for Google to provision a Meet room widened the gap between
+    // the event existing at the provider and its id being persisted. A
+    // cancel landing in that gap runs its delete sync against a still-empty
+    // id map, deletes nothing, and would otherwise leave a real calendar
+    // event that nothing can ever remove.
+    const h = harness()
+    const realRepos = h.ports.repositories
+    let reads = 0
+    h.ports.repositories = ((scope) => {
+      const repos = realRepos(scope)
+      return {
+        ...repos,
+        bookings: {
+          ...repos.bookings,
+          async byId(id: string) {
+            reads += 1
+            const b = await repos.bookings.byId(id)
+            // Confirmed when the pass starts; cancelled by the re-read.
+            return b && reads > 1 ? { ...b, status: 'cancelled' as const } : b
+          },
+        },
+      }
+    }) as typeof h.ports.repositories
+
+    await handleOne(h.sync, h.ports)
+
+    expect(h.createEvent).toHaveBeenCalledTimes(1)
+    expect(h.deleteEvent).toHaveBeenCalledTimes(1)
+    // And nothing was written onto the cancelled booking.
+    expect(h.store.booking.externalEventIds).toEqual({})
+    expect(h.emails()).toHaveLength(0)
   })
 
   it('leaves it null when the provider minted none', async () => {

@@ -8,7 +8,7 @@
  */
 
 import type { EnginePorts, QueueMessage } from '../../ports.js'
-import type { Booking } from '../../core/domain/types.js'
+import type { Booking, CalendarConnection } from '../../core/domain/types.js'
 import { needsReconnect } from '../oauth.js'
 import { notifyBookingCreated, notifyBookingRescheduled } from '../notify.js'
 
@@ -120,6 +120,12 @@ async function syncCalendar(
   // connection: it is the link the GUEST is told to join, and a guest has one
   // meeting to attend however many host calendars it was written to.
   let conferenceUrl: string | null = booking.conferenceUrl
+  // Kept so a cancel that raced this pass can be cleaned up below. Waiting
+  // for Google to provision a Meet room (CCC-656) added up to a second
+  // between the event existing in the provider and its id being persisted —
+  // long enough for a delete sync to run against a still-empty id map,
+  // delete nothing, and leave a real calendar event nothing can ever remove.
+  const freshlyCreated: Array<{ conn: CalendarConnection; externalId: string }> = []
 
   for (const hostId of booking.hostUserIds) {
     const host = await repos.users.byId(hostId)
@@ -183,6 +189,7 @@ async function syncCalendar(
           // cancelled meeting stays on the host's real calendar forever.
           const result = await provider.createEvent(conn, external)
           createdIds[conn.id] = result.id
+          freshlyCreated.push({ conn, externalId: result.id })
           // Captured on the first connection that mints one; `createConference`
           // above is false from here on, so nothing re-mints.
           if (!conferenceUrl && result.conferenceUrl) conferenceUrl = result.conferenceUrl
@@ -207,6 +214,23 @@ async function syncCalendar(
     // Compare by VALUE, not key count. Counting keys meant a second create for
     // the same connection (same key, new id) looked unchanged, so the newer
     // event id was never stored and the event became undeletable.
+    // Re-read before persisting: the booking may have been cancelled while
+    // this pass was talking to the provider. Persisting the ids onto a
+    // cancelled booking is worse than useless — the delete sync has already
+    // run and found nothing, so nothing would ever remove these events.
+    const current = await repos.bookings.byId(booking.id)
+    if (current && current.status !== 'confirmed') {
+      for (const made of freshlyCreated) {
+        await ports.calendars
+          .get(made.conn.provider)
+          .deleteEvent(made.conn, made.externalId)
+          .catch((err) =>
+            console.error(`[punctual] could not remove event for cancelled booking ${booking.id}`, err),
+          )
+      }
+      return
+    }
+
     const changed =
       JSON.stringify(createdIds) !== JSON.stringify(booking.externalEventIds) ||
       conferenceUrl !== booking.conferenceUrl
