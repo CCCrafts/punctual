@@ -600,6 +600,64 @@ describe('repository-level atomic guards', () => {
     expect(left?.n).toBe(1)
   })
 
+  it('deleting an event type is refused while an upcoming confirmed booking needs it', async () => {
+    // Not cosmetic: the queued calendar sync reads this row to render the
+    // guest's confirmation, so deleting it inside that window leaves the
+    // guest having booked and heard nothing (CCC-663).
+    const repos = createD1Repositories(db, { consistency: 'bookmark' })
+    const now = Date.now()
+    await db
+      .prepare('INSERT INTO users (id,email,name,tz,slug,created_at) VALUES (?,?,?,?,?,?)')
+      .bind('usr_etdel', 'etdel@example.test', 'Del', 'UTC', 'etdel', now)
+      .run()
+    await repos.eventTypes.create({
+      id: 'et_del_guard',
+      ownerUserId: 'usr_etdel',
+      ownerTeamId: null,
+      schedulingType: 'personal',
+      slug: 'guarded',
+      title: 'Guarded',
+      description: '',
+      durationMinutes: 30,
+      slotIntervalMinutes: null,
+      bufferBeforeMinutes: 0,
+      bufferAfterMinutes: 0,
+      minNoticeMinutes: 0,
+      maxHorizonDays: 60,
+      maxPerDay: null,
+      locationType: 'google_meet',
+      locationValue: null,
+      questions: [],
+      active: true,
+      scheduleId: null,
+    })
+
+    const insertBooking = (id: string, status: string, startUtc: number) =>
+      db
+        .prepare(
+          `INSERT INTO bookings
+           (id,event_type_id,host_user_id,host_user_ids_json,guest_name,guest_email,guest_timezone,
+            start_utc,end_utc,local_date,status,answers_json,external_event_ids_json,
+            reschedule_of,rescheduled_to,manage_token_hash,cancelled_at,created_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        )
+        .bind(id, 'et_del_guard', 'usr_etdel', '["usr_etdel"]', 'G', 'g@example.test', 'UTC',
+          startUtc, startUtc + 1_800_000, '2026-09-01', status, '{}', '{}', null, null, `h_${id}`, null, now)
+        .run()
+
+    // Upcoming and confirmed — refused, row intact.
+    await insertBooking('bk_guard_future', 'confirmed', now + 86_400_000)
+    expect(await repos.eventTypes.delete('et_del_guard', now)).toBe(false)
+    expect(await repos.eventTypes.byId('et_del_guard')).not.toBeNull()
+
+    // A cancelled booking needs nothing more from it, and a PAST meeting is
+    // already done — neither should block the host forever.
+    await db.prepare("UPDATE bookings SET status='cancelled' WHERE id='bk_guard_future'").run()
+    await insertBooking('bk_guard_past', 'confirmed', now - 86_400_000)
+    expect(await repos.eventTypes.delete('et_del_guard', now)).toBe(true)
+    expect(await repos.eventTypes.byId('et_del_guard')).toBeNull()
+  })
+
   it('delete refuses a schedule an event type still points at', async () => {
     const repos = createD1Repositories(db, { consistency: 'bookmark' })
     const empty: Omit<Schedule, 'id' | 'name' | 'isDefault'> = {

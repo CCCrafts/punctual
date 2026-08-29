@@ -569,7 +569,10 @@ ${
         action="/dashboard/event-types/${encodeURIComponent(et!.id)}/delete">
   ${csrfField(d.csrf)}
   <h2>Delete this event type</h2>
-  <p class="pu-muted">Existing bookings stay; the page stops accepting new ones.</p>
+  <p class="pu-muted">Only possible once it has no upcoming confirmed bookings &mdash; deleting it out
+    from under a booking leaves that guest with no confirmation at all. To stop taking new bookings
+    while keeping the meetings you already have, untick &ldquo;Visible on the booking page&rdquo; instead.</p>
+  ${fieldError('delete', errors)}
   <button class="pu-btn pu-btn-danger" type="submit">Delete event type</button>
 </form>`
     : ''

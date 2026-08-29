@@ -686,8 +686,30 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     if (!(await csrfOk(c, form))) return csrfRejected(c)
     const existing = await ownedEventType(c)
     if (!existing) return notFound(c)
-    await c.get('repos').eventTypes.delete(existing.id)
+    const deleted = await c.get('repos').eventTypes.delete(existing.id, ports.clock.now())
     await advanceBookmark(c)
+    if (!deleted) {
+      // Deleting it would strand those guests: the queued sync reads this row
+      // to render their confirmation, so the booking would exist with nobody
+      // told about it. Deactivating stops new bookings without that cost.
+      return c.html(
+        eventTypeForm({
+          brandName,
+          user: c.get('user'),
+          csrf: c.get('csrf'),
+          emailDelivery,
+          eventType: existing,
+          teams: await userTeams(c),
+          schedules: await c.get('repos').availability.listForUser(c.get('user').id),
+          errors: {
+            delete:
+              'This event type still has upcoming confirmed bookings. Cancel them first, or untick ' +
+              '"Visible on the booking page" to stop taking new ones while keeping those meetings.',
+          },
+        }),
+        409,
+      )
+    }
     return c.redirect('/dashboard', 302)
   })
 

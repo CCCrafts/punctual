@@ -374,8 +374,23 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
         id,
       )
     },
-    async delete(id) {
-      await run('DELETE FROM event_types WHERE id = ?', id)
+    async delete(id, now) {
+      // Upcoming CONFIRMED bookings only: a past meeting's event type is
+      // free to delete, and a cancelled booking needs nothing more from it.
+      // The condition lives inside the DELETE so a booking committed between
+      // a caller's check and this write still blocks it.
+      const res = await q(
+        `DELETE FROM event_types
+         WHERE id = ?
+           AND NOT EXISTS (
+             SELECT 1 FROM bookings
+             WHERE event_type_id = ? AND status = 'confirmed' AND start_utc >= ?
+           )`,
+        id,
+        id,
+        now,
+      ).run()
+      return (res.meta.changes ?? 0) > 0
     },
   }
 

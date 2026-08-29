@@ -590,7 +590,15 @@ export function buildApiRoutes(ports: EnginePorts, slots: SlotService): Hono<Api
     const { repos, user } = c.get('auth')
     const et = await repos.eventTypes.byId(c.req.param('id'))
     if (!et || !(await ownsEventType(repos, user, et))) return notFound('event type')
-    await repos.eventTypes.delete(et.id)
+    const deleted = await repos.eventTypes.delete(et.id, ports.clock.now())
+    if (!deleted) {
+      return problem(
+        409,
+        'Event type in use',
+        'This event type still has upcoming confirmed bookings. Cancel or let them pass first, ' +
+          'or set `active: false` to stop taking new ones while keeping the existing meetings intact.',
+      )
+    }
     return c.body(null, 204)
   })
 

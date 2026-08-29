@@ -132,7 +132,19 @@ export interface EventTypeRepository {
   listForTeam(teamId: string): Promise<EventType[]>
   create(et: Omit<EventType, 'createdAt'>): Promise<EventType>
   update(id: string, patch: Partial<EventType>): Promise<void>
-  delete(id: string): Promise<void>
+  /**
+   * Refuses (returns `false`, no throw) while any upcoming confirmed booking
+   * still references this event type.
+   *
+   * Deleting one out from under a booking is not cosmetic: the queued
+   * calendar sync reads the event type to build the calendar entry AND to
+   * render the guest's confirmation, so a delete landing in that window
+   * leaves the guest with no email at all — they booked and heard nothing
+   * (CCC-663). Guarded inside the DELETE, same discipline as
+   * `AvailabilityRepository.delete` refusing a schedule an event type still
+   * points at.
+   */
+  delete(id: string, now: number): Promise<boolean>
 }
 
 export interface AvailabilityRepository {
