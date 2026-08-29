@@ -217,6 +217,12 @@ export interface CalendarProviderDeps {
   onTokensRefreshed(connectionId: string, tokens: OAuthTokens): Promise<void>
   /** Injectable for tests and for the cloud control-plane's instrumented fetch. */
   fetch?: typeof globalThis.fetch
+  /**
+   * Injectable delay, so a provider that must wait for a provider-side
+   * async job (Google provisioning a Meet room) can be tested without
+   * spending the wall-clock time. Defaults to a real `setTimeout`.
+   */
+  sleep?: (ms: number) => Promise<void>
 }
 
 /**

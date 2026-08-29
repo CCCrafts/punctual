@@ -17,7 +17,7 @@
  * auto-populating them.
  */
 
-import type { Interval } from '../../core/domain/types.js'
+import type { CalendarConnection, Interval } from '../../core/domain/types.js'
 import type { CalendarProvider, ExternalEvent } from '../../ports.js'
 import {
   CalendarApiError,
@@ -89,7 +89,20 @@ export function createGoogleProvider(deps: CalendarProviderDeps): CalendarProvid
           body: JSON.stringify(created).slice(0, 500),
         })
       }
-      return { id: created['id'], ...(googleConferenceUrl(created) ?? {}) }
+      const direct = googleConferenceUrl(created)
+      if (direct) return { id: created['id'], ...direct }
+
+      // Google provisions the Meet room asynchronously: `events.insert` can
+      // return 200 with `conferenceData.createRequest.status` still
+      // `pending` and no link yet. Reading only the insert response left the
+      // booking with conference_url null FOREVER — the confirmation is sent
+      // once, from this same sync, so there was no later pass to fill it in
+      // and the guest got "link to follow" with nothing following (CCC-656).
+      if (event.createConference === true) {
+        const resolved = await resolveGoogleConference(deps, conn, calendarId, created['id'])
+        if (resolved) return { id: created['id'], ...resolved }
+      }
+      return { id: created['id'] }
     },
 
     async updateEvent(conn, externalId, event) {
@@ -243,6 +256,60 @@ function parseGoogleInstant(value: unknown, calendarId: string): number {
  * site never sets `conferenceUrl: undefined` explicitly, which
  * `exactOptionalPropertyTypes` rejects.
  */
+/** Bounded: a room that is still pending after this is reported as absent, not waited on forever. */
+const CONFERENCE_POLL_ATTEMPTS = 3
+const CONFERENCE_POLL_DELAY_MS = 400
+
+/**
+ * Re-read an event until Google has finished provisioning its Meet room.
+ *
+ * Deliberately best-effort: every exit that is not a link returns null, and
+ * the caller then sends an honest "link to follow" rather than failing the
+ * booking. A calendar event exists either way — refusing to return an id
+ * because a conference is slow would be strictly worse than a missing link.
+ */
+async function resolveGoogleConference(
+  deps: CalendarProviderDeps,
+  conn: CalendarConnection,
+  calendarId: string,
+  eventId: string,
+): Promise<{ conferenceUrl: string } | null> {
+  const wait = deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)))
+  const url =
+    `${API}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}` +
+    '?conferenceDataVersion=1'
+
+  for (let attempt = 0; attempt < CONFERENCE_POLL_ATTEMPTS; attempt++) {
+    await wait(CONFERENCE_POLL_DELAY_MS)
+    try {
+      const res = await providerFetch(deps, conn, url, { method: 'GET' })
+      const body = await readJson<unknown>(conn, res, 'events.get')
+      if (!isRecord(body)) return null
+      const found = googleConferenceUrl(body)
+      if (found) return found
+      // A FAILED provisioning never resolves — stop rather than spend the
+      // remaining attempts and the consumer's time budget on it.
+      if (googleConferenceFailed(body)) return null
+    } catch {
+      // The event itself was created; a read failing here costs the link,
+      // not the booking.
+      return null
+    }
+  }
+  return null
+}
+
+/** True when Google has given up provisioning the room, so polling is pointless. */
+function googleConferenceFailed(body: Record<string, unknown>): boolean {
+  const conf = body['conferenceData']
+  if (!isRecord(conf)) return false
+  const req = conf['createRequest']
+  if (!isRecord(req)) return false
+  const status = req['status']
+  if (!isRecord(status)) return false
+  return status['statusCode'] === 'failure'
+}
+
 export function googleConferenceUrl(created: Record<string, unknown>): { conferenceUrl: string } | null {
   const direct = created['hangoutLink']
   if (typeof direct === 'string' && direct !== '') return { conferenceUrl: direct }

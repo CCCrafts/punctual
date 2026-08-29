@@ -102,6 +102,9 @@ function deps(
       randomToken: (n = 16) => 'r'.repeat(n),
     },
     clock: { now: () => Date.now() },
+    // No real waiting: the conference poll is bounded by attempts, not by
+    // elapsed time, so a test can drive every attempt instantly.
+    sleep: async () => {},
     onTokensRefreshed: onRefresh,
     fetch: fetchImpl,
   }
@@ -374,5 +377,117 @@ describe('OAuth configuration', () => {
     expect(oauth.forProvider('google')).not.toBeNull()
     // A self-hoster may configure only one provider; the other must not throw.
     expect(oauth.forProvider('microsoft')).toBeNull()
+  })
+})
+
+/**
+ * Google provisions the Meet room asynchronously (CCC-656). `events.insert`
+ * can return 200 with `createRequest.status` still `pending` and no link.
+ * Reading only that response left conference_url null permanently: the
+ * confirmation is sent once, from the same sync, so nothing came later to
+ * fill it in and the guest got "link to follow" with nothing following.
+ */
+describe('a Meet room that is still being provisioned', () => {
+  const PENDING = {
+    id: 'evt_p',
+    conferenceData: { createRequest: { status: { statusCode: 'pending' } } },
+  }
+
+  it('re-reads the event until the link appears', async () => {
+    let gets = 0
+    const { fetchImpl, calls } = scriptGoogle([
+      [/\/events\?/, () => ({ json: PENDING })],
+      [
+        /\/events\/evt_p/,
+        () => {
+          gets += 1
+          return gets < 2
+            ? { json: PENDING }
+            : { json: { id: 'evt_p', hangoutLink: 'https://meet.google.com/late-link' } }
+        },
+      ],
+    ])
+
+    const provider = createGoogleProvider(deps(fetchImpl) as never)
+    const created = await provider.createEvent(connection(), {
+      title: 'Intro',
+      description: '',
+      start: Date.now() + DAY,
+      end: Date.now() + DAY + 30 * 60_000,
+      attendees: [{ email: 'guest@example.com' }],
+      timezone: TZ,
+      createConference: true,
+    })
+
+    expect(created.id).toBe('evt_p')
+    expect(created.conferenceUrl).toBe('https://meet.google.com/late-link')
+    // Every re-read must ask for conference data, or the link is invisible
+    // in the response for the same reason it was on insert.
+    const reads = calls.filter((c) => /\/events\/evt_p/.test(c.url))
+    expect(reads.length).toBeGreaterThan(0)
+    for (const r of reads) expect(r.url).toContain('conferenceDataVersion=1')
+  })
+
+  it('gives up on a FAILED provisioning instead of burning every attempt', async () => {
+    let gets = 0
+    const { fetchImpl } = scriptGoogle([
+      [/\/events\?/, () => ({ json: PENDING })],
+      [
+        /\/events\/evt_p/,
+        () => {
+          gets += 1
+          return { json: { id: 'evt_p', conferenceData: { createRequest: { status: { statusCode: 'failure' } } } } }
+        },
+      ],
+    ])
+
+    const provider = createGoogleProvider(deps(fetchImpl) as never)
+    const created = await provider.createEvent(connection(), {
+      title: 'Intro',
+      description: '',
+      start: Date.now() + DAY,
+      end: Date.now() + DAY + 30 * 60_000,
+      attendees: [{ email: 'guest@example.com' }],
+      timezone: TZ,
+      createConference: true,
+    })
+
+    expect(created.conferenceUrl).toBeUndefined()
+    expect(gets).toBe(1)
+  })
+
+  it('still returns the booking when the room never appears', async () => {
+    // The event EXISTS. Losing the booking because a conference is slow
+    // would be strictly worse than a missing link.
+    const { fetchImpl } = scriptGoogle([
+      [/\/events\?/, () => ({ json: PENDING })],
+      [/\/events\/evt_p/, () => ({ json: PENDING })],
+    ])
+    const provider = createGoogleProvider(deps(fetchImpl) as never)
+    const created = await provider.createEvent(connection(), {
+      title: 'Intro',
+      description: '',
+      start: Date.now() + DAY,
+      end: Date.now() + DAY + 30 * 60_000,
+      attendees: [{ email: 'guest@example.com' }],
+      timezone: TZ,
+      createConference: true,
+    })
+    expect(created.id).toBe('evt_p')
+    expect(created.conferenceUrl).toBeUndefined()
+  })
+
+  it('does not poll at all for a non-conference event type', async () => {
+    const { fetchImpl, calls } = scriptGoogle([[/\/events\?/, () => ({ json: { id: 'evt_x' } })]])
+    const provider = createGoogleProvider(deps(fetchImpl) as never)
+    await provider.createEvent(connection(), {
+      title: 'Phone call',
+      description: '',
+      start: Date.now() + DAY,
+      end: Date.now() + DAY + 30 * 60_000,
+      attendees: [{ email: 'guest@example.com' }],
+      timezone: TZ,
+    })
+    expect(calls.filter((c) => /\/events\/evt_x/.test(c.url))).toHaveLength(0)
   })
 })
