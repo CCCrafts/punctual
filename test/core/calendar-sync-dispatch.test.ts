@@ -244,6 +244,23 @@ describe('calendar sync captures the conference link', () => {
     expect(h.emails()).toHaveLength(0)
   })
 
+  it('never asks for a second room, even when the first one is still pending', async () => {
+    // Keying on the captured URL was not enough: a room Google is still
+    // provisioning returns no URL, so the next connection asked for its OWN
+    // room and the two hosts ended up in different meetings once both
+    // resolved. Asked-once is the invariant, not captured-once.
+    const h = harness({
+      connections: [connection(), connection({ id: 'conn_2' })],
+      createEvent: async () => ({ id: 'evt_pending' }), // provisioned, but no link yet
+    })
+    await handleOne(h.sync, h.ports)
+
+    const asked = h.createEvent.mock.calls.map(
+      (c) => ((c as unknown[])[1] as { createConference?: boolean }).createConference,
+    )
+    expect(asked).toEqual([true, false])
+  })
+
   it('leaves it null when the provider minted none', async () => {
     const h = harness({ createEvent: async () => ({ id: 'evt_1' }) })
     await handleOne(h.sync, h.ports)

@@ -126,6 +126,12 @@ async function syncCalendar(
   // long enough for a delete sync to run against a still-empty id map,
   // delete nothing, and leave a real calendar event nothing can ever remove.
   const freshlyCreated: Array<{ conn: CalendarConnection; externalId: string }> = []
+  // Tracked separately from `conferenceUrl`: a room that is still being
+  // provisioned returns no URL yet, and keying only on the URL meant the next
+  // connection asked for a SECOND room — so two hosts ended up in different
+  // meetings once both resolved. Asked-once is the invariant, not
+  // captured-once.
+  let conferenceRequested = booking.conferenceUrl !== null
 
   for (const hostId of booking.hostUserIds) {
     const host = await repos.users.byId(hostId)
@@ -172,7 +178,7 @@ async function syncCalendar(
           // while the second host sat in the other one. The divergence
           // predates capturing the link at all — it was simply invisible
           // while nobody was told any link.
-          createConference: eventType.locationType === 'google_meet' && !conferenceUrl,
+          createConference: eventType.locationType === 'google_meet' && !conferenceRequested,
           location:
             eventType.locationType === 'in_person'
               ? (eventType.locationValue ?? undefined)
@@ -187,6 +193,7 @@ async function syncCalendar(
           if (booking.externalEventIds[conn.id]) continue
           // Keep the id: reschedule and cancel need it, and without it a
           // cancelled meeting stays on the host's real calendar forever.
+          if (external.createConference === true) conferenceRequested = true
           const result = await provider.createEvent(conn, external)
           createdIds[conn.id] = result.id
           freshlyCreated.push({ conn, externalId: result.id })
