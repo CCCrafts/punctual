@@ -274,6 +274,15 @@ curl -s https://your-deployment/health
 being delivered to anyone. `ok` stays `true` because the service itself is
 up — point monitoring at `warnings` being non-empty, not at `ok`.
 
+**Microsoft guests get two invitations.** Expected, and not something this
+deployment can turn off. Outlook sends its own meeting request whenever an
+event has attendees, and Microsoft documents that as mandatory with no opt-out
+— so a guest booking with a Microsoft-connected host gets Punctual's
+confirmation *and* Outlook's invite. Google's equivalent is suppressed
+(`sendUpdates=none`), which is why Google guests get one. Punctual's own email
+is the complete one: it carries the meeting link, the answers to your intake
+questions, and the reschedule/cancel links.
+
 **A host's calendar stopped syncing.** Their refresh token was revoked —
 usually a password change or an admin policy. Their connections page shows a
 reconnect prompt; existing bookings are unaffected.

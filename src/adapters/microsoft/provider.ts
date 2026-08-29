@@ -85,6 +85,20 @@ export function createMicrosoftProvider(deps: CalendarProviderDeps): CalendarPro
     },
 
     async createEvent(conn, event) {
+      // NOTE: unlike Google, Outlook's own meeting invitation CANNOT be
+      // suppressed. Graph is explicit: "When an event includes attendees, the
+      // server automatically sends invitations to all participants to ensure
+      // consistency across calendars. This behavior is mandatory and cannot
+      // be disabled." (api-reference/v1.0/api/user-post-events.md)
+      //
+      // So a guest booking with a Microsoft-connected host receives TWO
+      // emails — Punctual's and Outlook's — where a Google guest receives
+      // one. There is no `sendUpdates` equivalent to reach for; the only ways
+      // to stop it are dropping the guest from `attendees` (which costs RSVP
+      // state and free/busy on the host's calendar) or suppressing our own
+      // mail (which is the one carrying the branding, the agenda answers and
+      // the reschedule/cancel links). Both are worse than a duplicate.
+      // Documented rather than worked around — see CCC-648.
       const path = writeEventsPath(conn.calendarIdWrite, conn.id)
       // Graph's own idempotency key: a retried POST carrying the same
       // transactionId returns the original event instead of creating a twin.
