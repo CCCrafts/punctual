@@ -26,7 +26,7 @@ import type { EnginePorts, RequestScope } from '../ports.js'
 import type { SlotService } from '../engine.js'
 import { daysWithSlots, monthRange } from '../engine.js'
 import type { EventType, User } from '../core/domain/types.js'
-import { hostUsers, resolveHosts as resolveEventTypeHosts } from '../core/domain/hosts.js'
+import { hostUsers as hostUsers_, resolveHosts as resolveEventTypeHosts } from '../core/domain/hosts.js'
 import { isValidTimeZone, localDateString } from '../core/time/zone.js'
 import {
   bookedConfirmation,
@@ -304,7 +304,8 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
       }) + eventHeader(headerData)
 
     return streamPage(head, async () => {
-      const hostUsers = await resolveHosts(repos, eventType, host)
+      const resolved = await resolveEventTypeHosts(repos, eventType, host)
+      const hostUsers = hostUsers_(resolved)
 
       // Month view drives the calendar; a selected day narrows the slot list.
       // The calendar and the day filter both key on guestTimezone, but slots
@@ -328,7 +329,7 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
 
       const data: BookingPageData = {
         ...headerData,
-        hosts: hostUsers,
+        hosts: resolved,
         // Keyed on guestTimezone to match the day filter above — otherwise a
         // day the calendar marks bookable can filter to zero slots (or vice
         // versa) once the guest's local date diverges from the host's.
@@ -362,7 +363,7 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
     const data: BookingPageData = {
       host,
       team,
-      hosts: await resolveHosts(repos, eventType, host),
+      hosts: await resolveEventTypeHosts(repos, eventType, host),
       ownerSlug: userSlug,
       eventType,
       month: localDateString(start, host.tz).slice(0, 7),
@@ -428,7 +429,7 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
     const data: BookingPageData = {
       host,
       team,
-      hosts: await resolveHosts(repos, eventType, host),
+      hosts: await resolveEventTypeHosts(repos, eventType, host),
       ownerSlug: userSlug,
       eventType,
       month: localDateString(start, host.tz).slice(0, 7),
@@ -466,7 +467,7 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
       )
     }
 
-    const hostUsers = data.hosts ?? [host]
+    const hostUsers = data.hosts ? hostUsers_(data.hosts) : [host]
     const outcome = await ports.coordinator.book(host.id, {
       eventTypeId: eventType.id,
       hostUserIds: hostUsers.map((u) => u.id),
@@ -529,14 +530,6 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
 
 // ---------------------------------------------------------------------------
 
-/** Hosts for an event type — the shared resolver, as users (core/domain/hosts.ts). */
-async function resolveHosts(
-  repos: ReturnType<EnginePorts['repositories']>,
-  eventType: EventType,
-  owner: User,
-): Promise<User[]> {
-  return hostUsers(await resolveEventTypeHosts(repos, eventType, owner))
-}
 
 /**
  * The guest's timezone.

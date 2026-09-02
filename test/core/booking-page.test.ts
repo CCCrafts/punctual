@@ -290,7 +290,12 @@ describe('slotList slot-state wiring', () => {
 describe('team-owned page header and hosts row', () => {
   const team = { id: 't_1', name: 'Support Crew', slug: 'support-crew', logoKey: null, createdAt: 0 }
   const teamEvent: EventType = { ...eventType, ownerUserId: null, ownerTeamId: 't_1', schedulingType: 'collective' }
-  const person = (id: string, name: string): User => ({ ...host, id, name, slug: id })
+  const person = (id: string, name: string, required = true) => ({
+    user: { ...host, id, name, slug: id } as User,
+    required,
+    scheduleId: null,
+    rrWeight: 1,
+  })
 
   it('heads a team page with the team name, not the representative member', () => {
     const html = eventHeader(pageData({ team, eventType: teamEvent }))
@@ -298,13 +303,21 @@ describe('team-owned page header and hosts row', () => {
     expect(html).not.toContain('Grace Hopper')
   })
 
-  it('collective: "You\'ll meet" every host, and; round robin: "With one of", or', () => {
+  it('collective: "You\'ll meet" the required hosts; optional ones "join when free"; round robin: "With one of"', () => {
     const hosts = [person('a', 'Alice'), person('b', 'Bob'), person('c', 'Carol')]
     const collective = hostsRow({ eventType: teamEvent, hosts })
     expect(collective).toContain("You'll meet <strong>Alice, Bob and Carol</strong>")
-    const rr = hostsRow({ eventType: { ...teamEvent, schedulingType: 'round_robin' }, hosts })
-    expect(rr).toContain('With one of <strong>Alice, Bob or Carol</strong>')
-    expect(rr.match(/pu-hosts-stack/g)).toHaveLength(1)
+    expect(collective).not.toContain('when free')
+
+    const mixed = hostsRow({ eventType: teamEvent, hosts: [person('a', 'Alice'), person('b', 'Bob', false), person('c', 'Carol', false)] })
+    expect(mixed).toContain("You'll meet <strong>Alice</strong>. <strong>Bob and Carol</strong> join when free")
+    const one = hostsRow({ eventType: teamEvent, hosts: [person('a', 'Alice'), person('b', 'Bob', false)] })
+    expect(one).toContain('<strong>Bob</strong> joins when free')
+
+    // Round robin: attendance flags do not apply; the whole pool is named.
+    const rr = hostsRow({ eventType: { ...teamEvent, schedulingType: 'round_robin' }, hosts: [person('a', 'Alice'), person('b', 'Bob', false)] })
+    expect(rr).toContain('With one of <strong>Alice or Bob</strong>')
+    expect(rr).not.toContain('when free')
   })
 
   it('more than four hosts collapse to three plus a CSS-only "and N more"', () => {
@@ -317,7 +330,7 @@ describe('team-owned page header and hosts row', () => {
   })
 
   it('renders nothing for a personal page, and escapes names', () => {
-    expect(hostsRow({ eventType, hosts: [host] })).toBe('')
+    expect(hostsRow({ eventType, hosts: [person('u_host', 'Grace')] })).toBe('')
     const html = hostsRow({ eventType: teamEvent, hosts: [person('x', '<b>X</b>')] })
     expect(html).not.toContain('<b>X</b>')
     expect(html).toContain('&lt;b&gt;X&lt;/b&gt;')
