@@ -307,7 +307,7 @@ export function toGraphEvent(event: ExternalEvent, transactionId?: string): Reco
     end: toGraphDateTimeZone(event.end),
     attendees: event.attendees.map((a) => ({
       emailAddress: a.name ? { address: a.email, name: a.name } : { address: a.email },
-      type: 'required',
+      type: a.optional ? 'optional' : 'required',
     })),
     // Guests pick a time on the booking page; letting Outlook collect
     // counter-proposals would create bookings the engine never sees.

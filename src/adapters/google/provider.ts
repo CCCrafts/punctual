@@ -335,7 +335,11 @@ export function toGoogleEvent(event: ExternalEvent, conferenceRequestId?: string
     // and expands the event in the host's zone rather than the viewer's guess.
     start: { dateTime: new Date(event.start).toISOString(), timeZone: event.timezone },
     end: { dateTime: new Date(event.end).toISOString(), timeZone: event.timezone },
-    attendees: event.attendees.map((a) => (a.name ? { email: a.email, displayName: a.name } : { email: a.email })),
+    attendees: event.attendees.map((a) => ({
+      email: a.email,
+      ...(a.name ? { displayName: a.name } : {}),
+      ...(a.optional ? { optional: true } : {}),
+    })),
   }
 
   if (event.location !== undefined) body['location'] = event.location

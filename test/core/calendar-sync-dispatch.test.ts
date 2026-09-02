@@ -16,7 +16,7 @@
  */
 
 import { describe, expect, it, vi } from 'vitest'
-import type { Booking, CalendarConnection, EventType, User } from '../../src/core/domain/types.js'
+import type { Booking, CalendarConnection, EventType, EventTypeHost, User } from '../../src/core/domain/types.js'
 import type { EnginePorts, QueueMessage } from '../../src/ports.js'
 import { handleOne } from '../../src/adapters/queue/consumer.js'
 
@@ -79,6 +79,13 @@ interface HarnessOptions {
   connections?: CalendarConnection[]
   createEvent?: () => Promise<{ id: string; conferenceUrl?: string }>
   bookingPatch?: Partial<Booking>
+  /** Extra users beyond `host`, by id — a team booking's co-hosts. */
+  users?: User[]
+  /** Connections per user id; a user absent here falls back to `connections`. */
+  connectionsByUser?: Record<string, CalendarConnection[]>
+  eventTypePatch?: Partial<EventType>
+  /** The event type's explicit host set (optional flags). */
+  hostRows?: EventTypeHost[]
 }
 
 /**
@@ -117,12 +124,13 @@ function harness(opts: HarnessOptions = {}) {
 
   const createEvent = vi.fn(opts.createEvent ?? (async () => ({ id: 'evt_1', conferenceUrl: MEET })))
   const deleteEvent = vi.fn(async () => {})
+  const updateEvent = vi.fn(async () => {})
 
   const ports = {
     clock: { now: () => Date.UTC(2026, 8, 1) },
     crypto: { randomToken: (n = 16) => 'r'.repeat(n), hash: async (v: string) => `h:${v}`, sign: async () => 'sig' },
     config: { baseUrl: 'https://punctual.test', brandName: 'Punctual', supportEmail: 'help@punctual.test' },
-    calendars: { get: () => ({ createEvent, updateEvent: vi.fn(), deleteEvent }) },
+    calendars: { get: () => ({ createEvent, updateEvent, deleteEvent }) },
     queue: { send: async (m: QueueMessage) => void queued.push(m) },
     repositories: () => ({
       bookings: {
@@ -144,10 +152,22 @@ function harness(opts: HarnessOptions = {}) {
         async rotateManageToken() { rotated = true },
         async releaseConfirmationClaim() { claimed = false },
       },
-      eventTypes: { async byId() { return eventType } },
-      users: { async byId() { return host } },
+      eventTypes: { async byId() { return { ...eventType, ...opts.eventTypePatch } } },
+      eventTypeHosts: { async forEventType() { return opts.hostRows ?? [] } },
+      users: {
+        async byId(id: string) {
+          if (id === host.id) return host
+          return opts.users?.find((u) => u.id === id) ?? null
+        },
+      },
       connections: {
-        async listForUser() { return opts.connections ?? [connection()] },
+        async listForUser(userId: string) {
+          return opts.connectionsByUser?.[userId] ?? (userId === host.id ? (opts.connections ?? [connection()]) : [])
+        },
+        async byId(id: string) {
+          const all = [...(opts.connections ?? [connection()]), ...Object.values(opts.connectionsByUser ?? {}).flat()]
+          return all.find((c) => c.id === id) ?? null
+        },
         async updateSyncStatus() {},
       },
       webhooks: { async listForUser() { return [] } },
@@ -163,6 +183,7 @@ function harness(opts: HarnessOptions = {}) {
     sync,
     wasRotated: () => rotated,
     deleteEvent,
+    updateEvent,
     setPrevious: (b: Booking) => {
       store.previous = b
     },
@@ -174,6 +195,126 @@ function harness(opts: HarnessOptions = {}) {
 function h0() {
   return harness()
 }
+
+const bob: User = { ...host, id: 'u_bob', email: 'bob@example.com', name: 'Bob Chen', slug: 'bob', tz: 'Europe/Kyiv' }
+const carol: User = { ...host, id: 'u_carol', email: 'carol@example.com', name: 'Carol Diaz', slug: 'carol' }
+const teamPatch: Partial<EventType> = { ownerUserId: null, ownerTeamId: 't_1', schedulingType: 'collective' }
+type Attendee = { email: string; name?: string; optional?: boolean }
+const attendeesOf = (call: unknown[]) => (call[1] as { attendees: Attendee[] }).attendees
+
+describe('one event per booking per provider (ADR-0011)', () => {
+  it('three hosts on one provider: ONE event, organized by the first host, with everyone on it', async () => {
+    const h = harness({
+      users: [bob, carol],
+      connectionsByUser: {
+        u_host: [connection()],
+        u_bob: [connection({ id: 'conn_bob', userId: 'u_bob', providerAccountEmail: 'bob@example.com' })],
+        u_carol: [connection({ id: 'conn_carol', userId: 'u_carol', providerAccountEmail: 'carol@example.com' })],
+      },
+      bookingPatch: { hostUserIds: ['u_host', 'u_bob', 'u_carol'] },
+      eventTypePatch: teamPatch,
+    })
+    await handleOne(h.sync, h.ports)
+
+    expect(h.createEvent).toHaveBeenCalledTimes(1)
+    const [conn] = h.createEvent.mock.calls[0]! as unknown as [CalendarConnection]
+    expect(conn.id).toBe('conn_1')
+    expect(attendeesOf(h.createEvent.mock.calls[0] as unknown[]).map((a) => a.email)).toEqual([
+      'ada@example.com',
+      'grace@example.com',
+      'bob@example.com',
+      'carol@example.com',
+    ])
+    expect(Object.keys(h.store.booking.externalEventIds)).toEqual(['conn_1'])
+  })
+
+  it("hosts split across providers: one event each, every host on their own provider's event only", async () => {
+    const h = harness({
+      users: [bob, carol],
+      connectionsByUser: {
+        u_host: [connection()],
+        u_bob: [connection({ id: 'conn_bob', userId: 'u_bob', provider: 'microsoft', providerAccountEmail: 'bob@example.com' })],
+        u_carol: [], // no calendar at all — rides on the primary provider's event
+      },
+      bookingPatch: { hostUserIds: ['u_host', 'u_bob', 'u_carol'] },
+      eventTypePatch: teamPatch,
+    })
+    await handleOne(h.sync, h.ports)
+
+    expect(h.createEvent).toHaveBeenCalledTimes(2)
+    const google = h.createEvent.mock.calls.find((c) => ((c as unknown[])[0] as CalendarConnection).provider === 'google')! as unknown[]
+    const microsoft = h.createEvent.mock.calls.find((c) => ((c as unknown[])[0] as CalendarConnection).provider === 'microsoft')! as unknown[]
+    expect(attendeesOf(google).map((a) => a.email)).toEqual(['ada@example.com', 'grace@example.com', 'carol@example.com'])
+    expect(attendeesOf(microsoft).map((a) => a.email)).toEqual(['ada@example.com', 'bob@example.com'])
+    expect((microsoft[1] as { timezone: string }).timezone).toBe('Europe/Kyiv')
+  })
+
+  it("an optional host is flagged optional; a host's second account on the same provider is an attendee by its email", async () => {
+    const h = harness({
+      users: [bob],
+      connectionsByUser: {
+        u_host: [connection(), connection({ id: 'conn_1b', providerAccountEmail: 'grace.work@example.com' })],
+        u_bob: [connection({ id: 'conn_bob', userId: 'u_bob', providerAccountEmail: 'bob@example.com' })],
+      },
+      bookingPatch: { hostUserIds: ['u_host', 'u_bob'] },
+      eventTypePatch: teamPatch,
+      hostRows: [
+        { eventTypeId: 'et_1', userId: 'u_host', required: true, scheduleId: null, rrWeight: null, position: 0 },
+        { eventTypeId: 'et_1', userId: 'u_bob', required: false, scheduleId: null, rrWeight: null, position: 1 },
+      ],
+    })
+    await handleOne(h.sync, h.ports)
+
+    expect(h.createEvent).toHaveBeenCalledTimes(1)
+    const attendees = attendeesOf(h.createEvent.mock.calls[0] as unknown[])
+    expect(attendees.map((a) => [a.email, a.optional ?? false])).toEqual([
+      ['ada@example.com', false],
+      ['grace@example.com', false],
+      ['grace.work@example.com', false],
+      ['bob@example.com', true],
+    ])
+  })
+
+  it('cancelling a booking written before this change (one event per host connection) still removes both', async () => {
+    const h = harness({
+      users: [bob],
+      connectionsByUser: { u_host: [connection()], u_bob: [connection({ id: 'conn_bob', userId: 'u_bob' })] },
+      bookingPatch: {
+        hostUserIds: ['u_host', 'u_bob'],
+        status: 'cancelled',
+        externalEventIds: { conn_1: 'evt_a', conn_bob: 'evt_b' },
+      },
+      eventTypePatch: teamPatch,
+    })
+    await handleOne({ ...h.sync, action: 'delete' }, h.ports)
+
+    expect(h.deleteEvent).toHaveBeenCalledTimes(2)
+    expect(h.deleteEvent.mock.calls.map((c) => (c as unknown[])[1])).toEqual(['evt_a', 'evt_b'])
+    expect(h.store.booking.externalEventIds).toEqual({})
+  })
+
+  it('a reschedule updates a legacy per-host event with its own host only, never the whole team', async () => {
+    const h = harness({
+      users: [bob],
+      connectionsByUser: { u_host: [connection()], u_bob: [connection({ id: 'conn_bob', userId: 'u_bob' })] },
+      bookingPatch: { hostUserIds: ['u_host', 'u_bob'], externalEventIds: { conn_1: 'evt_a', conn_bob: 'evt_b' } },
+      eventTypePatch: teamPatch,
+    })
+    await handleOne({ ...h.sync, action: 'update' }, h.ports)
+
+    expect(h.updateEvent).toHaveBeenCalledTimes(2)
+    // updateEvent(conn, externalId, event): the event is the THIRD argument.
+    const byConn = new Map(h.updateEvent.mock.calls.map((c) => [((c as unknown[])[0] as CalendarConnection).id, ((c as unknown[])[2] as { attendees: Attendee[] }).attendees]))
+    expect(byConn.get('conn_1')!.map((a) => a.email)).toEqual(['ada@example.com', 'grace@example.com', 'bob@example.com'])
+    expect(byConn.get('conn_bob')!.map((a) => a.email)).toEqual(['ada@example.com', 'bob@example.com'])
+  })
+
+  it('a redelivered create makes no second event', async () => {
+    const h = harness({ bookingPatch: { externalEventIds: { conn_1: 'evt_existing' } } })
+    await handleOne(h.sync, h.ports)
+    expect(h.createEvent).not.toHaveBeenCalled()
+  })
+})
 
 describe('calendar sync captures the conference link', () => {
   it('persists the link the provider minted', async () => {
@@ -190,7 +331,9 @@ describe('calendar sync captures the conference link', () => {
     // the first must reuse the room, not create one.
     let minted = 0
     const h = harness({
-      connections: [connection(), connection({ id: 'conn_2' })],
+      users: [bob],
+      connectionsByUser: { u_host: [connection()], u_bob: [connection({ id: 'conn_2', userId: 'u_bob', provider: 'microsoft' })] },
+      bookingPatch: { hostUserIds: ['u_host', 'u_bob'] },
       createEvent: async () => {
         minted += 1
         return { id: `evt_${minted}`, conferenceUrl: `https://meet.google.com/room-${minted}` }
@@ -250,7 +393,9 @@ describe('calendar sync captures the conference link', () => {
     // room and the two hosts ended up in different meetings once both
     // resolved. Asked-once is the invariant, not captured-once.
     const h = harness({
-      connections: [connection(), connection({ id: 'conn_2' })],
+      users: [bob],
+      connectionsByUser: { u_host: [connection()], u_bob: [connection({ id: 'conn_2', userId: 'u_bob', provider: 'microsoft' })] },
+      bookingPatch: { hostUserIds: ['u_host', 'u_bob'] },
       createEvent: async () => ({ id: 'evt_pending' }), // provisioned, but no link yet
     })
     await handleOne(h.sync, h.ports)

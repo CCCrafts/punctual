@@ -506,7 +506,8 @@ export interface ExternalEvent {
   description: string
   start: number
   end: number
-  attendees: Array<{ email: string; name?: string }>
+  /** `optional` marks a host who joins when free (Google `optional`, Graph `type: optional`). */
+  attendees: Array<{ email: string; name?: string; optional?: boolean }>
   location?: string
   /** Ask the provider to mint a conference link (Google Meet). */
   createConference?: boolean

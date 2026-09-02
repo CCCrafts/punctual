@@ -283,6 +283,17 @@ confirmation *and* Outlook's invite. Google's equivalent is suppressed
 is the complete one: it carries the meeting link, the answers to your intake
 questions, and the reschedule/cancel links.
 
+**A co-host sees the meeting as an invitation, not as their own event.**
+By design. A team booking is written once per calendar provider: the first
+host with a connected calendar on that provider organizes the event, and
+every other host on that provider is an attendee of it — so hosts see each
+other and each other's responses on one shared event instead of N copies
+each inviting the others. An attendee cannot edit the event; reschedule
+and cancel go through Punctual, which updates the one event. Optional
+hosts are marked optional in the invite. Hosts on the other provider get
+that provider's event; a host with no calendar connected is attached by
+email to the first event.
+
 **A host's calendar stopped syncing.** Their refresh token was revoked —
 usually a password change or an admin policy. Their connections page shows a
 reconnect prompt; existing bookings are unaffected.

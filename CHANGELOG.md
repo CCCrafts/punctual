@@ -55,6 +55,17 @@ still change interfaces.
   The confirmation screen names the people who actually attend: the
   round-robin pick, or the required hosts plus the optional ones that were
   free.
+- **One calendar event per booking per provider** (ADR-0011). A team
+  booking used to be written once per host connection, each event listing
+  only that host and the guest, so co-hosts never saw each other. Now the
+  first host with a connected calendar on each provider organizes that
+  provider's one event and every host on the provider is an attendee of
+  it, optional hosts flagged optional (Google `optional`, Graph `type:
+  optional`). A host's second account on the same provider is invited by
+  its own address; a host with no calendar rides on the first event by
+  email. Cancel and reschedule walk the stored event ids, so bookings
+  written in the old shape keep cancelling and moving; a legacy per-host
+  event is updated with its own host only, never the whole team.
 - REST: `PATCH`/`DELETE /event-types/:id` on a team-owned event type now
   require a team admin's key (403 otherwise); reading and listing are
   unchanged for every member.
