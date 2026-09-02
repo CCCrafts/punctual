@@ -25,7 +25,7 @@ import { docsApiPage, docsIndexPage, docsMcpPage, docsSelfHostingPage } from './
 import type { EnginePorts, RequestScope } from '../ports.js'
 import type { SlotService } from '../engine.js'
 import { daysWithSlots, monthRange } from '../engine.js'
-import type { EventType, User } from '../core/domain/types.js'
+import type { User } from '../core/domain/types.js'
 import { hostUsers as hostUsers_, resolveHosts as resolveEventTypeHosts } from '../core/domain/hosts.js'
 import { isValidTimeZone, localDateString } from '../core/time/zone.js'
 import {
