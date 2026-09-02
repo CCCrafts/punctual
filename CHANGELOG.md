@@ -6,6 +6,15 @@ still change interfaces.
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-09-02
+
+Host groups: a team event type now names its hosts. Team roles that mean
+something, an explicit host set with required and optional hosts and a
+per-host schedule, a booking page that says who the guest will meet, one
+calendar invite per provider with every host on it, the same over the
+REST API and MCP, and social cards with faces. Every change went through
+the dual-model review this repo runs; the findings are folded in.
+
 ### Added
 
 - **Team roles mean something** (migration `0010`). A team's admins manage
