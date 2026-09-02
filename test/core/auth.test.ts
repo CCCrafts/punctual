@@ -797,7 +797,7 @@ describe('admin bootstrap', () => {
     expect(res.ok && res.user.role).toBe('member')
   })
 
-  it('retries with a fresh slug when create loses a race, since the link is already burned by then (CCC-559)', async () => {
+  it('retries with a fresh slug when create loses a race, since the link is already burned by then', async () => {
     const h = harness()
     let calls = 0
     const realCreate = h.repos.users.create.bind(h.repos.users)

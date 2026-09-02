@@ -716,7 +716,7 @@ describe('the grid anchor does not depend on which busy data a query happened to
   const tz = 'UTC'
 
   /**
-   * Regression for CCC-534: even after both prior fixes, `freeIntervalsForHost`
+   * Regression: even after both prior fixes, `freeIntervalsForHost`
    * still subtracted busy time BEFORE gridding, so which pieces a window split
    * into — and therefore where each piece's grid anchor fell — depended on
    * which busy intervals a particular query had loaded. A narrow query only

@@ -782,7 +782,7 @@ async function rescheduleBooking(
       })
 
     // The "Rescheduled" mail for the NEW leg is dispatched by the
-    // calendar-sync handler, not here (CCC-647): the new booking's Meet link
+    // calendar-sync handler, not here: the new booking's Meet link
     // does not exist until its calendar event does, and the email body is
     // rendered at enqueue time. The handler branches on `rescheduleOf` to
     // send the rescheduled copy rather than a fresh confirmation.

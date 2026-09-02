@@ -271,7 +271,7 @@ describe('creating the event on the host calendar', () => {
     })
 
     expect(created.id).toBe('evt_123')
-    // The link Google minted, captured rather than discarded (CCC-647). This
+    // The link Google minted, captured rather than discarded. This
     // fixture always returned `hangoutLink`; until now the adapter read only
     // the id and threw it away, which is why guests were told the link was
     // "in the calendar invite" when nothing anywhere held it.
@@ -381,7 +381,7 @@ describe('OAuth configuration', () => {
 })
 
 /**
- * Google provisions the Meet room asynchronously (CCC-656). `events.insert`
+ * Google provisions the Meet room asynchronously. `events.insert`
  * can return 200 with `createRequest.status` still `pending` and no link.
  * Reading only that response left conference_url null permanently: the
  * confirmation is sent once, from the same sync, so nothing came later to

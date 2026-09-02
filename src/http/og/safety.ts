@@ -1,5 +1,5 @@
 /**
- * The render-safety check for the dynamic OG card (CCC-496), split out from
+ * The render-safety check for the dynamic OG card, split out from
  * render.ts so it stays importable from test/core (plain Node) without
  * dragging in satori/resvg-wasm's module-scope `.wasm` imports, which only
  * resolve under the real Workers runtime (test/workers, or wrangler/esbuild).

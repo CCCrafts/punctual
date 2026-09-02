@@ -1,5 +1,5 @@
 /**
- * The conference link reaching the guest (CCC-647).
+ * The conference link reaching the guest.
  *
  * The bug this guards was found by booking a real meeting and opening the
  * attachment: the email said `Where: Google Meet (link in the calendar

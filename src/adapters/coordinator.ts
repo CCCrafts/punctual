@@ -242,7 +242,7 @@ export function createCoordinator(deps: CoordinatorDeps): HostCoordinator {
         // all, so the fallback sends directly (without a link, which is the
         // honest outcome when no calendar work will ever run).
         // A RESCHEDULE's sync is enqueued by its route instead, after
-        // `markRescheduled` lands (CCC-647). Enqueuing here too would mean two
+        // `markRescheduled` lands. Enqueuing here too would mean two
         // independent messages, and Cloudflare Queues guarantees no ordering
         // between them — the notification could claim and send before the
         // calendar write recorded the new Meet link, permanently omitting it
@@ -275,7 +275,7 @@ export function createCoordinator(deps: CoordinatorDeps): HostCoordinator {
           )
         }
 
-        // The confirmation is NOT sent here any more (CCC-647). It is
+        // The confirmation is NOT sent here any more. It is
         // dispatched by the calendar-sync handler above, which is the first
         // point that knows the conference link Google/Graph minted — and the
         // email body is rendered at enqueue time, so sending it from here

@@ -140,7 +140,7 @@ export interface EventTypeRepository {
    * calendar sync reads the event type to build the calendar entry AND to
    * render the guest's confirmation, so a delete landing in that window
    * leaves the guest with no email at all — they booked and heard nothing
-   * (CCC-663). Guarded inside the DELETE, same discipline as
+   *. Guarded inside the DELETE, same discipline as
    * `AvailabilityRepository.delete` refusing a schedule an event type still
    * points at.
    */
@@ -429,7 +429,7 @@ export interface CalendarProvider {
  * bare id: both Google and Graph return the meeting link they just minted in
  * the create response, and the engine used to read only the id and throw the
  * link away — leaving guests with an invite that said "link in the calendar
- * invite" and contained no link (CCC-647).
+ * invite" and contained no link.
  */
 export interface CreatedEvent {
   id: string
@@ -522,7 +522,7 @@ export interface Cache {
 
 /**
  * Non-authoritative BINARY derived content — currently only rendered OG card
- * PNGs (CCC-496). Same trust category as `Cache` above (advisory, staleness
+ * PNGs. Same trust category as `Cache` above (advisory, staleness
  * of an hour is fine, never a source of truth) and the same physical KV
  * namespace in the default adapter, but a separate port because the values
  * are raw bytes, not JSON: round-tripping a PNG through `Cache.put` would
@@ -611,7 +611,7 @@ export type QueueMessage =
       action: 'create' | 'update' | 'delete'
       /**
        * The booking's raw manage token, carried so the create handler can
-       * dispatch the confirmation without re-issuing one (CCC-647).
+       * dispatch the confirmation without re-issuing one.
        *
        * Re-issuing looked safer but is not: the coordinator hands this same
        * token to the just-booked page, whose "Reschedule or cancel" button

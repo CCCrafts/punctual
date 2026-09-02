@@ -636,7 +636,7 @@ describe('settings — change slug', () => {
   })
 })
 
-describe('availability — named schedules (CCC-581)', () => {
+describe('availability — named schedules', () => {
   const AVAIL_HOST_ID = 'usr_avail_dash_host'
   const DEFAULT_SCHEDULE_ID = 'sch_avail_dash_default'
   const AVAIL_EVENT_ID = 'evt_avail_dash'

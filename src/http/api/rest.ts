@@ -624,7 +624,7 @@ export function buildApiRoutes(ports: EnginePorts, slots: SlotService): Hono<Api
       weekly: parsed.data.weekly as unknown as WeeklySchedule,
       overrides: parsed.data.overrides,
     }
-    // This endpoint's contract is unchanged (CCC-581): it always writes the
+    // This endpoint's contract is unchanged: it always writes the
     // caller's DEFAULT schedule, never a specific one — schedule CRUD is
     // dashboard-only for now. `forUser` should never be null for an
     // authenticated caller (the login backfill guarantees a default
@@ -909,7 +909,7 @@ export function buildApiRoutes(ports: EnginePorts, slots: SlotService): Hono<Api
       })
 
     // The "Rescheduled" mail for the NEW leg is dispatched by the
-    // calendar-sync handler, not here (CCC-647): the new booking's Meet link
+    // calendar-sync handler, not here: the new booking's Meet link
     // does not exist until its calendar event does, and the email body is
     // rendered at enqueue time. The handler branches on `rescheduleOf` to
     // send the rescheduled copy rather than a fresh confirmation.

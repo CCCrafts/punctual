@@ -1,5 +1,5 @@
 /**
- * Subsetted TTF fonts for the dynamic OG card renderer (CCC-496), embedded as
+ * Subsetted TTF fonts for the dynamic OG card renderer, embedded as
  * base64 -- satori needs TTF/OTF font buffers, not the WOFF2 files this repo
  * self-hosts for the actual product UI (assets/fonts/), and an OG card's
  * entire glyph budget is "Book N min with {host}" plus a digital clock, so a

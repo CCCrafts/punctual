@@ -743,7 +743,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
   }
 
   // ===========================================================================
-  // Dashboard — availability (named schedules, CCC-581)
+  // Dashboard — availability (named schedules)
   // ===========================================================================
 
   async function schedulesData(c: Ctx): Promise<SchedulesPageData> {
@@ -830,7 +830,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
       )
     }
 
-    // "+ Add range" (CCC-582): a no-JS-safe `formnovalidate` submit that
+    // "+ Add range": a no-JS-safe `formnovalidate` submit that
     // appends one empty range row to ONE day and re-renders — never a save.
     // The rest of the form's in-progress values round-trip through
     // `weeklyDraft` (every day, not just the one that changed), `nameValue`,
@@ -1102,7 +1102,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     // Read-then-write: a concurrent create of the same slug — by another
     // team, a signup, or a slug change — can slip past the check above and
     // hit teams_slug_idx or the shared slug_claims constraint instead
-    // (CCC-559). That window is a form re-submit away from fixed, so
+    //. That window is a form re-submit away from fixed, so
     // createWithFirstMember catches the constraint and returns null rather
     // than growing the repository a compare-and-swap for it — but the
     // caller still has to turn that into the same form error, not an
@@ -1440,7 +1440,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
       // slug — including a team claiming it — can both pass it before either
       // commits. `update`'s own return value is the real guard — it reports
       // false if the write lost that race against `users_slug_idx` or the
-      // shared slug_claims constraint (CCC-559) — so that lands as the same
+      // shared slug_claims constraint — so that lands as the same
       // clean form error, never an uncaught 500.
       const ok = await repos.users.update(user.id, { slug: raw })
       if (!ok) {
@@ -1986,7 +1986,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
       })
 
     // The "Rescheduled" mail for the NEW leg is dispatched by the
-    // calendar-sync handler, not here (CCC-647): the new booking's Meet link
+    // calendar-sync handler, not here: the new booking's Meet link
     // does not exist until its calendar event does, and the email body is
     // rendered at enqueue time. The handler branches on `rescheduleOf` to
     // send the rescheduled copy rather than a fresh confirmation.
@@ -2266,7 +2266,7 @@ function base64UrlDecode(value: string): string {
 }
 
 /**
- * The weekly-hours editor's fields (CCC-582), read into the same shape
+ * The weekly-hours editor's fields, read into the same shape
  * `scheduleForm`/`parseWeeklyDraft` in pages/dashboard.ts already share —
  * `day-N-enabled` plus `day-N-start-I`/`day-N-end-I` pairs, I from 0 up to
  * whichever of `MAX_RANGES_PER_DAY` or the first missing pair comes first.

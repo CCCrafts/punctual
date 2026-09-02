@@ -80,7 +80,7 @@ export function createFakeRepositories(): FakeRepositories {
   const confirmationClaims = new Map<string, number>()
   const teams = new Map<string, Team>()
   const connections = new Map<string, CalendarConnection>()
-  /** Keyed by schedule id, not userId — a host can have more than one (CCC-581). */
+  /** Keyed by schedule id, not userId — a host can have more than one. */
   const schedules = new Map<string, Schedule>()
   let touches = 0
   let lastBookmark: string | null = null

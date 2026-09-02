@@ -1,5 +1,5 @@
 /**
- * The calendar-sync handler, which now owns confirmation dispatch (CCC-647).
+ * The calendar-sync handler, which now owns confirmation dispatch.
  *
  * `syncCalendar` had NO test coverage at all before this. That was tolerable
  * while it only wrote calendar events; it is not now that a guest's

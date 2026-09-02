@@ -184,7 +184,7 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
     }),
   )
 
-  // /og/:userSlug/:eventSlug.png (CCC-496). Three path segments, so it never
+  // /og/:userSlug/:eventSlug.png. Three path segments, so it never
   // collides with the two-segment catch-all below regardless of mount order —
   // registered here anyway for the same reason as everything else above it.
   app.route('/', buildOgRoutes(ports))
@@ -212,7 +212,7 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
     const guestTimezone = resolveGuestTimezone(c.req.query('tz'), c.req.raw, host.tz)
     const embed = c.req.query('embed') === '1'
     const currentMonth = localDateString(ports.clock.now(), host.tz).slice(0, 7)
-    // The floor `clampMonth` snaps back to, below (CCC-588): the EARLIER of
+    // The floor `clampMonth` snaps back to, below: the EARLIER of
     // the two parties' current months, not just the host's. A guest near the
     // opposite extreme of the date line from the host can have their own
     // "today" fall a calendar month behind the host's — Kiritimati (UTC+14)
@@ -290,7 +290,7 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
         brandName: ports.config.brandName,
         // The one link that's actually meant to be shared — a host posts it
         // in an email signature or a chat app, so it's the one page in the
-        // whole engine worth unfurling. /og/:userSlug/:eventSlug.png (CCC-496)
+        // whole engine worth unfurling. /og/:userSlug/:eventSlug.png
         // renders "Book N min with {host}" on first hit and falls back to the
         // static default card on any failure — see src/http/og/route.ts.
         og: {
@@ -550,7 +550,7 @@ function validMonth(v: string | undefined): string | undefined {
  * anything else snaps back.
  *
  * The floor and the horizon anchor are deliberately separate parameters
- * (CCC-588), not the same "current month" used for both: the floor exists so
+ *, not the same "current month" used for both: the floor exists so
  * a guest's own default "today" is never clamped away by a HOST-local month
  * that has already ticked over across a date-line split (host already on
  * Sep 1, guest still on Aug 31) — the caller passes it the earlier of the

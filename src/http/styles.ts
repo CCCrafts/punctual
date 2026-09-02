@@ -478,7 +478,7 @@ input:has(+ .pu-err),select:has(+ .pu-err),textarea:has(+ .pu-err){border-color:
   color:var(--pu-text-secondary);text-decoration:underline;text-underline-offset:.2rem;cursor:pointer}
 .pu-btn-plain:hover{color:var(--pu-status-danger)}
 
-/* Weekly-hours editor (CCC-582): a switch per day, one or more native time-
+/* Weekly-hours editor: a switch per day, one or more native time-
    range rows underneath. The switch and the ranges are SIBLINGS inside
    .pu-day-row, not nested — :has() below reacts to the checkbox's :checked
    state to show/hide the ranges, which needs no JavaScript to work at all;

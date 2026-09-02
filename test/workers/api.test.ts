@@ -439,7 +439,7 @@ describe('GET /slots', () => {
   })
 
   /**
-   * CCC-581: an event type assigned a specific schedule must draw its slots
+   * An event type assigned a specific schedule must draw its slots
    * from THAT schedule's hours, not the host's default — and reverting the
    * assignment (scheduleId back to null) must fall back to the default
    * again. `seedHost`'s default schedule is 09:00-17:00 UTC weekdays; this
@@ -633,7 +633,7 @@ describe('POST /bookings', () => {
   })
 
   /**
-   * CCC-581 regression: the commit-time re-check (coordinator.ts's
+   * Regression: the commit-time re-check (coordinator.ts's
    * `buildHostInputs`, ADR-0002 §2) used to validate every booking against
    * the host's DEFAULT schedule regardless of what the event type was
    * assigned — so a guest booking a real, currently-listed slot on an

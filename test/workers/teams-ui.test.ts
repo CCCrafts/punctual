@@ -603,7 +603,7 @@ describe('repository-level atomic guards', () => {
   it('deleting an event type is refused while an upcoming confirmed booking needs it', async () => {
     // Not cosmetic: the queued calendar sync reads this row to render the
     // guest's confirmation, so deleting it inside that window leaves the
-    // guest having booked and heard nothing (CCC-663).
+    // guest having booked and heard nothing.
     const repos = createD1Repositories(db, { consistency: 'bookmark' })
     const now = Date.now()
     await db
@@ -695,7 +695,7 @@ describe('repository-level atomic guards', () => {
     expect(await repos.availability.delete('usr_del2', 'sch_del2_extra')).toBe(true)
   })
 
-  it('CCC-584: create/update never store a scheduleId the schedule table doesn\'t actually have', async () => {
+  it('create/update never store a scheduleId the schedule table doesn\'t actually have', async () => {
     // The TOCTOU this closes: dashboard-routes.ts and rest.ts both validate
     // ownership via availability.byId() BEFORE this write; a concurrent
     // delete of that exact schedule in the window between the check and the
@@ -743,7 +743,7 @@ describe('repository-level atomic guards', () => {
   })
 })
 
-describe('slug_claims — the shared namespace constraint (CCC-559)', () => {
+describe('slug_claims — the shared namespace constraint', () => {
   it('a team cannot claim a slug an existing user already holds', async () => {
     const repos = createD1Repositories(db, { consistency: 'bookmark' })
     await repos.users.create({

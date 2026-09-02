@@ -121,7 +121,7 @@ async function syncCalendar(
   // meeting to attend however many host calendars it was written to.
   let conferenceUrl: string | null = booking.conferenceUrl
   // Kept so a cancel that raced this pass can be cleaned up below. Waiting
-  // for Google to provision a Meet room (CCC-656) added up to a second
+  // for Google to provision a Meet room added up to a second
   // between the event existing in the provider and its id being persisted —
   // long enough for a delete sync to run against a still-empty id map,
   // delete nothing, and leave a real calendar event nothing can ever remove.
@@ -246,7 +246,7 @@ async function syncCalendar(
     // The confirmation is dispatched HERE, not by the coordinator, because
     // this is the first point that knows the conference link — and the email
     // body is rendered at enqueue time, so sending it any earlier bakes in a
-    // "link to follow" that never gets followed up (CCC-647).
+    // "link to follow" that never gets followed up.
     //
     // Reached unconditionally: every per-connection failure above is caught
     // and `continue`d, and a host with no writable connection simply runs an
@@ -271,7 +271,7 @@ async function syncCalendar(
  * Send this booking's confirmation, exactly once, now that the conference
  * link is known.
  *
- * Ownership of this moved out of the coordinator (CCC-647): the coordinator
+ * Ownership of this moved out of the coordinator: the coordinator
  * fires immediately after commit, which is BEFORE any calendar event exists,
  * and the email body is rendered at enqueue time — so the link could never
  * make it in from there no matter how the queue happened to interleave.

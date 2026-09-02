@@ -1,5 +1,4 @@
--- The conference link, and a record of whether the confirmation was sent
--- (CCC-647).
+-- The conference link, and a record of whether the confirmation was sent.
 --
 -- Forward-only and additive (ADR-0006 §4). Both columns are nullable with no
 -- backfill: an existing booking genuinely has no captured link (the engine

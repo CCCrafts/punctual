@@ -4,7 +4,7 @@ import { docsApiPage, docsIndexPage, docsMcpPage, docsSelfHostingPage } from '..
 const opts = { brandName: 'Punctual', baseUrl: 'https://example.test' }
 
 /**
- * CCC-503: /docs used to be a landing stub whose four sections each linked
+ * /docs used to be a landing stub whose four sections each linked
  * straight out to a raw GitHub file. These tests check that the shell
  * (nav, footer) is consistent across every docs page and that each page's
  * content is real and specific rather than a placeholder.
@@ -42,7 +42,7 @@ describe('docs nav', () => {
 describe('docsIndexPage', () => {
   it('links out to the three sub-pages, not straight to GitHub source files', () => {
     const html = docsIndexPage(opts)
-    // The whole point of CCC-503: these used to be the only links on the
+    // The whole point of that change: these used to be the only links on the
     // page, pointing at raw GitHub blobs instead of Punctual's own domain.
     expect(html).not.toContain('/blob/main/docs/self-hosting.md')
     expect(html).not.toContain('/blob/main/src/http/api/rest.ts')

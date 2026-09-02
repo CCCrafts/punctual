@@ -157,7 +157,7 @@ describe('month resolution follows the selected date', () => {
 })
 
 /**
- * CCC-588: the floor clampMonth snaps back to is the earlier of the two
+ * The floor clampMonth snaps back to is the earlier of the two
  * parties' current months, not just the host's — so a guest whose own
  * "today" falls a calendar month behind the host's (a date-line split: host
  * already on Sep 1, guest still on Aug 31) never has their default "today"
@@ -167,7 +167,7 @@ describe('month resolution follows the selected date', () => {
  * shrink. `clampMonth` is pure (no clock/IO), so this calls it directly
  * rather than needing to straddle a real month boundary in an HTTP test.
  */
-describe('clampMonth floor is the earlier of host and guest current months (CCC-588)', () => {
+describe('clampMonth floor is the earlier of host and guest current months', () => {
   it('does not clamp the guest-local month forward to a HOST month that has already ticked over', () => {
     // Host already on 2026-09-01 (Kiritimati, UTC+14); guest still on
     // 2026-08-31 (Los Angeles, UTC-7). The floor the caller computes and

@@ -1,5 +1,5 @@
 /**
- * The satori element tree for a booking page's dynamic OG card (CCC-496).
+ * The satori element tree for a booking page's dynamic OG card.
  *
  * Pure and Cloudflare-free on purpose — it is exercised in `test/core` without
  * satori or the wasm runtime, so the "what does the card actually say" logic

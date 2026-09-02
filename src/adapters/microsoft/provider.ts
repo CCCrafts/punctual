@@ -98,7 +98,7 @@ export function createMicrosoftProvider(deps: CalendarProviderDeps): CalendarPro
       // state and free/busy on the host's calendar) or suppressing our own
       // mail (which is the one carrying the branding, the agenda answers and
       // the reschedule/cancel links). Both are worse than a duplicate.
-      // Documented rather than worked around — see CCC-648.
+      // Documented rather than worked around — see docs/self-hosting.md, troubleshooting.
       const path = writeEventsPath(conn.calendarIdWrite, conn.id)
       // Graph's own idempotency key: a retried POST carrying the same
       // transactionId returns the original event instead of creating a twin.

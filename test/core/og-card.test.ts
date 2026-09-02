@@ -1,5 +1,5 @@
 /**
- * The pure parts of the dynamic OG card (CCC-496) — checkable without satori
+ * The pure parts of the dynamic OG card — checkable without satori
  * or resvg-wasm, so the fallback threshold and card content stay fast to
  * verify. The actual rendered-PNG path is covered under test/workers/og.test.ts,
  * which needs the real wasm runtime.

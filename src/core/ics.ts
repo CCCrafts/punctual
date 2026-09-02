@@ -280,7 +280,7 @@ export function icsDateTimeUtc(ts: number): string {
 export function describeLocation(et: EventType, conferenceUrl?: string | null): string {
   switch (et.locationType) {
     case 'google_meet':
-      // The real link when the provider minted one. Before CCC-647 this
+      // The real link when the provider minted one. Before the conference-link change this
       // always returned the placeholder below, which told the guest the link
       // was "in the calendar invite" — while sitting IN that very invite,
       // and while `sendUpdates=none` stopped Google sending its own. A guest

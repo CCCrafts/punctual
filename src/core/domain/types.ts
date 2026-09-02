@@ -148,7 +148,7 @@ export interface Availability {
 
 /**
  * A named, storable schedule — what `Availability` becomes once a host can
- * have more than one (CCC-581). Extends rather than replaces `Availability`
+ * have more than one. Extends rather than replaces `Availability`
  * on purpose: the slot engine's `HostAvailabilityInput.availability:
  * Availability` (core/slots/engine.ts) keeps typechecking unchanged when
  * handed a `Schedule`, so the best-tested code in the repo is untouched by
@@ -193,7 +193,7 @@ export interface Booking {
    * The meeting link the calendar provider minted (Google Meet / Teams), or
    * null for a non-conference event type or before the calendar sync has
    * run. Per-booking, not per-event-type: a reschedule creates a fresh
-   * external event and therefore a fresh link (CCC-647).
+   * external event and therefore a fresh link.
    */
   conferenceUrl: string | null
   rescheduleOf: string | null

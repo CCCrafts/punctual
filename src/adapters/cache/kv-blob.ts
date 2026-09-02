@@ -3,7 +3,7 @@
  * `createKvCache` (kv.ts), a different key prefix, raw bytes instead of JSON.
  *
  * See the `BlobCache` doc comment in ports.ts for why this is a second port
- * rather than reusing `Cache`: this holds rendered OG card PNGs (CCC-496),
+ * rather than reusing `Cache`: this holds rendered OG card PNGs,
  * which are bytes, not JSON-serializable values, and JSON-encoding a PNG
  * through `Cache.put` would bloat it several times over for no reason.
  *

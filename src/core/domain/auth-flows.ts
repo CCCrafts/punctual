@@ -206,7 +206,7 @@ export async function consumeMagicLink(
     // duplicate — a lockout (no admin at all) is the failure this avoids.
     const isFirstUser = (await deps.repos.users.count()) === 0
     // `create` returns null on ANY constraint loss, not only `slug` losing
-    // a race against a concurrent claim (CCC-559) — the same batch also
+    // a race against a concurrent claim — the same batch also
     // carries the `users_email_idx` insert, so two concurrent redemptions
     // for the SAME email (two tabs, two links both clicked) hit this too,
     // and that case must NOT retry `uniqueSlug`: the right recovery is
@@ -545,7 +545,7 @@ export function defaultAvailability(user: User): Availability {
   return { userId: user.id, timezone: user.tz, weekly, overrides: [] }
 }
 
-/** The backfilled default schedule a fresh or legacy (pre-CCC-581) user gets — see the login backfill above. */
+/** The backfilled default schedule a fresh or legacy (pre-named-schedules) user gets — see the login backfill above. */
 export function defaultSchedule(user: User, id: string): Schedule {
   return { ...defaultAvailability(user), id, name: 'Working hours', isDefault: true }
 }
@@ -567,7 +567,7 @@ async function uniqueSlug(deps: SessionDeps, email: string): Promise<string> {
   // writes into the shared `slug_claims` table in the same batch as the
   // user row, which is what actually arbitrates a concurrent team creation
   // (or another signup) claiming the identical slug in the round trip
-  // between this check and that write (CCC-559).
+  // between this check and that write.
   const taken = async (slug: string) =>
     (await deps.repos.users.bySlug(slug)) !== null || (await deps.repos.teams.bySlug(slug)) !== null
   const candidate = validateSlug(base).ok ? base : `${base}-1`

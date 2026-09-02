@@ -691,7 +691,7 @@ const COMMON_ZONES: readonly string[] = [
   'America/Sao_Paulo',
 ]
 
-/** A short, honest readout — not a redesign; the visual widget itself is CCC-582. */
+/** A short, honest readout — not a redesign; the visual widget itself is the weekly-hours editor. */
 function scheduleSummary(s: Schedule): string {
   const activeDays = s.weekly.filter((day) => day.length > 0).length
   if (activeDays === 0) return 'No hours set'

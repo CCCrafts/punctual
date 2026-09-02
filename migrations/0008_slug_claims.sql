@@ -1,4 +1,4 @@
--- Shared slug namespace across users and teams (CCC-559).
+-- Shared slug namespace across users and teams.
 --
 -- users.slug and teams.slug each have their own UNIQUE index, but nothing
 -- spans the two — bookingPageContext resolves a public page's owner slug

@@ -1,5 +1,5 @@
 /**
- * `GET /og/:userSlug/:eventSlug.png` — the per-booking-page OG card (CCC-496).
+ * `GET /og/:userSlug/:eventSlug.png` — the per-booking-page OG card.
  *
  * Crawler-only traffic (Slack/X/LinkedIn/Telegram/iMessage unfurlers), never
  * the booking page's own render path — so an on-demand render-and-cache-on-
@@ -18,7 +18,7 @@ import { renderOgCard } from './render.js'
 
 type Env = Record<string, unknown>
 
-/** Marketing content, not booking data — an hour of staleness is fine (CCC-496, mirrors ADR-0006 §1's freeBusy TTL philosophy). */
+/** Marketing content, not booking data — an hour of staleness is fine (mirrors ADR-0006 §1's freeBusy TTL philosophy). */
 const CACHE_TTL_SECONDS = 60 * 60
 const DEFAULT_CARD_PATH = '/og/default.png'
 const PNG_SUFFIX = '.png'

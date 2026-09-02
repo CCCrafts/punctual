@@ -1,5 +1,5 @@
 /**
- * Renders a booking page's dynamic OG card to PNG bytes (CCC-496), or
+ * Renders a booking page's dynamic OG card to PNG bytes, or
  * returns `null` if it should not be attempted — the caller (route.ts) then
  * falls back to the static `assets/og/default.png`, which is always correct
  * even if generic. A broken card is worse than a generic one, so every

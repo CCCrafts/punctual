@@ -1,4 +1,4 @@
--- Per-event-type availability schedules (CCC-581).
+-- Per-event-type availability schedules.
 --
 -- Forward-only and additive (ADR-0006 §4): `availability_schedules` (one row
 -- per user, PK = user_id) cannot become one-row-per-schedule in place —

@@ -1,5 +1,5 @@
 /**
- * `GET /og/:userSlug/:eventSlug.png` (CCC-496), under the real Workers
+ * `GET /og/:userSlug/:eventSlug.png`, under the real Workers
  * runtime — the part that cannot be checked by reading the code: satori and
  * resvg-wasm actually instantiate and produce real PNG bytes under workerd,
  * not just under Node.
@@ -75,7 +75,7 @@ describe('the dynamic OG card', () => {
 
   it('falls back to the static default card when the host name is not safely renderable', async () => {
     // Emoji: outside the printable-ASCII subset render.ts requires — the
-    // exact case CCC-496 calls out (also covers RTL/CJK/unusual-length by
+    // exact case the OG card work calls out (also covers RTL/CJK/unusual-length by
     // the same guard).
     await seedHost({ id: 'usr_og_b', slug: 'og-host-b', name: '👋 Serge', eventSlug: 'thirty' })
 

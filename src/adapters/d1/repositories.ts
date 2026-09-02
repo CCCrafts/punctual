@@ -117,7 +117,7 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
     },
     async create(user) {
       const row = { ...user, createdAt: Date.now() }
-      // The slug claim goes in the SAME batch as the user row (CCC-559): the
+      // The slug claim goes in the SAME batch as the user row: the
       // caller (uniqueSlug in auth-flows.ts) already checked both users AND
       // teams for this slug, but that check and this write are two separate
       // round trips — only slug_claims' own PRIMARY KEY can arbitrate a
@@ -163,7 +163,7 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
       try {
         if (patch.slug !== undefined) {
           // Same reasoning as `create`: the caller already checked both
-          // users AND teams for this slug (settings route, CCC-559), but
+          // users AND teams for this slug (settings route), but
           // that read and this write are separate round trips. Re-claiming
           // in slug_claims — delete the old claim, insert the new one, in
           // the SAME batch as the users row — is what actually arbitrates a
@@ -186,7 +186,7 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
       } catch (err) {
         // A slug collision losing a race against the caller's own
         // read-then-write uniqueness check hits `users_slug_idx` (same
-        // table) or `slug_claims` (cross-table, CCC-559) here — the caller
+        // table) or `slug_claims` (cross-table) here — the caller
         // turns either into the same form error, never an uncaught 500.
         if (isConstraintViolation(err)) return false
         throw err
@@ -288,7 +288,7 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
     async create(et) {
       const row = { ...et, createdAt: Date.now() }
       // schedule_id resolves through a scalar subquery, not a bare bound
-      // value (CCC-584): the caller validated ownership with a separate
+      // value: the caller validated ownership with a separate
       // `availability.byId` read before this write, and a concurrent delete
       // of that exact schedule in between would otherwise commit a
       // dangling reference. The guard runs inside the same statement, so no
@@ -357,7 +357,7 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
       if (patch.locationValue !== undefined) put('location_value', patch.locationValue)
       if (patch.questions !== undefined) put('questions_json', JSON.stringify(patch.questions))
       if (patch.active !== undefined) put('active', patch.active ? 1 : 0)
-      // Same scalar-subquery guard as `create` (CCC-584): a concurrent
+      // Same scalar-subquery guard as `create`: a concurrent
       // delete of this exact schedule between the caller's ownership check
       // and this write resolves to NULL — "use the default", which is what
       // `resolveSchedule()` already does for a dangling reference — rather
@@ -395,7 +395,7 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
   }
 
   // -------------------------------------------------------------------------
-  // Availability — named schedules (CCC-581)
+  // Availability — named schedules
   // -------------------------------------------------------------------------
   const availability: AvailabilityRepository = {
     async forUser(userId) {
@@ -818,7 +818,7 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
     },
     async create(team) {
       const row = { ...team, createdAt: Date.now() }
-      // Same claim, same batch, as createWithFirstMember (CCC-559) — a bare
+      // Same claim, same batch, as createWithFirstMember — a bare
       // single-statement insert here would let this sibling method write a
       // team whose slug nothing in slug_claims holds, silently reopening the
       // exact cross-table race that table exists to close.
@@ -844,7 +844,7 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
       // One batch: D1 rolls the whole thing back if any insert fails, so a
       // memberless (unmanageable, slug-squatting) team can never exist. The
       // slug_claims insert is what actually arbitrates a concurrent signup
-      // or slug change claiming this exact slug (CCC-559) — teams_slug_idx
+      // or slug change claiming this exact slug — teams_slug_idx
       // alone only ever caught another team wanting the same slug.
       try {
         await session.batch([

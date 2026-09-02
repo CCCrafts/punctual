@@ -97,7 +97,7 @@ export function createGoogleProvider(deps: CalendarProviderDeps): CalendarProvid
       // `pending` and no link yet. Reading only the insert response left the
       // booking with conference_url null FOREVER — the confirmation is sent
       // once, from this same sync, so there was no later pass to fill it in
-      // and the guest got "link to follow" with nothing following (CCC-656).
+      // and the guest got "link to follow" with nothing following.
       if (event.createConference === true) {
         const resolved = await resolveGoogleConference(deps, conn, calendarId, created['id'])
         if (resolved) return { id: created['id'], ...resolved }
