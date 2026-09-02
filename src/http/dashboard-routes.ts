@@ -44,6 +44,7 @@ import type {
   Booking,
   CalendarConnection,
   EventType,
+  EventTypeHost,
   Schedule,
   Session,
   Team,
@@ -77,6 +78,7 @@ import { isValidTimeZone, localDateString } from '../core/time/zone.js'
 import { validateSlug } from '../core/domain/slugs.js'
 import { canManageTeam, isManagingRole } from '../core/domain/teams.js'
 import { hostUsers, resolveHosts as resolveEventTypeHosts } from '../core/domain/hosts.js'
+import { hostAddedEmail } from '../core/email-templates.js'
 import {
   MAX_DECODED_PIXELS,
   MAX_UPLOAD_BYTES,
@@ -113,6 +115,8 @@ import {
   type SchedulesPageData,
   type ScheduleFormData,
   type ScheduleScope,
+  type HostChoice,
+  type TeamEventChoice,
   type TeamsPageData,
   type UpcomingBooking,
   type WeeklyDayDraft,
@@ -621,9 +625,134 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
         eventType,
         teams: await managedTeams(c),
         schedules: await c.get('repos').availability.listForUser(c.get('user').id),
+        hostChoices: await hostChoicesFor(c, eventType),
+        ...(c.req.query('created')
+          ? { notice: 'Event type created. Every team member hosts it for now — adjust the hosts below if you want a subset.' }
+          : {}),
       }),
     )
   })
+
+  /**
+   * The owning team's members as host choices for the form, with each
+   * member's schedules by name — an admin arranging a joint meeting sees
+   * what they are assigning (core/domain/teams.ts). Empty for a personal
+   * event type, which has no hosts block.
+   */
+  async function hostChoicesFor(c: Ctx, eventType: EventType): Promise<HostChoice[]> {
+    if (!eventType.ownerTeamId) return []
+    const repos = c.get('repos')
+    const [members, rows] = await Promise.all([
+      repos.teams.members(eventType.ownerTeamId),
+      repos.eventTypeHosts.forEventType(eventType.id),
+    ])
+    const byUser = new Map(rows.map((r) => [r.userId, r]))
+    const explicit = rows.length > 0
+    const choices: HostChoice[] = []
+    for (const m of members) {
+      const user = await repos.users.byId(m.userId)
+      if (!user) continue
+      const row = byUser.get(m.userId) ?? null
+      choices.push({
+        user,
+        schedules: await repos.availability.listForUser(m.userId),
+        row,
+        selected: explicit ? row !== null : true,
+        teamWeight: m.rrWeight,
+      })
+    }
+    // Stored order first, then the rest in join order — the same order the
+    // booking page will show them in.
+    return choices.sort((a, b) => (a.row?.position ?? Number.MAX_SAFE_INTEGER) - (b.row?.position ?? Number.MAX_SAFE_INTEGER))
+  }
+
+  /**
+   * The Hosts block, read back. Returns the rows to store — or `null` when
+   * the admin left everything at its default (everyone ticked, required, no
+   * schedule, no weight), which keeps the IMPLICIT set so that new members
+   * keep joining automatically. Validation errors go to `errors['hosts']`.
+   */
+  function readHostsForm(
+    form: FormData,
+    eventType: EventType,
+    choices: HostChoice[],
+    errors: Record<string, string>,
+  ): Array<Omit<EventTypeHost, 'eventTypeId' | 'position'>> | null {
+    const collective = eventType.schedulingType === 'collective'
+    const rows: Array<Omit<EventTypeHost, 'eventTypeId' | 'position'>> = []
+    let touched = false
+    for (const choice of choices) {
+      const uid = choice.user.id
+      const on = form.get(`host-${uid}`) !== null
+      if (!on) {
+        touched = true
+        continue
+      }
+      const required = collective ? String(form.get(`host-${uid}-mode`) ?? 'required') !== 'optional' : true
+      const scheduleRaw = String(form.get(`host-${uid}-schedule`) ?? '').trim()
+      const scheduleId = scheduleRaw === '' ? null : scheduleRaw
+      const weightRaw = String(form.get(`host-${uid}-weight`) ?? '').trim()
+      let rrWeight: number | null = null
+      if (!collective && weightRaw !== '') {
+        const n = Number(weightRaw)
+        if (!Number.isInteger(n) || n < 1 || n > 100) {
+          errors['hosts'] = `${choice.user.name || choice.user.slug}: weight must be a whole number from 1 to 100`
+        } else {
+          rrWeight = n
+        }
+      }
+      if (!required || scheduleId !== null || rrWeight !== null) touched = true
+      rows.push({ userId: uid, required, scheduleId, rrWeight })
+    }
+    if (rows.length === 0) {
+      errors['hosts'] = 'Tick at least one host'
+      return null
+    }
+    if (collective && !rows.some((r) => r.required)) {
+      errors['hosts'] = 'A collective event type needs at least one required host'
+      return null
+    }
+    return touched ? rows : null
+  }
+
+  /**
+   * Tell each NEWLY added host which of their schedules the slots will use
+   * and where to change it. Best-effort, after the write: a mail provider
+   * hiccup must not undo a saved host list. Nothing for hosts who were
+   * already on the event type, and never to the editor about themselves.
+   */
+  async function notifyNewHosts(
+    c: Ctx,
+    eventType: EventType,
+    before: Set<string>,
+    after: Array<{ userId: string; required: boolean; scheduleId: string | null }>,
+  ): Promise<void> {
+    const repos = c.get('repos')
+    const editor = c.get('user')
+    const team = eventType.ownerTeamId ? await repos.teams.byId(eventType.ownerTeamId) : null
+    if (!team || eventType.schedulingType === 'personal') return
+    for (const host of after) {
+      if (before.has(host.userId) || host.userId === editor.id) continue
+      const user = await repos.users.byId(host.userId)
+      if (!user) continue
+      const schedule = host.scheduleId ? await repos.availability.byId(host.userId, host.scheduleId) : null
+      const content = hostAddedEmail({
+        brandName,
+        hostName: user.name || user.slug,
+        eventTitle: eventType.title,
+        teamName: team.name,
+        schedulingType: eventType.schedulingType,
+        required: host.required,
+        scheduleName: schedule?.name ?? null,
+        editorName: editor.name || editor.slug,
+        availabilityUrl: `${ports.config.baseUrl.replace(/\/$/, '')}/dashboard/availability`,
+        ...(ports.config.supportEmail ? { supportEmail: ports.config.supportEmail } : {}),
+      })
+      await ports.email
+        .send({ to: user.email, toName: user.name, subject: content.subject, html: content.html, text: content.text })
+        .catch((err) => console.error('[punctual] host-added email not sent', err))
+    }
+  }
 
   app.post('/dashboard/event-types', requireSession, async (c) => {
     const form = await c.req.formData()
@@ -650,8 +779,20 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
       )
     }
 
-    await repos.eventTypes.create({ ...draft, id: `evt_${ports.crypto.randomToken(12)}` })
+    const created = await repos.eventTypes.create({ ...draft, id: `evt_${ports.crypto.randomToken(12)}` })
     await advanceBookmark(c)
+    if (created.ownerTeamId) {
+      // Every member hosts a new team event type until the admin narrows
+      // it: tell them, and land on the edit page where the Hosts block is.
+      const members = await repos.teams.members(created.ownerTeamId)
+      await notifyNewHosts(
+        c,
+        created,
+        new Set(),
+        members.map((m) => ({ userId: m.userId, required: true, scheduleId: null })),
+      )
+      return c.redirect(`/dashboard/event-types/${encodeURIComponent(created.id)}?created=1`, 302)
+    }
     return c.redirect('/dashboard', 302)
   })
 
@@ -667,6 +808,14 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     const read = readEventTypeForm(form, user.id)
     const draft = { ...read.draft, id: existing.id, createdAt: existing.createdAt }
     const errors = await validateEventType(repos, user, draft, read.questionsText, existing.id)
+
+    // The Hosts block only exists for the team the event type was SAVED
+    // under: a change of owner clears the set (every member of the new
+    // team, until the admin narrows it), same as a fresh create.
+    const sameTeam = draft.ownerTeamId !== null && draft.ownerTeamId === existing.ownerTeamId
+    const choices = sameTeam ? await hostChoicesFor(c, { ...existing, schedulingType: draft.schedulingType }) : []
+    const hostRows = sameTeam ? readHostsForm(form, draft, choices, errors) : null
+
     if (Object.keys(errors).length > 0) {
       return c.html(
         eventTypeForm({
@@ -679,12 +828,43 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
           errors,
           teams: await managedTeams(c),
           schedules: await repos.availability.listForUser(user.id),
+          hostChoices: choices,
         }),
         400,
       )
     }
 
+    const before = new Set(choices.filter((ch) => ch.selected).map((ch) => ch.user.id))
     await repos.eventTypes.update(existing.id, draft)
+    if (draft.ownerTeamId !== null) {
+      // Atomic replace, guarded in SQL: a host who left the team or a
+      // schedule deleted since the page loaded fails the whole set, and the
+      // form comes back saying so rather than storing a dangling reference.
+      const ok = await repos.eventTypeHosts.replace(existing.id, sameTeam ? (hostRows ?? []) : [])
+      if (!ok) {
+        return c.html(
+          eventTypeForm({
+            brandName,
+            user,
+            csrf: c.get('csrf'),
+            emailDelivery,
+            eventType: draft,
+            questionsText: read.questionsText,
+            errors: { hosts: 'A host is no longer on the team, or a schedule was deleted. Reload the page and try again.' },
+            teams: await managedTeams(c),
+            schedules: await repos.availability.listForUser(user.id),
+            hostChoices: await hostChoicesFor(c, draft),
+          }),
+          409,
+        )
+      }
+      const after = sameTeam
+        ? (hostRows ?? choices.map((ch) => ({ userId: ch.user.id, required: true, scheduleId: null })))
+        : (await repos.teams.members(draft.ownerTeamId)).map((m) => ({ userId: m.userId, required: true, scheduleId: null }))
+      await notifyNewHosts(c, draft, before, after)
+    } else if (existing.ownerTeamId) {
+      await repos.eventTypeHosts.replace(existing.id, [])
+    }
     await advanceBookmark(c)
     return c.redirect('/dashboard', 302)
   })
@@ -818,9 +998,75 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
       emailDelivery,
       schedules,
       creatorNames,
-      ...(who.scope ? { scope: who.scope } : {}),
+      ...(who.scope ? { scope: who.scope } : { teamEvents: await teamEventsFor(c, who.subject) }),
     }
   }
+
+  /**
+   * The team event types `subject` hosts — explicitly, or as a member of a
+   * team whose event type has no explicit set — with their per-event
+   * schedule choice. The "Team events" section of the personal page.
+   */
+  async function teamEventsFor(c: Ctx, subject: User): Promise<TeamEventChoice[]> {
+    const repos = c.get('repos')
+    const out: TeamEventChoice[] = []
+    for (const membership of await repos.teams.memberships(subject.id)) {
+      const team = await repos.teams.byId(membership.teamId)
+      if (!team) continue
+      for (const eventType of await repos.eventTypes.listForTeam(team.id)) {
+        const rows = await repos.eventTypeHosts.forEventType(eventType.id)
+        const mine = rows.find((r) => r.userId === subject.id)
+        if (rows.length > 0 && !mine) continue
+        out.push({ eventType, teamName: team.name, scheduleId: mine?.scheduleId ?? null })
+      }
+    }
+    return out
+  }
+
+  app.post('/dashboard/availability/team-events/:eventTypeId', requireSession, async (c) => {
+    const form = await c.req.formData()
+    if (!(await csrfOk(c, form))) return csrfRejected(c)
+
+    const user = c.get('user')
+    const repos = c.get('repos')
+    const who = selfSubject(c)
+    const eventType = await repos.eventTypes.byId(c.req.param('eventTypeId') ?? '')
+    const choice = eventType
+      ? (await teamEventsFor(c, user)).find((te) => te.eventType.id === eventType.id)
+      : undefined
+    if (!eventType || !choice || !eventType.ownerTeamId) return notFound(c)
+
+    const raw = String(form.get('scheduleId') ?? '').trim()
+    const scheduleId = raw === '' ? null : raw
+    const errorKey = `team-event-${eventType.id}`
+    if (scheduleId && !(await repos.availability.byId(user.id, scheduleId))) {
+      return c.html(schedulesPage({ ...(await schedulesData(c, who)), errors: { [errorKey]: 'Not one of your schedules' } }), 400)
+    }
+
+    const rows = await repos.eventTypeHosts.forEventType(eventType.id)
+    let ok: boolean
+    if (rows.length > 0) {
+      ok = await repos.eventTypeHosts.setSchedule(eventType.id, user.id, scheduleId)
+    } else {
+      // No explicit set yet: the host's choice makes it explicit — every
+      // current member, required, as the implicit set already meant, plus
+      // this one preference. From here on an admin edits the list; new
+      // members no longer join it automatically, and the form says so.
+      const members = await repos.teams.members(eventType.ownerTeamId)
+      ok = await repos.eventTypeHosts.replace(
+        eventType.id,
+        members.map((m) => ({ userId: m.userId, required: true, scheduleId: m.userId === user.id ? scheduleId : null, rrWeight: null })),
+      )
+    }
+    if (!ok) {
+      return c.html(
+        schedulesPage({ ...(await schedulesData(c, who)), errors: { [errorKey]: 'That could not be saved — reload and try again.' } }),
+        409,
+      )
+    }
+    await advanceBookmark(c)
+    return c.html(schedulesPage({ ...(await schedulesData(c, who)), notice: `"${eventType.title}" now uses ${scheduleId ? 'that schedule' : 'your default schedule'}.` }))
+  })
 
   /** Scoped by the subject, same reasoning as `managedTeam` — no cross-user id-guessing. */
   async function subjectSchedule(c: Ctx, who: ScheduleSubject, param: string): Promise<Schedule | null> {

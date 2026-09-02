@@ -33,6 +33,7 @@ import type {
   DateOverride,
   DayWindow,
   EventType,
+  EventTypeHost,
   EventTypeQuestion,
   Schedule,
   Slot,
@@ -440,7 +441,28 @@ export interface EventTypeFormData extends DashboardChrome {
    * offers nothing a host with no other schedule could meaningfully choose.
    */
   schedules?: Schedule[]
+  /**
+   * The owning team's members, as host choices — rendered only when the
+   * event type is team-owned and saved (a create lands on the edit page so
+   * the block has a team to list). See `hostsFields`.
+   */
+  hostChoices?: HostChoice[]
+  /** Set after a create redirected here: the page says what to do next. */
+  notice?: string
   errors?: Record<string, string>
+}
+
+/** One team member as a possible host of the event type being edited. */
+export interface HostChoice {
+  user: User
+  /** The member's own schedules, for the per-event schedule select — an admin sees their names (core/domain/teams.ts). */
+  schedules: Schedule[]
+  /** The stored row, or null when the event type has no explicit set (then every member is a required host on their default). */
+  row: EventTypeHost | null
+  /** Whether this member hosts the event type as things stand. */
+  selected: boolean
+  /** Weight from the team, shown as the placeholder for a per-event override. */
+  teamWeight: number
 }
 
 const LOCATION_OPTIONS: ReadonlyArray<{ value: EventType['locationType']; label: string }> = [
@@ -466,6 +488,7 @@ export function eventTypeForm(d: EventTypeFormData): string {
 
   return (
     shellTop(d, editing ? 'Edit event type' : 'New event type', 'events') +
+    (d.notice ? notice(d.notice) : '') +
     `<section class="pu-card" aria-label="${editing ? 'Edit event type' : 'New event type'}">
   <h1>${editing ? 'Edit event type' : 'New event type'}</h1>
   <form method="post" action="${escapeHtml(action)}">
@@ -484,6 +507,7 @@ export function eventTypeForm(d: EventTypeFormData): string {
     ${fieldError('slug', errors)}
 
     ${ownershipFields(d, teams, errors)}
+    ${hostsFields(d, errors)}
 
     <label for="description">Description</label>
     <textarea id="description" name="description" maxlength="2000"${describedBy('description', errors)}>${escapeHtml(et?.description ?? '')}</textarea>
@@ -636,6 +660,77 @@ function ownershipFields(d: EventTypeFormData, teams: Team[], errors: Record<str
 }
 
 /**
+ * The hosts of a team-owned event type: who, required or optional (collective)
+ * or weighted (round-robin), and which of THEIR schedules this event type
+ * draws from. Server-rendered checkboxes and selects, no client JS; the
+ * route reads the whole block back and replaces the set atomically.
+ *
+ * Rendered only with `hostChoices` — an edit of a team-owned event type. A
+ * create has no saved team to list yet, so it lands on the edit page.
+ */
+function hostsFields(d: EventTypeFormData, errors: Record<string, string>): string {
+  const choices = d.hostChoices
+  if (!choices || choices.length === 0) return fieldError('hosts', errors)
+  const collective = d.eventType?.schedulingType === 'collective'
+  const explicit = choices.some((c) => c.row !== null)
+  const teamId = d.eventType?.ownerTeamId ?? ''
+
+  const rows = choices
+    .map((c) => {
+      const uid = escapeHtml(c.user.id)
+      const name = c.user.name || c.user.slug
+      const enc = encodeURIComponent(c.user.id)
+      const scheduleOptions = c.schedules
+        .map(
+          (sch) =>
+            `<option value="${escapeHtml(sch.id)}"${c.row?.scheduleId === sch.id ? ' selected' : ''}>${escapeHtml(sch.name)}${sch.isDefault ? ' (default)' : ''}</option>`,
+        )
+        .join('')
+      const mode = collective
+        ? `<select name="host-${uid}-mode" aria-label="${escapeHtml(name)}: required or optional">
+            <option value="required"${c.row?.required !== false ? ' selected' : ''}>Required</option>
+            <option value="optional"${c.row?.required === false ? ' selected' : ''}>Optional</option>
+          </select>`
+        : `<input name="host-${uid}-weight" type="number" min="1" max="100" aria-label="${escapeHtml(name)}: round-robin weight"
+                 value="${c.row?.rrWeight == null ? '' : c.row.rrWeight}" placeholder="${c.teamWeight}" style="width:5rem">`
+      return `<tr>
+        <td><label style="display:flex;align-items:center;gap:.6rem;margin:0;font-weight:400">
+          <input type="checkbox" name="host-${uid}" value="on"${c.selected ? ' checked' : ''}>
+          ${avatarHtml({ key: c.user.avatarKey, name, size: 28 })}
+          <span>${escapeHtml(name)}</span></label></td>
+        <td>${mode}</td>
+        <td><select name="host-${uid}-schedule" aria-label="${escapeHtml(name)}: schedule for this event type">
+            <option value=""${!c.row?.scheduleId ? ' selected' : ''}>Default</option>${scheduleOptions}
+          </select>
+          <a class="pu-muted" style="font-size:.8125rem;white-space:nowrap" href="/dashboard/teams/${encodeURIComponent(teamId)}/members/${enc}/availability">+ New schedule for ${escapeHtml(name.split(' ')[0] ?? name)}</a></td>
+      </tr>`
+    })
+    .join('\n')
+
+  return `<fieldset style="border:0;padding:0;margin:1rem 0 0">
+      <legend style="font-weight:600">Hosts</legend>
+      <p class="pu-muted" style="font-size:.8125rem;margin:.25rem 0 .5rem">
+        ${
+          collective
+            ? 'Slots are when every <strong>required</strong> host is free. An optional host joins a booking when free and is left out when not.'
+            : 'One of the ticked hosts takes each booking; a higher weight takes a proportionally larger share. Blank uses the team weight.'
+        }
+        ${
+          explicit
+            ? 'This event type has its own host list; new team members are not added to it automatically.'
+            : 'Every team member hosts this event type until you change the list below; new members join it automatically.'
+        }</p>
+      <div class="pu-docs-table-wrap"><table style="width:100%">
+        <thead><tr><th scope="col" style="text-align:left">Host</th>
+          <th scope="col" style="text-align:left">${collective ? 'Attendance' : 'Weight'}</th>
+          <th scope="col" style="text-align:left">Schedule for this event type</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>
+      ${fieldError('hosts', errors)}
+    </fieldset>`
+}
+
+/**
  * Same discipline as `ownershipFields`'s scheduling select: always visible
  * when rendered, no client JS involved, and the value is ignored server-side
  * (readEventTypeForm) for a team-owned draft — a team event type has
@@ -660,7 +755,7 @@ function scheduleField(d: EventTypeFormData, errors: Record<string, string>): st
       ${options}
     </select>
     <p class="pu-muted" style="font-size:.8125rem;margin:.25rem 0 0">
-      Which hours this event type draws from. Ignored for a team-owned event.</p>
+      Which hours this event type draws from. A team-owned event type sets this per host, in the Hosts block above.</p>
     ${fieldError('scheduleId', errors)}`
 }
 
@@ -726,9 +821,19 @@ export interface ScheduleScope {
   team: Team
 }
 
+/** One team event type the signed-in user hosts, and which of their schedules it draws from. */
+export interface TeamEventChoice {
+  eventType: EventType
+  teamName: string
+  /** The host's current per-event schedule; null = their default. */
+  scheduleId: string | null
+}
+
 export interface SchedulesPageData extends DashboardChrome {
   schedules: Schedule[]
   scope?: ScheduleScope
+  /** Personal page only: the "Team events" section. Absent or empty = not rendered. */
+  teamEvents?: TeamEventChoice[]
   /**
    * Display names for `Schedule.createdBy` ids that are NOT the subject —
    * the "set up by …" badge. An id missing here (creator since deleted)
@@ -806,12 +911,47 @@ export function schedulesPage(d: SchedulesPageData): string {
   <p class="pu-muted">Each of your event types draws its hours from one of these schedules &mdash;
     assign a specific one from the event type's own edit page, or leave it on the default.</p>`
 
+  const teamEvents =
+    !d.scope && d.teamEvents && d.teamEvents.length > 0
+      ? `<section class="pu-card" aria-label="Team events" style="margin-top:1.5rem">
+    <h2>Team events</h2>
+    <p class="pu-muted" style="font-size:.8125rem;margin:.25rem 0 .75rem">
+      Team event types you host, and which of your schedules each one draws from. A team admin may have
+      set these up; you can change them at any time.</p>
+    <div style="display:grid;gap:.75rem">
+      ${d.teamEvents
+        .map((te) => {
+          const id = escapeHtml(te.eventType.id)
+          const options = d.schedules
+            .map(
+              (sch) =>
+                `<option value="${escapeHtml(sch.id)}"${te.scheduleId === sch.id ? ' selected' : ''}>${escapeHtml(sch.name)}${sch.isDefault ? ' (default)' : ''}</option>`,
+            )
+            .join('')
+          return `<form method="post" action="/dashboard/availability/team-events/${encodeURIComponent(te.eventType.id)}"
+            style="display:flex;gap:.75rem;align-items:center;flex-wrap:wrap;margin:0">
+        ${csrfField(d.csrf)}
+        <label for="team-event-${id}" style="margin:0;flex:1 1 12rem">${escapeHtml(te.eventType.title)}
+          <span class="pu-muted" style="font-size:.8125rem"> · ${escapeHtml(te.teamName)} · ${te.eventType.schedulingType === 'collective' ? 'collective' : 'round robin'}</span></label>
+        <select id="team-event-${id}" name="scheduleId">
+          <option value=""${te.scheduleId ? '' : ' selected'}>Default</option>${options}
+        </select>
+        <button class="pu-btn pu-btn-ghost" type="submit" style="padding:.3rem .6rem;font-size:.8125rem">Save</button>
+        ${fieldError(`team-event-${te.eventType.id}`, errors)}
+      </form>`
+        })
+        .join('\n')}
+    </div>
+  </section>`
+      : ''
+
   return (
     shellTop(d, d.scope ? `${subject.name || subject.slug} · Availability` : 'Availability', d.scope ? 'teams' : 'availability') +
     (d.notice ? notice(d.notice) : '') +
     `<section aria-label="Availability schedules">
   ${heading}
   <div style="display:grid;gap:1rem">${cards}</div>
+  ${teamEvents}
   <form class="pu-card" method="post" action="${base}/new" style="margin-top:1.5rem">
     ${csrfField(d.csrf)}
     <h2>New schedule</h2>

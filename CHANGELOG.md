@@ -34,6 +34,18 @@ still change interfaces.
   private copies of "who hosts this" in the booking page, the dashboard and
   the API are now one resolver. The dashboard and API surfaces for editing
   the set follow in their own changes.
+- **Hosts block on a team event type's edit page.** A team admin ticks who
+  hosts it, marks each collective host required or optional (or gives a
+  round-robin host a per-event weight), and picks which of that member's
+  schedules the event type draws from — by name, with a link to set a new
+  one up on the member's behalf. Left at its defaults the list stays
+  implicit and new members keep joining automatically; touched, it becomes
+  the event type's own list. A newly added host gets an email saying which
+  of their schedules the slots will use and where to change it; creating a
+  team event type lands on its edit page and tells every other member.
+- **"Team events" on the Availability page**: each team event type a host
+  is on, with a select of their own schedules for it — the host's side of
+  the same setting, changeable at any time.
 - REST: `PATCH`/`DELETE /event-types/:id` on a team-owned event type now
   require a team admin's key (403 otherwise); reading and listing are
   unchanged for every member.

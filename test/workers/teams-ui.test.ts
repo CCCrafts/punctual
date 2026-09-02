@@ -21,6 +21,7 @@ import {
   SESSION_TTL_MS,
 } from '../../src/core/domain/auth-service.js'
 import {
+  type FakeEmailSender,
   createFakeBlobStorage,
   createFakeEmailSender,
   createFakeRateLimiter,
@@ -1327,5 +1328,240 @@ describe('event type hosts', () => {
     expect(await repos().eventTypeHosts.forEventType(et.id)).toEqual([])
     // Cleanup for later suites: back to the implicit set.
     await repos().eventTypeHosts.replace(crewEventTypeId, [])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// The Hosts block, the host-added email, and the host-side "Team events".
+// ---------------------------------------------------------------------------
+
+describe('hosts editor', () => {
+  const CAROL_ID = 'usr_carol'
+  const repos = () => createD1Repositories(db, { consistency: 'bookmark' })
+  const sent = () => (ports.email as FakeEmailSender).sent
+  let crewId = ''
+  let crewEventTypeId = ''
+
+  const base = (over: Record<string, string> = {}) => ({
+    title: 'Crew call',
+    slug: 'crew-call',
+    durationMinutes: '30',
+    owner: crewId,
+    schedulingType: 'collective',
+    active: '1',
+    ...over,
+  })
+
+  beforeAll(async () => {
+    crewId = (await db.prepare('SELECT id FROM teams WHERE slug = ?').bind('roles-crew').first<{ id: string }>())!.id
+    crewEventTypeId = (await db.prepare('SELECT id FROM event_types WHERE slug = ?').bind('crew-call').first<{ id: string }>())!.id
+    await repos().teams.addMember({ teamId: crewId, userId: CAROL_ID, role: 'member', rrWeight: 2 })
+    await repos().eventTypeHosts.replace(crewEventTypeId, [])
+    // Bob's per-event schedule choice, created earlier in the suite or here.
+    const workday = [{ startMinute: 9 * 60, endMinute: 17 * 60 }]
+    if (!(await repos().availability.byId(BOB_ID, 'sch_bob_support'))) {
+      await repos().availability.create(BOB_ID, {
+        id: 'sch_bob_support', userId: BOB_ID, name: 'Support hours', isDefault: false, timezone: 'UTC',
+        weekly: [[], workday, workday, workday, workday, workday, []], overrides: [],
+      })
+    }
+    sent().length = 0
+  })
+
+  it('the edit form lists every member, with their schedules by name and a link to set one up', async () => {
+    const alice = await seedSession(ALICE_ID)
+    const html = await (await get(`/dashboard/event-types/${crewEventTypeId}`, alice)).text()
+    expect(html).toContain('<legend style="font-weight:600">Hosts</legend>')
+    for (const id of [ALICE_ID, BOB_ID, CAROL_ID]) {
+      expect(html).toContain(`name="host-${id}" value="on" checked`)
+      expect(html).toContain(`name="host-${id}-mode"`)
+      expect(html).toContain(`name="host-${id}-schedule"`)
+    }
+    expect(html).toContain('Support hours') // Bob's schedule, visible to the admin
+    expect(html).toContain(`/dashboard/teams/${crewId}/members/${BOB_ID}/availability">+ New schedule for Bob`)
+    expect(html).toContain('new members join it automatically')
+  })
+
+  it('leaving every host at its default keeps the implicit set — no rows, no emails', async () => {
+    const alice = await seedSession(ALICE_ID)
+    const csrf = await csrfFrom(`/dashboard/event-types/${crewEventTypeId}`, alice)
+    const res = await post(
+      `/dashboard/event-types/${crewEventTypeId}`,
+      base({ csrf, [`host-${ALICE_ID}`]: 'on', [`host-${BOB_ID}`]: 'on', [`host-${CAROL_ID}`]: 'on' }),
+      alice,
+    )
+    expect(res.status).toBe(302)
+    expect(await repos().eventTypeHosts.forEventType(crewEventTypeId)).toEqual([])
+    expect(sent()).toHaveLength(0)
+  })
+
+  it('a narrowed set is stored in form order with attendance and schedule; only a NEW host is emailed', async () => {
+    const alice = await seedSession(ALICE_ID)
+    const csrf = await csrfFrom(`/dashboard/event-types/${crewEventTypeId}`, alice)
+    // Carol off, Bob optional on his Support hours, Alice required.
+    const res = await post(
+      `/dashboard/event-types/${crewEventTypeId}`,
+      base({
+        csrf,
+        [`host-${ALICE_ID}`]: 'on',
+        [`host-${ALICE_ID}-mode`]: 'required',
+        [`host-${BOB_ID}`]: 'on',
+        [`host-${BOB_ID}-mode`]: 'optional',
+        [`host-${BOB_ID}-schedule`]: 'sch_bob_support',
+      }),
+      alice,
+    )
+    expect(res.status).toBe(302)
+    const rows = await repos().eventTypeHosts.forEventType(crewEventTypeId)
+    expect(rows.map((r) => [r.userId, r.required, r.scheduleId])).toEqual([
+      [ALICE_ID, true, null],
+      [BOB_ID, false, 'sch_bob_support'],
+    ])
+    // Bob already hosted it (implicitly): nothing to tell him.
+    expect(sent()).toHaveLength(0)
+
+    // The form now shows the explicit state, Carol unticked.
+    const html = await (await get(`/dashboard/event-types/${crewEventTypeId}`, alice)).text()
+    expect(html).toContain(`name="host-${CAROL_ID}" value="on">`)
+    expect(html).toContain('new team members are not added to it automatically')
+
+    // Adding Carol back as optional emails her, and only her.
+    const csrf2 = await csrfFrom(`/dashboard/event-types/${crewEventTypeId}`, alice)
+    const again = await post(
+      `/dashboard/event-types/${crewEventTypeId}`,
+      base({
+        csrf: csrf2,
+        [`host-${ALICE_ID}`]: 'on',
+        [`host-${BOB_ID}`]: 'on',
+        [`host-${BOB_ID}-mode`]: 'optional',
+        [`host-${BOB_ID}-schedule`]: 'sch_bob_support',
+        [`host-${CAROL_ID}`]: 'on',
+        [`host-${CAROL_ID}-mode`]: 'optional',
+      }),
+      alice,
+    )
+    expect(again.status).toBe(302)
+    expect(sent().map((m) => m.to)).toEqual(['carol@example.test'])
+    expect(sent()[0]!.subject).toBe("You're a host on Crew call")
+    expect(sent()[0]!.text).toContain('Optional')
+    expect(sent()[0]!.text).toContain('Alice Host added you')
+    expect(sent()[0]!.text).toContain('/dashboard/availability')
+    sent().length = 0
+  })
+
+  it('refuses no hosts, and a collective set with no required host', async () => {
+    const alice = await seedSession(ALICE_ID)
+    const csrf = await csrfFrom(`/dashboard/event-types/${crewEventTypeId}`, alice)
+    const none = await post(`/dashboard/event-types/${crewEventTypeId}`, base({ csrf }), alice)
+    expect(none.status).toBe(400)
+    expect(await none.text()).toContain('Tick at least one host')
+
+    const allOptional = await post(
+      `/dashboard/event-types/${crewEventTypeId}`,
+      base({ csrf, [`host-${ALICE_ID}`]: 'on', [`host-${ALICE_ID}-mode`]: 'optional' }),
+      alice,
+    )
+    expect(allOptional.status).toBe(400)
+    expect(await allOptional.text()).toContain('at least one required host')
+    // Nothing changed underneath.
+    expect((await repos().eventTypeHosts.forEventType(crewEventTypeId)).map((r) => r.userId)).toEqual([ALICE_ID, BOB_ID, CAROL_ID])
+  })
+
+  it('round robin: a per-event weight is validated and stored; blank means the team weight', async () => {
+    const alice = await seedSession(ALICE_ID)
+    const csrf = await csrfFrom(`/dashboard/event-types/${crewEventTypeId}`, alice)
+    const bad = await post(
+      `/dashboard/event-types/${crewEventTypeId}`,
+      base({ csrf, schedulingType: 'round_robin', [`host-${ALICE_ID}`]: 'on', [`host-${ALICE_ID}-weight`]: '250' }),
+      alice,
+    )
+    expect(bad.status).toBe(400)
+    expect(await bad.text()).toContain('whole number from 1 to 100')
+
+    const ok = await post(
+      `/dashboard/event-types/${crewEventTypeId}`,
+      base({
+        csrf,
+        schedulingType: 'round_robin',
+        [`host-${ALICE_ID}`]: 'on',
+        [`host-${ALICE_ID}-weight`]: '3',
+        [`host-${CAROL_ID}`]: 'on',
+      }),
+      alice,
+    )
+    expect(ok.status).toBe(302)
+    const rows = await repos().eventTypeHosts.forEventType(crewEventTypeId)
+    expect(rows.map((r) => [r.userId, r.rrWeight])).toEqual([[ALICE_ID, 3], [CAROL_ID, null]])
+    // Back to collective with Bob on it for the host-side tests below.
+    const csrf2 = await csrfFrom(`/dashboard/event-types/${crewEventTypeId}`, alice)
+    await post(
+      `/dashboard/event-types/${crewEventTypeId}`,
+      base({ csrf: csrf2, [`host-${ALICE_ID}`]: 'on', [`host-${BOB_ID}`]: 'on', [`host-${BOB_ID}-mode`]: 'optional' }),
+      alice,
+    )
+    sent().length = 0
+  })
+
+  it('a host picks which of their schedules a team event type uses, from their own Availability page', async () => {
+    const bob = await seedSession(BOB_ID)
+    const html = await (await get('/dashboard/availability', bob)).text()
+    expect(html).toContain('Team events')
+    expect(html).toContain(`action="/dashboard/availability/team-events/${crewEventTypeId}"`)
+
+    const csrf = await csrfFrom('/dashboard/availability', bob)
+    const res = await post(`/dashboard/availability/team-events/${crewEventTypeId}`, { scheduleId: 'sch_bob_support', csrf }, bob)
+    expect(res.status).toBe(200)
+    expect(await res.text()).toContain('now uses that schedule')
+    const mine = (await repos().eventTypeHosts.forEventType(crewEventTypeId)).find((r) => r.userId === BOB_ID)
+    expect(mine?.scheduleId).toBe('sch_bob_support')
+
+    // Someone else's schedule id is refused.
+    const foreign = await post(`/dashboard/availability/team-events/${crewEventTypeId}`, { scheduleId: 'sch_alice_default', csrf }, bob)
+    expect(foreign.status).toBe(400)
+  })
+
+  it("a host's choice on an event type with no explicit set makes the set explicit, everyone required", async () => {
+    const et = await repos().eventTypes.create({
+      ...(await repos().eventTypes.byId(crewEventTypeId))!,
+      id: 'et_crew_implicit',
+      slug: 'crew-implicit',
+    })
+    const bob = await seedSession(BOB_ID)
+    const csrf = await csrfFrom('/dashboard/availability', bob)
+    const res = await post(`/dashboard/availability/team-events/${et.id}`, { scheduleId: 'sch_bob_support', csrf }, bob)
+    expect(res.status).toBe(200)
+    const rows = await repos().eventTypeHosts.forEventType(et.id)
+    expect(rows.map((r) => r.userId).sort()).toEqual([ALICE_ID, BOB_ID, CAROL_ID].sort())
+    expect(rows.every((r) => r.required)).toBe(true)
+    expect(rows.find((r) => r.userId === BOB_ID)?.scheduleId).toBe('sch_bob_support')
+  })
+
+  it('someone who does not host the event type gets a 404 from the team-events route', async () => {
+    const outsider = await seedSession(OUTSIDER_ID)
+    const csrf = await csrfFrom('/dashboard/availability', outsider)
+    expect((await post(`/dashboard/availability/team-events/${crewEventTypeId}`, { scheduleId: '', csrf }, outsider)).status).toBe(404)
+    // Carol is on the team but not on this event type's explicit set.
+    const carol = await seedSession(CAROL_ID)
+    const csrfC = await csrfFrom('/dashboard/availability', carol)
+    expect((await post(`/dashboard/availability/team-events/${crewEventTypeId}`, { scheduleId: '', csrf: csrfC }, carol)).status).toBe(404)
+  })
+
+  it('creating a team event type lands on its edit page and tells every other member they host it', async () => {
+    sent().length = 0
+    const alice = await seedSession(ALICE_ID)
+    const csrf = await csrfFrom('/dashboard/event-types/new', alice)
+    const res = await post(
+      '/dashboard/event-types',
+      { title: 'Crew standup', slug: 'crew-standup', durationMinutes: '15', owner: crewId, schedulingType: 'round_robin', active: '1', csrf },
+      alice,
+    )
+    expect(res.status).toBe(302)
+    const location = res.headers.get('location') ?? ''
+    expect(location).toMatch(/^\/dashboard\/event-types\/evt_[A-Za-z0-9_-]+\?created=1$/)
+    expect(sent().map((m) => m.to).sort()).toEqual(['bob@example.test', 'carol@example.test'])
+    expect(sent()[0]!.text).toContain('Round robin')
+    const page = await (await get(location, alice)).text()
+    expect(page).toContain('Event type created')
+    expect(page).toContain('<legend style="font-weight:600">Hosts</legend>')
   })
 })

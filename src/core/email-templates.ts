@@ -566,6 +566,55 @@ export function bookingReminder(ctx: ReminderEmailContext): EmailContent {
   return render(input, `${prefix}: ${ctx.eventType.title} — ${formatWhenShort(ctx.booking.startUtc, tz)}`)
 }
 
+export interface HostAddedInput {
+  brandName: string
+  hostName: string
+  eventTitle: string
+  teamName: string
+  schedulingType: 'round_robin' | 'collective'
+  /** Collective only: whether the host is required. */
+  required: boolean
+  /** The schedule the admin picked for them, or null for their default. */
+  scheduleName: string | null
+  /** Who did it — named, so the email is not an anonymous system notice. */
+  editorName: string
+  availabilityUrl: string
+  supportEmail?: string
+}
+
+/**
+ * "You're a host on …" — sent when a team admin puts someone on an event
+ * type. The one thing it must carry is which of the host's schedules the
+ * slots will come from, and where to change that: an admin arranging
+ * availability on someone's behalf is exactly the case where the host
+ * needs to be told.
+ */
+export function hostAddedEmail(input: HostAddedInput): EmailContent {
+  const attendance =
+    input.schedulingType === 'collective'
+      ? input.required
+        ? 'Required — slots are offered only when you are free'
+        : 'Optional — you join a booking when you are free'
+      : 'Round robin — bookings rotate among the hosts'
+  const shellInput: ShellInput = {
+    brandName: input.brandName,
+    preheader: `${input.editorName} added you as a host on ${input.eventTitle}.`,
+    heading: `You're a host on ${input.eventTitle}`,
+    intro: `${input.editorName} added you as a host on "${input.eventTitle}", a ${input.teamName} event type. Slots use ${input.scheduleName ? `your "${input.scheduleName}" schedule` : 'your default schedule'}.`,
+    rows: [
+      { label: 'Team', value: input.teamName },
+      { label: 'Attendance', value: attendance },
+      { label: 'Your schedule', value: input.scheduleName ?? 'Default' },
+    ],
+    ctas: [{ label: 'Review your availability', url: input.availabilityUrl, primary: true }],
+    notes: [
+      'You can change which of your schedules this event type uses, or edit the schedule itself, at any time.',
+      ...(input.supportEmail ? [`Questions? Write to ${input.supportEmail}.`] : []),
+    ],
+  }
+  return render(shellInput, `You're a host on ${input.eventTitle}`)
+}
+
 export interface MagicLinkInput {
   url: string
   /** The IP that asked for the link. ADR-0005 §3 requires it in the body. */
