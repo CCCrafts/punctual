@@ -18,14 +18,97 @@ export interface OgElement {
   props: { children?: OgElement | OgElement[] | string; style?: Record<string, string | number>; [key: string]: unknown }
 }
 
+/** One face on the card: a PNG data URI when the host uploaded a photo, else an initial on the brand green. */
+export interface OgAvatar {
+  src?: string
+  initial: string
+}
+
 export interface OgCardProps {
   /** "Book {duration} min" — already formatted, so card.ts has no duration/pluralisation policy of its own. */
   titleLine: string
-  /** "with {host}" */
+  /** "with {host}" / "with Alice, Bob and Carol" / "with the Support team" */
   subtitleLine: string
   /** e.g. "10:30 GMT+3" */
   timeLabel: string
   brandName: string
+  /**
+   * Who the meeting is with, as faces: one for a personal event type, up
+   * to three for a team's. Empty renders the text-only card.
+   */
+  avatars?: OgAvatar[]
+  /** Hosts beyond the three shown, as a "+N" disc after the stack. */
+  extraCount?: number
+}
+
+/** Personal: one large face. Team: a stack of up to three, overlapping, plus the "+N" disc. */
+const SINGLE_SIZE = 220
+const STACK_SIZE = 132
+
+function avatarNode(a: OgAvatar, size: number, overlap = 0): OgElement {
+  const ring = { border: `6px solid ${INK}`, borderRadius: '50%' }
+  if (a.src) {
+    return {
+      type: 'img',
+      props: {
+        src: a.src,
+        width: size,
+        height: size,
+        style: { ...ring, width: `${size}px`, height: `${size}px`, objectFit: 'cover', marginLeft: `${-overlap}px` },
+      },
+    }
+  }
+  return {
+    type: 'div',
+    props: {
+      style: {
+        ...ring,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: `${size}px`,
+        height: `${size}px`,
+        marginLeft: `${-overlap}px`,
+        backgroundColor: '#0E7C4C',
+        color: PAPER,
+        fontFamily: MONO,
+        fontSize: `${Math.round(size * 0.42)}px`,
+        fontWeight: 600,
+      },
+      children: a.initial,
+    },
+  }
+}
+
+function avatarsNode(avatars: OgAvatar[], extraCount: number): OgElement {
+  if (avatars.length === 1 && extraCount === 0) {
+    return { type: 'div', props: { style: { display: 'flex' }, children: [avatarNode(avatars[0]!, SINGLE_SIZE)] } }
+  }
+  const faces = avatars.slice(0, 3).map((a, i) => avatarNode(a, STACK_SIZE, i === 0 ? 0 : 28))
+  if (extraCount > 0) {
+    faces.push({
+      type: 'div',
+      props: {
+        style: {
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          width: `${STACK_SIZE}px`,
+          height: `${STACK_SIZE}px`,
+          marginLeft: '-28px',
+          borderRadius: '50%',
+          border: `6px solid ${INK}`,
+          backgroundColor: '#2A332E',
+          color: PAPER,
+          fontFamily: MONO,
+          fontSize: '44px',
+          fontWeight: 600,
+        },
+        children: `+${extraCount}`,
+      },
+    })
+  }
+  return { type: 'div', props: { style: { display: 'flex', alignItems: 'center' }, children: faces } }
 }
 
 const INK = '#0F1512'
@@ -47,6 +130,8 @@ function titleFontSize(titleLine: string, subtitleLine: string): number {
 
 export function buildOgCard(props: OgCardProps): OgElement {
   const fontSize = titleFontSize(props.titleLine, props.subtitleLine)
+  const avatars = props.avatars ?? []
+  const faces = avatars.length > 0 ? [avatarsNode(avatars, props.extraCount ?? 0)] : []
 
   return {
     type: 'div',
@@ -73,6 +158,7 @@ export function buildOgCard(props: OgCardProps): OgElement {
               gap: '12px',
             },
             children: [
+              ...faces,
               {
                 type: 'div',
                 props: {

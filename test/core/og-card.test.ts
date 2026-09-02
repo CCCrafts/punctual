@@ -49,3 +49,38 @@ describe('buildOgCard', () => {
     expect(serialised).not.toContain('Punctual')
   })
 })
+
+describe('buildOgCard with faces', () => {
+  it('one host: a single large face, a photo when there is one', () => {
+    const tree = JSON.stringify(
+      buildOgCard({ titleLine: 'Book 30 min', subtitleLine: 'with Serge', timeLabel: '10:30 GMT+3', brandName: 'Punctual', avatars: [{ src: 'data:image/png;base64,AAAA', initial: 'S' }] }),
+    )
+    expect(tree).toContain('"type":"img"')
+    expect(tree).toContain('data:image/png;base64,AAAA')
+    expect(tree).toContain('"width":220')
+  })
+
+  it('a team: up to three faces as initials when unphotographed, then a "+N" disc', () => {
+    const tree = JSON.stringify(
+      buildOgCard({
+        titleLine: 'Book 30 min',
+        subtitleLine: 'with the OG Crew team',
+        timeLabel: '10:30 GMT+3',
+        brandName: 'Punctual',
+        avatars: [{ initial: 'A' }, { initial: 'B' }, { initial: 'C' }],
+        extraCount: 2,
+      }),
+    )
+    expect(tree).not.toContain('"type":"img"')
+    expect(tree).toContain('"children":"A"')
+    expect(tree).toContain('"children":"C"')
+    expect(tree).toContain('"children":"+2"')
+    expect(tree).toContain('"width":"132px"')
+  })
+
+  it('no avatars: the text-only card, unchanged', () => {
+    const tree = JSON.stringify(buildOgCard({ titleLine: 'Book 30 min', subtitleLine: 'with Serge', timeLabel: '10:30 GMT+3', brandName: 'Punctual' }))
+    expect(tree).not.toContain('"type":"img"')
+    expect(tree).not.toContain('132px')
+  })
+})

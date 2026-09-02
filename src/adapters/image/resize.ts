@@ -62,3 +62,23 @@ export function resizeToSquareThumbnail(bytes: Uint8Array): Uint8Array | null {
     resized?.free()
   }
 }
+
+/**
+ * Re-encodes any image photon can decode as PNG. The OG card renderer needs
+ * this because avatar thumbnails are stored as WebP (small, and every
+ * browser reads it) while resvg — which rasterises satori's SVG — decodes
+ * PNG and JPEG only. Returns `null` on any failure, same contract as
+ * `resizeToSquareThumbnail`.
+ */
+export function toPng(bytes: Uint8Array): Uint8Array | null {
+  let decoded: PhotonImage | undefined
+  try {
+    decoded = PhotonImage.new_from_byteslice(bytes)
+    if (decoded.get_width() === 0 || decoded.get_height() === 0) return null
+    return decoded.get_bytes()
+  } catch {
+    return null
+  } finally {
+    decoded?.free()
+  }
+}

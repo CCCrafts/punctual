@@ -69,7 +69,35 @@ describe('the dynamic OG card', () => {
 
     // Cached under the documented key/prefix (route.ts, ADR-0006 §1 split) —
     // a second request must not need to re-render.
-    const cached = await env.CACHE.get('og:v1:og-host-a:thirty', 'arrayBuffer')
+    const cached = await env.CACHE.get('og:v2:og-host-a:thirty:usr_og_a:-', 'arrayBuffer')
+    expect(cached).not.toBeNull()
+  })
+
+  it('renders a team card naming the hosts, and one with a real avatar', async () => {
+    const now = Date.now()
+    // A 1x1 PNG — photon decodes it, so the thumbnail path is exercised for real.
+    const png = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='), (ch) => ch.charCodeAt(0))
+    const key = `${'a'.repeat(64)}-thumb.webp`
+    await env.AVATARS.put(key, png, { httpMetadata: { contentType: 'image/webp' } })
+    await env.DB.batch([
+      env.DB.prepare('INSERT INTO users (id,email,name,tz,slug,avatar_key,created_at) VALUES (?,?,?,?,?,?,?)').bind('usr_og_t1', 'og-t1@example.com', 'Alice Host', 'UTC', 'og-alice', key, now),
+      env.DB.prepare('INSERT INTO users (id,email,name,tz,slug,created_at) VALUES (?,?,?,?,?,?)').bind('usr_og_t2', 'og-t2@example.com', 'Bob Host', 'UTC', 'og-bob', now),
+      env.DB.prepare('INSERT INTO teams (id,name,slug,logo_key,created_at) VALUES (?,?,?,?,?)').bind('team_og', 'OG Crew', 'og-crew', null, now),
+      env.DB.prepare('INSERT INTO team_members (team_id,user_id,role,rr_weight) VALUES (?,?,?,?)').bind('team_og', 'usr_og_t1', 'admin', 1),
+      env.DB.prepare('INSERT INTO team_members (team_id,user_id,role,rr_weight) VALUES (?,?,?,?)').bind('team_og', 'usr_og_t2', 'member', 1),
+      env.DB.prepare(
+        `INSERT INTO event_types (id,owner_user_id,owner_team_id,scheduling_type,slug,title,duration_minutes,created_at)
+         VALUES (?,?,?,?,?,?,?,?)`,
+      ).bind('et_og_team', null, 'team_og', 'collective', 'crew', 'Crew call', 30, now),
+    ])
+
+    const res = await getOg('/og/og-crew/crew.png')
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toBe('image/png')
+    const bytes = new Uint8Array(await res.arrayBuffer())
+    expect(Array.from(bytes.slice(0, 4))).toEqual(PNG_MAGIC)
+    // The key names both hosts and Alice's avatar, so a new photo is a new card.
+    const cached = await env.CACHE.get(`og:v2:og-crew:crew:usr_og_t1:${key},usr_og_t2:-`, 'arrayBuffer')
     expect(cached).not.toBeNull()
   })
 

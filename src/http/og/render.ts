@@ -22,16 +22,20 @@ import { Resvg, initWasm } from '@resvg/resvg-wasm'
 // @ts-expect-error - no type declaration for a .wasm import
 import resvgWasmModule from '../../../node_modules/@resvg/resvg-wasm/index_bg.wasm'
 
-import { buildOgCard } from './card.js'
+import { buildOgCard, type OgAvatar } from './card.js'
 import { plexMonoSubset, schibstedGroteskSubset } from './fonts.js'
 import { isRenderSafe } from './safety.js'
 
 export interface OgRenderInput {
+  /** The subtitle's subject: "Alice", "Alice, Bob and Carol", or "the Support team". */
   hostName: string
   brandName: string
   durationMinutes: number
   /** Already formatted for display, e.g. "10:30 GMT+3" — render.ts has no timezone policy of its own. */
   timeLabel: string
+  /** Faces to show — see `OgCardProps.avatars`. Initials are checked for render safety like the labels. */
+  avatars?: OgAvatar[]
+  extraCount?: number
 }
 
 const WIDTH = 1200
@@ -51,12 +55,20 @@ function ensureInit(): Promise<void> {
 export async function renderOgCard(input: OgRenderInput): Promise<Uint8Array | null> {
   const titleLine = `Book ${input.durationMinutes} min`
   const subtitleLine = `with ${input.hostName}`
-  if (!isRenderSafe(titleLine, subtitleLine, input.timeLabel, input.brandName)) return null
+  const avatars = input.avatars ?? []
+  if (!isRenderSafe(titleLine, subtitleLine, input.timeLabel, input.brandName, ...avatars.map((a) => a.initial))) return null
 
   try {
     await ensureInit()
 
-    const element = buildOgCard({ titleLine, subtitleLine, timeLabel: input.timeLabel, brandName: input.brandName })
+    const element = buildOgCard({
+      titleLine,
+      subtitleLine,
+      timeLabel: input.timeLabel,
+      brandName: input.brandName,
+      avatars,
+      extraCount: input.extraCount ?? 0,
+    })
     const svg = await satori(element as unknown as Parameters<typeof satori>[0], {
       width: WIDTH,
       height: HEIGHT,

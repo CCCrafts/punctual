@@ -79,6 +79,13 @@ still change interfaces.
   badged with `createdBy`. MCP `list_event_types` names each team event
   type's hosts and whether they are required; `create_booking` reports who
   actually attends.
+- **The social card shows who the meeting is with.** A personal booking
+  page's OG image carries the host's photo (or their initial on the brand
+  green); a team page's carries up to three hosts as a stack and a "+N"
+  disc, named for collective ("with Alice, Bob and Carol") and by team for
+  round robin ("with the Support team"). Thumbnails are re-encoded from
+  WebP to PNG for the renderer; the cache key carries host ids and avatar
+  keys, so a new photo or a changed host list is a new card.
 - REST: `PATCH`/`DELETE /event-types/:id` on a team-owned event type now
   require a team admin's key (403 otherwise); reading and listing are
   unchanged for every member.

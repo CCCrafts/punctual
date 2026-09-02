@@ -15,6 +15,10 @@ import { Hono, type Context } from 'hono'
 import type { EnginePorts, RequestScope } from '../../ports.js'
 import { formatInZone, offsetLabel } from '../../core/time/zone.js'
 import { renderOgCard } from './render.js'
+import type { OgAvatar } from './card.js'
+import { resolveHosts } from '../../core/domain/hosts.js'
+import { joinNames } from '../pages/booking.js'
+import { toPng } from '../../adapters/image/resize.js'
 
 type Env = Record<string, unknown>
 
@@ -47,9 +51,26 @@ export function buildOgRoutes(ports: EnginePorts): Hono<{ Bindings: Env }> {
     const repos = ports.repositories(publicScope)
     const ctx = await repos.eventTypes.bookingPageContext(userSlug, eventSlug)
     if (!ctx) return c.notFound()
-    const { host, eventType } = ctx
+    const { host, eventType, team } = ctx
 
-    const cacheKey = `og:v1:${userSlug}:${eventSlug}`
+    // Who the meeting is with — the resolved hosts (core/domain/hosts.ts),
+    // so the card and the page agree. Collective names them; round robin
+    // names the team, because a listing must never promise one person
+    // (ADR-0004 §5). The cache key carries the host ids and avatar keys:
+    // a new photo or a changed host list must not serve a stale card for
+    // an hour.
+    const hosts = await resolveHosts(repos, eventType, host)
+    const names = hosts.map((h) => h.user.name || h.user.slug)
+    const subject = !team
+      ? (names[0] ?? host.name) || host.slug
+      : eventType.schedulingType === 'collective'
+        ? names.length <= 3
+          ? joinNames(names)
+          : `${names.slice(0, 2).join(', ')} and ${names.length - 2} more`
+        : `the ${team.name} team`
+    const faceKeys = hosts.map((h) => `${h.user.id}:${h.user.avatarKey ?? '-'}`).join(',')
+    const cacheKey = `og:v2:${userSlug}:${eventSlug}:${faceKeys}`
+
     const cached = await safeGet(ports, cacheKey)
     if (cached) return pngResponse(c, cached)
 
@@ -60,12 +81,21 @@ export function buildOgRoutes(ports: EnginePorts): Hono<{ Bindings: Env }> {
         minute: '2-digit',
         hour12: false,
       })} ${offsetLabel(now, host.tz)}`
-
+      const shown = hosts.slice(0, 3)
+      const avatars: OgAvatar[] = []
+      for (const h of shown) {
+        avatars.push({
+          ...(await avatarDataUri(ports, h.user.avatarKey)),
+          initial: (h.user.name || h.user.slug).trim().charAt(0).toUpperCase() || '?',
+        })
+      }
       return renderOgCard({
-        hostName: host.name || host.slug,
+        hostName: subject,
         brandName: ports.config.brandName,
         durationMinutes: eventType.durationMinutes,
         timeLabel,
+        avatars,
+        extraCount: Math.max(0, hosts.length - shown.length),
       })
     })
     if (!png) return c.redirect(DEFAULT_CARD_PATH, 302)
@@ -75,6 +105,28 @@ export function buildOgRoutes(ports: EnginePorts): Hono<{ Bindings: Env }> {
   })
 
   return app
+}
+
+/**
+ * The host's avatar thumbnail as a PNG data URI for satori, or nothing —
+ * the initial takes over. Thumbnails are WebP in R2 (see avatars/route.ts)
+ * and resvg decodes PNG/JPEG only, hence the re-encode. Any failure —
+ * missing object, undecodable bytes — is the initials fallback, never a
+ * failed card.
+ */
+async function avatarDataUri(ports: EnginePorts, key: string | null): Promise<{ src?: string }> {
+  if (!key) return {}
+  try {
+    const object = await ports.blobStorage.get(key)
+    if (!object) return {}
+    const png = toPng(object.bytes)
+    if (!png) return {}
+    let binary = ''
+    for (let i = 0; i < png.length; i++) binary += String.fromCharCode(png[i]!)
+    return { src: `data:image/png;base64,${btoa(binary)}` }
+  } catch {
+    return {}
+  }
 }
 
 /** Joins a concurrent request for `key` onto an already-running render rather than starting a second one. */
