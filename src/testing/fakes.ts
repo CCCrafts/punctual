@@ -22,6 +22,7 @@ import type {
 import type {
   ApiKeyRepository,
   AvailabilityRepository,
+  EventTypeHostRepository,
   TeamRepository,
   BlobStorage,
   BookingRepository,
@@ -294,6 +295,14 @@ export function createFakeRepositories(): FakeRepositories {
       return { users: users.size, eventTypes: 0, bookings: bookings.size }
     },
     eventTypes: unimplemented('eventTypes'),
+    // No explicit host sets in the core fakes: every team event type is
+    // "all members, required, default schedules", which is what an empty
+    // result means everywhere this is read.
+    eventTypeHosts: unimplemented<EventTypeHostRepository>('eventTypeHosts', {
+      async forEventType() {
+        return []
+      },
+    }),
     availability: availabilityRepo,
     slotLocks: unimplemented('slotLocks'),
     // Enough of a real teams repo for the flows core tests exercise —

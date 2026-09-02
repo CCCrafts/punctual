@@ -37,6 +37,13 @@ const DAY = 86_400_000
 
 export interface HostAvailabilityInput {
   hostUserId: string
+  /**
+   * Collective only. A required host (the default) must be free for a slot
+   * to exist; an optional host never constrains the listing and is included
+   * in a slot's `eligibleHostIds` only when free for it. See
+   * `EventTypeHost.required`.
+   */
+  required?: boolean
   availability: Availability
   /** Merged busy time: own bookings (already buffered), holds, external calendars. */
   busy: Interval[]
@@ -185,12 +192,16 @@ export function computeSlots(query: SlotQuery): Slot[] {
   const free = freeByHost(query)
 
   if (et.schedulingType === 'collective') {
-    // Every member must be free for the same instant, so intersect first and
-    // grid the intersection once — gridding per host and intersecting starts
-    // afterwards would produce different (wrong) anchors.
-    const sets = query.hosts.map((h) => free.get(h.hostUserId) ?? [])
+    // Every REQUIRED host must be free for the same instant, so intersect
+    // their windows first and grid the intersection once — gridding per host
+    // and intersecting starts afterwards would produce different (wrong)
+    // anchors. Optional hosts never narrow the listing: they are checked per
+    // candidate and named in it when free, left out when not.
+    const required = query.hosts.filter((h) => h.required !== false)
+    const optional = query.hosts.filter((h) => h.required === false)
+    if (required.length === 0) return []
+    const sets = required.map((h) => free.get(h.hostUserId) ?? [])
     const common = intersectAll(sets)
-    const hostIds = query.hosts.map((h) => h.hostUserId)
     const slots: Slot[] = []
     for (const window of common) {
       for (const start of candidatesInWindow(window, durationMs, stepMs, bufferBeforeMs, bufferAfterMs)) {
@@ -201,13 +212,16 @@ export function computeSlots(query: SlotQuery): Slot[] {
         if (start < range.start || start >= range.end) continue
         const end = start + durationMs
         if (start < earliest || start > latest) continue
-        if (exceedsDailyCap(query.hosts, start, et)) continue
-        // A collective candidate is only valid if EVERY participating host
-        // is free for it — check each host's own busy set against the
+        if (exceedsDailyCap(required, start, et)) continue
+        // A collective candidate is only valid if EVERY required host is
+        // free for it — check each host's own busy set against the
         // candidate's own footprint, not the intersected window.
         const footprint = bookingFootprint(start, end, et)
-        if (query.hosts.some((h) => overlapsAny(footprint, h.busy))) continue
-        slots.push({ start, end, eligibleHostIds: hostIds })
+        if (required.some((h) => overlapsAny(footprint, h.busy))) continue
+        const joining = optional.filter(
+          (h) => isSlotStillValid(h, et, start, now) && !exceedsDailyCap([h], start, et),
+        )
+        slots.push({ start, end, eligibleHostIds: [...required, ...joining].map((h) => h.hostUserId) })
       }
     }
     return dedupeByStart(slots)

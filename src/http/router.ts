@@ -26,6 +26,7 @@ import type { EnginePorts, RequestScope } from '../ports.js'
 import type { SlotService } from '../engine.js'
 import { daysWithSlots, monthRange } from '../engine.js'
 import type { EventType, User } from '../core/domain/types.js'
+import { hostUsers, resolveHosts as resolveEventTypeHosts } from '../core/domain/hosts.js'
 import { isValidTimeZone, localDateString } from '../core/time/zone.js'
 import {
   bookedConfirmation,
@@ -511,19 +512,13 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
 
 // ---------------------------------------------------------------------------
 
+/** Hosts for an event type — the shared resolver, as users (core/domain/hosts.ts). */
 async function resolveHosts(
   repos: ReturnType<EnginePorts['repositories']>,
   eventType: EventType,
   owner: User,
 ): Promise<User[]> {
-  if (!eventType.ownerTeamId) return [owner]
-  const members = await repos.teams.members(eventType.ownerTeamId)
-  const users: User[] = []
-  for (const m of members) {
-    const u = await repos.users.byId(m.userId)
-    if (u) users.push(u)
-  }
-  return users.length > 0 ? users : [owner]
+  return hostUsers(await resolveEventTypeHosts(repos, eventType, owner))
 }
 
 /**

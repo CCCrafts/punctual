@@ -21,6 +21,7 @@ import type {
   Booking,
   CalendarConnection,
   EventType,
+  EventTypeHost,
   Schedule,
   Team,
   TeamMember,
@@ -33,6 +34,7 @@ import type {
   AvailabilityRepository,
   BookingRepository,
   CalendarConnectionRepository,
+  EventTypeHostRepository,
   EventTypeRepository,
   IdempotencyRepository,
   Repositories,
@@ -379,18 +381,28 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
       // free to delete, and a cancelled booking needs nothing more from it.
       // The condition lives inside the DELETE so a booking committed between
       // a caller's check and this write still blocks it.
-      const res = await q(
-        `DELETE FROM event_types
-         WHERE id = ?
-           AND NOT EXISTS (
-             SELECT 1 FROM bookings
-             WHERE event_type_id = ? AND status = 'confirmed' AND start_utc >= ?
-           )`,
-        id,
-        id,
-        now,
-      ).run()
-      return (res.meta.changes ?? 0) > 0
+      const [res] = await session.batch([
+        q(
+          `DELETE FROM event_types
+           WHERE id = ?
+             AND NOT EXISTS (
+               SELECT 1 FROM bookings
+               WHERE event_type_id = ? AND status = 'confirmed' AND start_utc >= ?
+             )`,
+          id,
+          id,
+          now,
+        ),
+        // Its explicit host set goes with it — but only if the row itself
+        // went: the same guard, so a refused delete leaves the hosts intact.
+        q(
+          `DELETE FROM event_type_hosts
+           WHERE event_type_id = ? AND NOT EXISTS (SELECT 1 FROM event_types WHERE id = ?)`,
+          id,
+          id,
+        ),
+      ])
+      return (res!.meta.changes ?? 0) > 0
     },
   }
 
@@ -798,6 +810,81 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
   }
 
   // -------------------------------------------------------------------------
+  // Event type hosts — the explicit host set of a team event type
+  // -------------------------------------------------------------------------
+  //
+  // Every write resolves its references through scalar subqueries into NOT
+  // NULL columns: `user_id` comes from team_members (so a non-member
+  // resolves to NULL and the INSERT fails its NOT NULL constraint) and
+  // `position` is computed from a CASE that yields NULL unless the schedule,
+  // when given, belongs to that user. A failure in any row fails the whole
+  // batch, so the set is replaced entirely or not at all — the demoteAdmin
+  // discipline, applied to a multi-row write.
+  const HOST_INSERT = `INSERT INTO event_type_hosts (event_type_id, user_id, required, schedule_id, rr_weight, position)
+    VALUES (
+      ?,
+      (SELECT tm.user_id FROM team_members tm
+         JOIN event_types et ON et.owner_team_id = tm.team_id
+        WHERE et.id = ? AND tm.user_id = ?),
+      ?,
+      ?,
+      ?,
+      CASE WHEN ? IS NULL OR EXISTS (SELECT 1 FROM schedules WHERE id = ? AND user_id = ?) THEN ? ELSE NULL END
+    )`
+  const eventTypeHosts: EventTypeHostRepository = {
+    async forEventType(eventTypeId) {
+      const rows = await all<Record<string, unknown>>(
+        'SELECT * FROM event_type_hosts WHERE event_type_id = ? ORDER BY position, user_id',
+        eventTypeId,
+      )
+      return rows.map(mapEventTypeHost)
+    },
+    async replace(eventTypeId, hosts) {
+      const statements = [q('DELETE FROM event_type_hosts WHERE event_type_id = ?', eventTypeId)]
+      hosts.forEach((h, position) => {
+        statements.push(
+          q(
+            HOST_INSERT,
+            eventTypeId,
+            eventTypeId, h.userId,
+            h.required ? 1 : 0,
+            h.scheduleId,
+            h.rrWeight,
+            h.scheduleId, h.scheduleId, h.userId, position,
+          ),
+        )
+      })
+      try {
+        await session.batch(statements)
+        return true
+      } catch (err) {
+        if (isConstraintViolation(err)) return false
+        throw err
+      }
+    },
+    async setSchedule(eventTypeId, userId, scheduleId) {
+      // Same guard, as an UPDATE: a schedule that is not this host's makes
+      // the WHERE false, so nothing changes and the caller hears `false`.
+      const res = await q(
+        `UPDATE event_type_hosts SET schedule_id = ?
+         WHERE event_type_id = ? AND user_id = ?
+           AND (? IS NULL OR EXISTS (SELECT 1 FROM schedules WHERE id = ? AND user_id = ?))`,
+        scheduleId, eventTypeId, userId, scheduleId, scheduleId, userId,
+      ).run()
+      return (res.meta.changes ?? 0) > 0
+    },
+    async requiredOn(teamId, userId) {
+      const rows = await all<Record<string, unknown>>(
+        `SELECT et.* FROM event_types et
+         JOIN event_type_hosts eh ON eh.event_type_id = et.id
+         WHERE eh.user_id = ? AND eh.required = 1 AND et.owner_team_id = ? AND et.active = 1
+         ORDER BY et.created_at`,
+        userId, teamId,
+      )
+      return rows.map((r) => mapEventType(r)!).filter(Boolean)
+    },
+  }
+
   // Teams
   // -------------------------------------------------------------------------
   const teams: TeamRepository = {
@@ -907,18 +994,37 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
       // evaluated inside the delete, so concurrent removals cannot both pass
       // a separate check and leave the team with zero members — or with
       // members but nobody who can manage them.
-      const res = await q(
-        `DELETE FROM team_members
-         WHERE team_id = ? AND user_id = ?
-           AND (SELECT COUNT(*) FROM team_members WHERE team_id = ?) > 1
-           AND (
-             role NOT IN ('owner', 'admin')
-             OR (SELECT COUNT(*) FROM team_members
-                 WHERE team_id = ? AND role IN ('owner', 'admin') AND user_id != ?) > 0
-           )`,
-        teamId, userId, teamId, teamId, userId,
-      ).run()
-      return (res.meta.changes ?? 0) > 0
+      // Third guard, same statement: a REQUIRED host of one of the team's
+      // active event types stays until the admin takes them off it — a
+      // collective event whose required host silently vanished would offer
+      // slots nobody can attend. Optional-host rows and rows on inactive
+      // event types go with the membership, in the same batch.
+      const [res] = await session.batch([
+        q(
+          `DELETE FROM team_members
+           WHERE team_id = ? AND user_id = ?
+             AND (SELECT COUNT(*) FROM team_members WHERE team_id = ?) > 1
+             AND (
+               role NOT IN ('owner', 'admin')
+               OR (SELECT COUNT(*) FROM team_members
+                   WHERE team_id = ? AND role IN ('owner', 'admin') AND user_id != ?) > 0
+             )
+             AND NOT EXISTS (
+               SELECT 1 FROM event_type_hosts eh
+               JOIN event_types et ON et.id = eh.event_type_id
+               WHERE eh.user_id = ? AND eh.required = 1 AND et.owner_team_id = ? AND et.active = 1
+             )`,
+          teamId, userId, teamId, teamId, userId, userId, teamId,
+        ),
+        q(
+          `DELETE FROM event_type_hosts
+           WHERE user_id = ?
+             AND event_type_id IN (SELECT id FROM event_types WHERE owner_team_id = ?)
+             AND NOT EXISTS (SELECT 1 FROM team_members WHERE team_id = ? AND user_id = ?)`,
+          userId, teamId, teamId, userId,
+        ),
+      ])
+      return (res!.meta.changes ?? 0) > 0
     },
     async setRole(teamId, userId, role) {
       // Promotion always passes. Demotion passes only while ANOTHER admin
@@ -1212,7 +1318,7 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
   }
 
   return {
-    users, eventTypes, availability, bookings, slotLocks, teams, connections,
+    users, eventTypes, availability, bookings, slotLocks, teams, eventTypeHosts, connections,
     sessions, apiKeys, webhooks, idempotency, settings,
     async telemetryCounts() {
       const row = await first<{ users: number; event_types: number; bookings: number }>(
@@ -1254,6 +1360,7 @@ export function isConstraintViolation(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err)
   return (
     msg.includes('UNIQUE constraint failed') ||
+    msg.includes('NOT NULL constraint failed') ||
     msg.includes('SQLITE_CONSTRAINT') ||
     msg.includes('PRIMARY KEY')
   )
@@ -1298,6 +1405,17 @@ function mapTeam(row: Record<string, unknown> | null): Team | null {
     slug: String(row['slug']),
     logoKey: row['logo_key'] == null ? null : String(row['logo_key']),
     createdAt: Number(row['created_at']),
+  }
+}
+
+function mapEventTypeHost(row: Record<string, unknown>): EventTypeHost {
+  return {
+    eventTypeId: String(row['event_type_id']),
+    userId: String(row['user_id']),
+    required: Number(row['required']) === 1,
+    scheduleId: row['schedule_id'] == null ? null : String(row['schedule_id']),
+    rrWeight: row['rr_weight'] == null ? null : Number(row['rr_weight']),
+    position: Number(row['position'] ?? 0),
   }
 }
 

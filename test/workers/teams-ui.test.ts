@@ -1176,3 +1176,127 @@ describe('team roles', () => {
     expect((await get(`/dashboard/teams/${crewId}/members/${CAROL_ID}/availability`, root)).status).toBe(200)
   })
 })
+
+// ---------------------------------------------------------------------------
+// Explicit host sets (event_type_hosts): guards, cascades, resolution.
+// ---------------------------------------------------------------------------
+
+describe('event type hosts', () => {
+  const CAROL_ID = 'usr_carol'
+  const repos = () => createD1Repositories(db, { consistency: 'bookmark' })
+  let crewId = ''
+  let crewEventTypeId = ''
+  let aliceSchedule = ''
+  let bobSchedule = ''
+
+  beforeAll(async () => {
+    const team = await db.prepare('SELECT id FROM teams WHERE slug = ?').bind('roles-crew').first<{ id: string }>()
+    crewId = team!.id
+    const et = await db.prepare('SELECT id FROM event_types WHERE slug = ?').bind('crew-call').first<{ id: string }>()
+    crewEventTypeId = et!.id
+    // Carol may or may not be on the team by now, depending on suite order.
+    await repos().teams.addMember({ teamId: crewId, userId: CAROL_ID, role: 'member', rrWeight: 1 })
+    const workday = [{ startMinute: 9 * 60, endMinute: 17 * 60 }]
+    for (const [uid, name] of [[ALICE_ID, 'sch_alice_support'], [BOB_ID, 'sch_bob_support']] as const) {
+      await repos().availability.create(uid, {
+        id: name,
+        userId: uid,
+        name: 'Support hours',
+        isDefault: false,
+        timezone: 'UTC',
+        weekly: [[], workday, workday, workday, workday, workday, []],
+        overrides: [],
+      })
+    }
+    aliceSchedule = 'sch_alice_support'
+    bobSchedule = 'sch_bob_support'
+  })
+
+  it('replace refuses a host who is not on the team, writing nothing at all', async () => {
+    const ok = await repos().eventTypeHosts.replace(crewEventTypeId, [
+      { userId: ALICE_ID, required: true, scheduleId: null, rrWeight: null },
+      { userId: OUTSIDER_ID, required: false, scheduleId: null, rrWeight: null },
+    ])
+    expect(ok).toBe(false)
+    expect(await repos().eventTypeHosts.forEventType(crewEventTypeId)).toEqual([])
+  })
+
+  it("replace refuses a schedule that is not that host's, writing nothing at all", async () => {
+    const ok = await repos().eventTypeHosts.replace(crewEventTypeId, [
+      { userId: ALICE_ID, required: true, scheduleId: bobSchedule, rrWeight: null },
+    ])
+    expect(ok).toBe(false)
+    expect(await repos().eventTypeHosts.forEventType(crewEventTypeId)).toEqual([])
+  })
+
+  it('replace writes the set in order, with per-host schedule and weight', async () => {
+    const ok = await repos().eventTypeHosts.replace(crewEventTypeId, [
+      { userId: BOB_ID, required: false, scheduleId: bobSchedule, rrWeight: 3 },
+      { userId: ALICE_ID, required: true, scheduleId: aliceSchedule, rrWeight: null },
+    ])
+    expect(ok).toBe(true)
+    const rows = await repos().eventTypeHosts.forEventType(crewEventTypeId)
+    expect(rows.map((r) => [r.userId, r.required, r.scheduleId, r.rrWeight, r.position])).toEqual([
+      [BOB_ID, false, bobSchedule, 3, 0],
+      [ALICE_ID, true, aliceSchedule, null, 1],
+    ])
+  })
+
+  it('setSchedule applies the same ownership guard', async () => {
+    expect(await repos().eventTypeHosts.setSchedule(crewEventTypeId, ALICE_ID, bobSchedule)).toBe(false)
+    expect(await repos().eventTypeHosts.setSchedule(crewEventTypeId, ALICE_ID, null)).toBe(true)
+    expect(await repos().eventTypeHosts.setSchedule(crewEventTypeId, ALICE_ID, aliceSchedule)).toBe(true)
+    expect(await repos().eventTypeHosts.setSchedule(crewEventTypeId, CAROL_ID, null)).toBe(false) // not in the set
+  })
+
+  it('resolveHosts returns the explicit set with its settings, and every member when there is none', async () => {
+    const { resolveHosts } = await import('../../src/core/domain/hosts.js')
+    const et = (await repos().eventTypes.byId(crewEventTypeId))!
+    const alice = (await repos().users.byId(ALICE_ID))!
+    const explicit = await resolveHosts(repos(), et, alice)
+    expect(explicit.map((h) => [h.user.id, h.required, h.scheduleId, h.rrWeight])).toEqual([
+      [BOB_ID, false, bobSchedule, 3],
+      [ALICE_ID, true, aliceSchedule, 1],
+    ])
+
+    await repos().eventTypeHosts.replace(crewEventTypeId, [])
+    const implicit = await resolveHosts(repos(), et, alice)
+    expect(implicit.map((h) => h.user.id).sort()).toEqual([ALICE_ID, BOB_ID, CAROL_ID].sort())
+    expect(implicit.every((h) => h.required && h.scheduleId === null)).toBe(true)
+  })
+
+  it('a required host of an active event type cannot be removed from the team; the page names the event type', async () => {
+    await repos().eventTypeHosts.replace(crewEventTypeId, [
+      { userId: ALICE_ID, required: true, scheduleId: null, rrWeight: null },
+      { userId: CAROL_ID, required: true, scheduleId: null, rrWeight: null },
+    ])
+    expect(await repos().teams.removeMemberGuarded(crewId, CAROL_ID)).toBe(false)
+
+    const alice = await seedSession(ALICE_ID)
+    const csrf = await csrfFrom('/dashboard/teams', alice)
+    const res = await post(`/dashboard/teams/${crewId}/members/${CAROL_ID}/remove`, { csrf }, alice)
+    expect(res.status).toBe(400)
+    expect(await res.text()).toContain('Still a required host on &quot;Crew call&quot;')
+
+    // Made optional, the removal goes through and takes her host row with it.
+    await repos().eventTypeHosts.replace(crewEventTypeId, [
+      { userId: ALICE_ID, required: true, scheduleId: null, rrWeight: null },
+      { userId: CAROL_ID, required: false, scheduleId: null, rrWeight: null },
+    ])
+    expect(await repos().teams.removeMemberGuarded(crewId, CAROL_ID)).toBe(true)
+    expect((await repos().eventTypeHosts.forEventType(crewEventTypeId)).map((h) => h.userId)).toEqual([ALICE_ID])
+  })
+
+  it('deleting the event type takes its host set with it', async () => {
+    const et = await repos().eventTypes.create({
+      ...(await repos().eventTypes.byId(crewEventTypeId))!,
+      id: 'et_crew_temp',
+      slug: 'crew-temp',
+    })
+    await repos().eventTypeHosts.replace(et.id, [{ userId: ALICE_ID, required: true, scheduleId: null, rrWeight: null }])
+    expect(await repos().eventTypes.delete(et.id, Date.now())).toBe(true)
+    expect(await repos().eventTypeHosts.forEventType(et.id)).toEqual([])
+    // Cleanup for later suites: back to the implicit set.
+    await repos().eventTypeHosts.replace(crewEventTypeId, [])
+  })
+})

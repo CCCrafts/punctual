@@ -648,6 +648,116 @@ describe('GET /slots', () => {
 // Bookings
 // ---------------------------------------------------------------------------
 
+describe('collective event types with an explicit host set', () => {
+  it('draws slots from each host\'s per-event schedule, and commits with the optional hosts that are free', async () => {
+    const ports = testPorts()
+    const app = buildApp(ports)
+    const admin = await seedHost(ports)
+    const helper = await seedHost(ports)
+    const repos = ports.repositories({ consistency: 'bookmark' })
+
+    const team = await repos.teams.createWithFirstMember(
+      { id: 'team_api_hosts', name: 'Hosts Team', slug: 'hosts-team', logoKey: null },
+      { userId: admin.user.id, role: 'admin', rrWeight: 1 },
+    )
+    await repos.teams.addMember({ teamId: team!.id, userId: helper.user.id, role: 'member', rrWeight: 1 })
+    await repos.eventTypes.create({
+      ...admin.eventType,
+      id: 'evt_hosts_collective',
+      ownerUserId: null,
+      ownerTeamId: team!.id,
+      schedulingType: 'collective',
+      slug: 'support',
+      scheduleId: null,
+    })
+    // The admin hosts this one on afternoons only; the helper is optional.
+    const afternoon = [{ startMinute: 13 * 60, endMinute: 17 * 60 }]
+    await repos.availability.create(admin.user.id, {
+      id: 'sch_admin_afternoons',
+      userId: admin.user.id,
+      name: 'Afternoons',
+      isDefault: false,
+      timezone: 'UTC',
+      weekly: [[], afternoon, afternoon, afternoon, afternoon, afternoon, []],
+      overrides: [],
+    })
+    expect(
+      await repos.eventTypeHosts.replace('evt_hosts_collective', [
+        { userId: admin.user.id, required: true, scheduleId: 'sch_admin_afternoons', rrWeight: null },
+        { userId: helper.user.id, required: false, scheduleId: null, rrWeight: null },
+      ]),
+    ).toBe(true)
+
+    const { from, to } = nextWeek()
+    const listed = await app.request(`/api/v1/slots?eventTypeId=evt_hosts_collective&from=${from}&to=${to}&tz=UTC`, {
+      headers: auth(admin.apiKey),
+    })
+    expect(listed.status).toBe(200)
+    const slots = ((await listed.json()) as { data: SlotJson[] }).data
+    expect(slots.length).toBeGreaterThan(0)
+    // Every slot sits inside the admin's afternoon schedule, not the 09:00 default...
+    expect(slots.every((s) => new Date(s.start.epochMs).getUTCHours() >= 13)).toBe(true)
+    // ...and both hosts are named while both are free.
+    expect(slots[0]!.eligibleHostIds.sort()).toEqual([admin.user.id, helper.user.id].sort())
+
+    // Make the helper busy at the first slot via their own personal event type.
+    const first = slots[0]!
+    const personal = await app.request('/api/v1/bookings', {
+      method: 'POST',
+      headers: { ...auth(helper.apiKey), 'content-type': 'application/json' },
+      body: JSON.stringify({
+        eventTypeId: helper.eventType.id,
+        start: first.start.iso,
+        guestName: 'Other Guest',
+        guestEmail: 'other@example.com',
+        guestTimezone: 'UTC',
+      }),
+    })
+    expect(personal.status).toBe(201)
+
+    // The collective slot is still on offer (the helper is optional), now naming only the admin.
+    const relisted = await app.request(`/api/v1/slots?eventTypeId=evt_hosts_collective&from=${from}&to=${to}&tz=UTC`, {
+      headers: auth(admin.apiKey),
+    })
+    const again = ((await relisted.json()) as { data: SlotJson[] }).data
+    const same = again.find((s) => s.start.epochMs === first.start.epochMs)
+    expect(same?.eligibleHostIds).toEqual([admin.user.id])
+
+    const booked = await app.request('/api/v1/bookings', {
+      method: 'POST',
+      headers: { ...auth(admin.apiKey), 'content-type': 'application/json' },
+      body: JSON.stringify({
+        eventTypeId: 'evt_hosts_collective',
+        start: first.start.iso,
+        guestName: 'Ada Lovelace',
+        guestEmail: 'ada@example.com',
+        guestTimezone: 'UTC',
+      }),
+    })
+    expect(booked.status).toBe(201)
+    const id = ((await booked.json()) as { data: { id: string } }).data.id
+    const stored = await repos.bookings.byId(id)
+    expect(stored?.hostUserIds).toEqual([admin.user.id])
+
+    // A later slot, with the helper free again, commits with both.
+    const later = again.find((s) => s.start.epochMs > first.start.epochMs + 3_600_000 && s.eligibleHostIds.length === 2)!
+    const both = await app.request('/api/v1/bookings', {
+      method: 'POST',
+      headers: { ...auth(admin.apiKey), 'content-type': 'application/json' },
+      body: JSON.stringify({
+        eventTypeId: 'evt_hosts_collective',
+        start: later.start.iso,
+        guestName: 'Grace Hopper',
+        guestEmail: 'grace@example.com',
+        guestTimezone: 'UTC',
+      }),
+    })
+    expect(both.status).toBe(201)
+    const bothId = ((await both.json()) as { data: { id: string } }).data.id
+    expect((await repos.bookings.byId(bothId))?.hostUserIds.sort()).toEqual([admin.user.id, helper.user.id].sort())
+  })
+})
+
 describe('POST /bookings', () => {
   it('books a slot and lists it back', async () => {
     const ports = testPorts()

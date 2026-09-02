@@ -35,6 +35,7 @@ import type {
   WeeklySchedule,
 } from '../../core/domain/types.js'
 import { canManageTeam } from '../../core/domain/teams.js'
+import { hostUsers, resolveHosts as resolveEventTypeHosts } from '../../core/domain/hosts.js'
 import type { EnginePorts, Repositories, RequestScope } from '../../ports.js'
 import type { SlotService } from '../../engine.js'
 import { authenticateApiKey } from '../../core/domain/auth-flows.js'
@@ -974,26 +975,9 @@ export function buildApiRoutes(ports: EnginePorts, slots: SlotService): Hono<Api
 // Shared helpers — also used by the MCP server
 // ---------------------------------------------------------------------------
 
-/** Hosts for an event type: the owner, or every member of the owning team. */
-export async function resolveHosts(
-  repos: Repositories,
-  eventType: EventType,
-  fallback: User,
-): Promise<User[]> {
-  if (!eventType.ownerTeamId) {
-    if (eventType.ownerUserId && eventType.ownerUserId !== fallback.id) {
-      const owner = await repos.users.byId(eventType.ownerUserId)
-      if (owner) return [owner]
-    }
-    return [fallback]
-  }
-  const members = await repos.teams.members(eventType.ownerTeamId)
-  const users: User[] = []
-  for (const m of members) {
-    const u = await repos.users.byId(m.userId)
-    if (u) users.push(u)
-  }
-  return users.length > 0 ? users : [fallback]
+/** Hosts for an event type — the shared resolver, as users (core/domain/hosts.ts). */
+export async function resolveHosts(repos: Repositories, eventType: EventType, fallback: User): Promise<User[]> {
+  return hostUsers(await resolveEventTypeHosts(repos, eventType, fallback))
 }
 
 /**

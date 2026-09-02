@@ -76,6 +76,7 @@ import { dayRange } from '../engine.js'
 import { isValidTimeZone, localDateString } from '../core/time/zone.js'
 import { validateSlug } from '../core/domain/slugs.js'
 import { canManageTeam, isManagingRole } from '../core/domain/teams.js'
+import { hostUsers, resolveHosts as resolveEventTypeHosts } from '../core/domain/hosts.js'
 import {
   MAX_DECODED_PIXELS,
   MAX_UPLOAD_BYTES,
@@ -1318,13 +1319,15 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
       // demotion.
       const still = (await repos.teams.members(team.id)).some((m) => m.userId === target.userId)
       if (!still) return c.html(teamsPage(await teamsData(c)))
-      return c.html(
-        teamsPage({
-          ...(await teamsData(c)),
-          errors: { [`members-${team.id}`]: 'A team must keep at least one member, and at least one admin.' },
-        }),
-        400,
-      )
+      // Three guards share the statement; the page just re-read the state
+      // that tells them apart. Required-host first, since it is the one
+      // with something the admin can go and change.
+      const requiredOn = await repos.eventTypeHosts.requiredOn(team.id, target.userId)
+      const reason =
+        requiredOn.length > 0
+          ? `Still a required host on ${requiredOn.map((et) => `"${et.title}"`).join(', ')} — take them off it, or make them optional, first.`
+          : 'A team must keep at least one member, and at least one admin.'
+      return c.html(teamsPage({ ...(await teamsData(c)), errors: { [`members-${team.id}`]: reason } }), 400)
     }
     await advanceBookmark(c)
     // Removing YOURSELF is allowed — the page after the write simply no
@@ -2639,13 +2642,7 @@ async function validateEventType(
 }
 
 /** Every host who takes part. Mirrors the public router's resolution. */
+/** Hosts for an event type — the shared resolver, as users (core/domain/hosts.ts). */
 async function resolveHosts(repos: Repositories, eventType: EventType, owner: User): Promise<User[]> {
-  if (!eventType.ownerTeamId) return [owner]
-  const members = await repos.teams.members(eventType.ownerTeamId)
-  const users: User[] = []
-  for (const member of members) {
-    const found = await repos.users.byId(member.userId)
-    if (found) users.push(found)
-  }
-  return users.length > 0 ? users : [owner]
+  return hostUsers(await resolveEventTypeHosts(repos, eventType, owner))
 }

@@ -20,6 +20,7 @@ import { intervalToBuckets } from '../core/slots/intervals.js'
 import { issueManageToken } from '../core/domain/auth-flows.js'
 import { localDateString } from '../core/time/zone.js'
 import { dayRange, resolveSchedule } from '../engine.js'
+import { hostSettings } from '../core/domain/hosts.js'
 import { needsReconnect } from './oauth.js'
 import { dispatchConfirmation } from './queue/consumer.js'
 import type { HostAvailabilityInput } from '../core/slots/engine.js'
@@ -127,6 +128,7 @@ export function createCoordinator(deps: CoordinatorDeps): HostCoordinator {
         // backstop, so an event sitting entirely inside the buffer would never
         // be fetched and the booking would commit on top of it.
         const footprint = bookingFootprint(request.start, request.end, eventType)
+        const settings = await hostSettings(repos, eventType)
         const hosts = await buildHostInputs(
           ports,
           repos,
@@ -135,14 +137,24 @@ export function createCoordinator(deps: CoordinatorDeps): HostCoordinator {
           eventType,
           request.start,
           request.holdId,
+          settings,
         )
         if (hosts.length === 0) return { ok: false, reason: 'outside_availability' }
+        // How many of the requested hosts MUST be present for a collective
+        // booking: the required ones. A required host that failed to
+        // resolve (no availability at all) fails the booking rather than
+        // silently dropping out of their own meeting; an optional one may.
+        const requiredCount = request.hostUserIds.filter((id) => settings.get(id)?.required !== false).length
 
         const rrContext =
           eventType.schedulingType === 'round_robin' && eventType.ownerTeamId
             ? {
                 teamId: eventType.ownerTeamId,
-                members: await repos.teams.members(eventType.ownerTeamId),
+                // Per-event weights override the team's, when the admin set them.
+                members: (await repos.teams.members(eventType.ownerTeamId)).map((m) => {
+                  const override = settings.get(m.userId)?.rrWeight
+                  return override == null ? m : { ...m, rrWeight: override }
+                }),
                 lastAssignedAt: await repos.teams.lastAssignedAt(
                   eventType.ownerTeamId,
                   request.hostUserIds,
@@ -174,7 +186,7 @@ export function createCoordinator(deps: CoordinatorDeps): HostCoordinator {
           manageTokenHash,
           rescheduleOf: request.rescheduleOf ?? null,
           rrContext,
-          expectedHostCount: request.hostUserIds.length,
+          expectedHostCount: requiredCount,
         })
 
         if (!prepared.ok) {
@@ -399,6 +411,8 @@ async function buildHostInputs(
    * protect.
    */
   excludeHoldId?: string,
+  /** Per-host schedule and required/optional, from `hostSettings` — empty for a personal event type or an implicit host set. */
+  settings: Awaited<ReturnType<typeof hostSettings>> = new Map(),
 ): Promise<HostAvailabilityInput[]> {
   const now = ports.clock.now()
   const [busyByHost, holdsByHost] = await Promise.all([
@@ -415,7 +429,7 @@ async function buildHostInputs(
       // validate against the SAME schedule the guest was shown, or a real
       // listed slot on an assigned schedule 409s while a slot the assigned
       // schedule never offered can still commit.
-      resolveSchedule(repos, id, eventType?.scheduleId ?? null),
+      resolveSchedule(repos, id, settings.get(id)?.scheduleId ?? eventType?.scheduleId ?? null),
       repos.connections.listForUser(id),
     ])
     if (!user || !availability) continue
@@ -455,6 +469,7 @@ async function buildHostInputs(
 
     out.push({
       hostUserId: id,
+      required: settings.get(id)?.required ?? true,
       availability,
       busy: combineBusy(busyByHost.get(id) ?? [], holdsByHost.get(id) ?? [], external),
       bookingsPerLocalDate: perDay,

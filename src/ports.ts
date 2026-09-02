@@ -18,6 +18,7 @@ import type {
   Booking,
   CalendarConnection,
   EventType,
+  EventTypeHost,
   Interval,
   MagicLinkToken,
   Schedule,
@@ -50,6 +51,7 @@ export interface Repositories {
   bookings: BookingRepository
   slotLocks: SlotLockRepository
   teams: TeamRepository
+  eventTypeHosts: EventTypeHostRepository
   connections: CalendarConnectionRepository
   sessions: SessionRepository
   apiKeys: ApiKeyRepository
@@ -146,6 +148,33 @@ export interface EventTypeRepository {
    * points at.
    */
   delete(id: string, now: number): Promise<boolean>
+}
+
+export interface EventTypeHostRepository {
+  /** In `position` order. Empty = the event type has no explicit host set (see `EventTypeHost`). */
+  forEventType(eventTypeId: string): Promise<EventTypeHost[]>
+  /**
+   * Replace the whole host set in one atomic write; `position` is the array
+   * order. Refuses — returns `false`, writes nothing — when any host is not
+   * a member of the event type's owning team, or names a schedule that is
+   * not theirs. Both are checked inside the INSERT (a scalar subquery into a
+   * NOT NULL column), so a member removed or a schedule deleted between the
+   * caller's read and this write still fails the whole set rather than
+   * storing a dangling reference. An empty array clears the set, which
+   * means "every member" again.
+   */
+  replace(eventTypeId: string, hosts: Array<Omit<EventTypeHost, 'eventTypeId' | 'position'>>): Promise<boolean>
+  /**
+   * Set (or clear, with null) one host's per-event schedule. Same guard as
+   * `replace` on the schedule. Returns `false` when the host row does not
+   * exist or the schedule is not theirs.
+   */
+  setSchedule(eventTypeId: string, userId: string, scheduleId: string | null): Promise<boolean>
+  /**
+   * Active event types of `teamId` on which `userId` is a REQUIRED host —
+   * the ones that block removing them from the team (`TeamRepository.removeMemberGuarded`).
+   */
+  requiredOn(teamId: string, userId: string): Promise<EventType[]>
 }
 
 export interface AvailabilityRepository {

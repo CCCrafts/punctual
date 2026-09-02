@@ -19,6 +19,21 @@ still change interfaces.
   demoted nor removed, in the same single-statement style as the instance's
   last-admin guard. Existing teams keep their creator as admin; a team that
   somehow had no admin gets its earliest member promoted by the migration.
+- **Explicit hosts per team event type** (migration `0011`, table
+  `event_type_hosts`). A team event type can name a subset of the team as
+  its hosts, in order, each with their own schedule for this event type
+  and, for round-robin, their own weight. Collective hosts are *required*
+  or *optional*: slots are the intersection of the required hosts' free
+  time, and an optional host joins a booking when free and is left out when
+  not — the booking records who actually attends, and only they are locked.
+  No rows means what it always meant: every member, required, on their
+  default schedules. Both references are guarded inside the write (host
+  must be on the team, schedule must be the host's), the set is replaced
+  atomically or not at all, and a required host of an active event type
+  cannot be removed from the team until they are taken off it. The three
+  private copies of "who hosts this" in the booking page, the dashboard and
+  the API are now one resolver. The dashboard and API surfaces for editing
+  the set follow in their own changes.
 - REST: `PATCH`/`DELETE /event-types/:id` on a team-owned event type now
   require a team admin's key (403 otherwise); reading and listing are
   unchanged for every member.

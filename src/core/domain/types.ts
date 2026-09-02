@@ -82,6 +82,29 @@ export interface EventTypeQuestion {
   options?: string[]
 }
 
+/**
+ * One host of a team-owned event type, when the event type names its hosts
+ * explicitly. No rows for an event type = every current member of the team,
+ * all required, on their default schedules — the behaviour from before this
+ * table existed, so nothing needs backfilling.
+ */
+export interface EventTypeHost {
+  eventTypeId: string
+  userId: string
+  /**
+   * Collective: a required host must be free for a slot to exist at all; an
+   * optional one joins the booking when free and is left out otherwise.
+   * Round-robin: every host in the set is a candidate, this flag is unused.
+   */
+  required: boolean
+  /** Which of this host's schedules the event type draws from; null = their default. */
+  scheduleId: string | null
+  /** Round-robin weight for this event type; null = the host's team weight. */
+  rrWeight: number | null
+  /** Display and tie-break order, from the admin's list. */
+  position: number
+}
+
 export interface EventType {
   id: string
   ownerUserId: string | null

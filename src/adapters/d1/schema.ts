@@ -111,6 +111,23 @@ export const eventTypes = sqliteTable(
 )
 
 /**
+ * Explicit hosts of a team event type (migration 0011). No rows = every
+ * current team member, required, on their default schedule.
+ */
+export const eventTypeHosts = sqliteTable(
+  'event_type_hosts',
+  {
+    eventTypeId: text('event_type_id').notNull(),
+    userId: text('user_id').notNull(),
+    required: integer('required').notNull().default(1),
+    scheduleId: text('schedule_id'),
+    rrWeight: integer('rr_weight'),
+    position: integer('position').notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.eventTypeId, t.userId] }), index('event_type_hosts_user_idx').on(t.userId)],
+)
+
+/**
  * Superseded by `schedules` below (a host can have more than one
  * named schedule, so the PK can no longer be `user_id` alone). Left in
  * place, unread by any repository, until a later cleanup migration drops it

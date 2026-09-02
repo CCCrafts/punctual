@@ -12,6 +12,7 @@ import { buildRouter } from './http/router.js'
 import { bookingFootprint, computeSlots, type HostAvailabilityInput } from './core/slots/engine.js'
 import type { EventType, Interval, Schedule, Slot, User } from './core/domain/types.js'
 import { combineBusy, partitionConnections } from './core/domain/booking-service.js'
+import { hostSettings } from './core/domain/hosts.js'
 import { localDateString, localTimeToInstant } from './core/time/zone.js'
 import { needsReconnect } from './adapters/oauth.js'
 
@@ -104,9 +105,10 @@ export function createSlotService(ports: EnginePorts): SlotService {
         eventType,
       )
 
-      const [busyByHost, holdsByHost] = await Promise.all([
+      const [busyByHost, holdsByHost, settings] = await Promise.all([
         repos.slotLocks.busyBuckets(hostIds, busyRange),
         repos.slotLocks.activeHolds(hostIds, busyRange, ports.clock.now()),
+        hostSettings(repos, eventType),
       ])
 
       // Per-host reads run concurrently rather than in an await loop: with N
@@ -115,14 +117,19 @@ export function createSlotService(ports: EnginePorts): SlotService {
       // on (ADR-0007, and the measurement in EventTypeRepository).
       const built: Array<HostAvailabilityInput | null> = await Promise.all(
         hostUsers.map(async (user) => {
+          // A team host's per-event schedule (event_type_hosts) wins over
+          // the event type's own scheduleId, which is only ever set for a
+          // personal event type anyway; both fall through to the default.
+          const own = settings.get(user.id)
           const [availability, external] = await Promise.all([
-            resolveSchedule(repos, user.id, eventType.scheduleId),
+            resolveSchedule(repos, user.id, own?.scheduleId ?? eventType.scheduleId),
             externalBusyFor(ports, repos, user.id, busyRange),
           ])
           if (!availability) return null
           const perDay = await perDayCounts(repos, user, range, eventType, availability.timezone)
           return {
             hostUserId: user.id,
+            required: own?.required ?? true,
             availability,
             busy: combineBusy(
               busyByHost.get(user.id) ?? [],

@@ -498,6 +498,65 @@ describe('team scheduling', () => {
     }
   })
 
+  it('collective: an optional host never narrows the listing, and is named only when free', () => {
+    const busy = localTimeToInstant('2026-06-15', 10 * 60, tz)
+    const slots = computeSlots({
+      eventType: eventType({ schedulingType: 'collective', ownerTeamId: 't1', ownerUserId: null }),
+      hosts: [
+        host(tz, [], 'h1'),
+        { ...host(tz, [{ start: busy, end: busy + HOUR }], 'h2'), required: false },
+      ],
+      range: { start: dayStart, end: dayStart + DAY },
+      now: dayStart - DAY,
+    })
+    // h2's busy hour costs the listing nothing: 16 slots, the full day.
+    expect(slots).toHaveLength(16)
+    expect(slots.find((s) => s.start === busy)!.eligibleHostIds).toEqual(['h1'])
+    expect(slots.find((s) => s.start === busy + HOUR)!.eligibleHostIds).toEqual(['h1', 'h2'])
+  })
+
+  it('collective: a required host busy removes the slot even when every optional host is free', () => {
+    const busy = localTimeToInstant('2026-06-15', 10 * 60, tz)
+    const slots = computeSlots({
+      eventType: eventType({ schedulingType: 'collective', ownerTeamId: 't1', ownerUserId: null }),
+      hosts: [
+        host(tz, [{ start: busy, end: busy + HOUR }], 'h1'),
+        { ...host(tz, [], 'h2'), required: false },
+        { ...host(tz, [], 'h3'), required: false },
+      ],
+      range: { start: dayStart, end: dayStart + DAY },
+      now: dayStart - DAY,
+    })
+    expect(slots).toHaveLength(14)
+    expect(slots.some((s) => s.start === busy)).toBe(false)
+  })
+
+  it('collective: an optional host on a different schedule only joins inside their own hours', () => {
+    // h2 works 13:00–17:00 only; the listing still spans h1's whole day.
+    const afternoons = { ...nineToFive(tz, 'h2'), weekly: weekly([{ startMinute: 13 * 60, endMinute: 17 * 60 }]) }
+    const slots = computeSlots({
+      eventType: eventType({ schedulingType: 'collective', ownerTeamId: 't1', ownerUserId: null }),
+      hosts: [host(tz, [], 'h1'), { hostUserId: 'h2', availability: afternoons, busy: [], required: false }],
+      range: { start: dayStart, end: dayStart + DAY },
+      now: dayStart - DAY,
+    })
+    expect(slots).toHaveLength(16)
+    const morning = slots.find((s) => s.start === localTimeToInstant('2026-06-15', 9 * 60, tz))!
+    const afternoon = slots.find((s) => s.start === localTimeToInstant('2026-06-15', 14 * 60, tz))!
+    expect(morning.eligibleHostIds).toEqual(['h1'])
+    expect(afternoon.eligibleHostIds).toEqual(['h1', 'h2'])
+  })
+
+  it('collective with no required host offers nothing — optional hosts alone are not a meeting', () => {
+    const slots = computeSlots({
+      eventType: eventType({ schedulingType: 'collective', ownerTeamId: 't1', ownerUserId: null }),
+      hosts: [{ ...host(tz, [], 'h1'), required: false }],
+      range: { start: dayStart, end: dayStart + DAY },
+      now: dayStart - DAY,
+    })
+    expect(slots).toEqual([])
+  })
+
   it('round-robin offers a slot if any member is free, carrying eligibility', () => {
     const busyA = localTimeToInstant('2026-06-15', 10 * 60, tz)
     const slots = computeSlots({

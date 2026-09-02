@@ -30,7 +30,7 @@ import { localDateString } from '../time/zone.js'
 
 export interface BookingRequest {
   eventType: EventType
-  /** Every candidate host. Round-robin narrows this; collective uses all. */
+  /** Every candidate host. Round-robin narrows this; collective uses every required one plus the optional ones that are free. */
   hosts: HostAvailabilityInput[]
   /**
    * How many hosts the CALLER intended to include.
@@ -143,22 +143,28 @@ export function prepareBooking(req: BookingRequest): BookingResult {
   // Which hosts must be free depends on the scheduling type.
   let participating: HostAvailabilityInput[]
   if (et.schedulingType === 'collective') {
-    // All of them — and if any one fails, the whole booking fails. That
-    // includes hosts that failed to resolve at all, which would otherwise
-    // vanish from the set and be silently excluded from their own meeting.
-    if (req.expectedHostCount != null && req.hosts.length < req.expectedHostCount) {
+    // Every REQUIRED host — and if any one fails, the whole booking fails.
+    // That includes required hosts that failed to resolve at all, which
+    // would otherwise vanish from the set and be silently excluded from
+    // their own meeting: `expectedHostCount` is how many required hosts the
+    // caller asked for. Optional hosts join when free and are dropped when
+    // not; the booking records who actually attends.
+    const required = req.hosts.filter((h) => h.required !== false)
+    const optional = req.hosts.filter((h) => h.required === false)
+    if (req.expectedHostCount != null && required.length < req.expectedHostCount) {
       return {
         ok: false,
         reason: 'outside_availability',
         detail: 'one or more hosts have no availability configured',
       }
     }
-    participating = req.hosts
-    for (const h of participating) {
+    if (required.length === 0) return { ok: false, reason: 'no_eligible_host' }
+    for (const h of required) {
       if (!isSlotStillValid(h, et, req.start, now)) {
         return { ok: false, reason: failureReason(h, et, req.start), detail: h.hostUserId }
       }
     }
+    participating = [...required, ...optional.filter((h) => isSlotStillValid(h, et, req.start, now))]
   } else if (et.schedulingType === 'round_robin') {
     const eligible = req.hosts.filter((h) => isSlotStillValid(h, et, req.start, now))
     if (eligible.length === 0) {
