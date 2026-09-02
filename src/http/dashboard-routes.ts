@@ -78,7 +78,7 @@ import { isValidTimeZone, localDateString } from '../core/time/zone.js'
 import { validateSlug } from '../core/domain/slugs.js'
 import { canManageTeam, isManagingRole } from '../core/domain/teams.js'
 import { hostUsers, resolveHosts as resolveEventTypeHosts } from '../core/domain/hosts.js'
-import { hostAddedEmail } from '../core/email-templates.js'
+import { notifyNewHosts as notifyNewHostsShared } from './host-notifications.js'
 import {
   MAX_DECODED_PIXELS,
   MAX_UPLOAD_BYTES,
@@ -715,43 +715,14 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     return touched ? rows : null
   }
 
-  /**
-   * Tell each NEWLY added host which of their schedules the slots will use
-   * and where to change it. Best-effort, after the write: a mail provider
-   * hiccup must not undo a saved host list. Nothing for hosts who were
-   * already on the event type, and never to the editor about themselves.
-   */
+  /** See host-notifications.ts — shared with the API, which adds hosts too. */
   async function notifyNewHosts(
     c: Ctx,
     eventType: EventType,
     before: Set<string>,
     after: Array<{ userId: string; required: boolean; scheduleId: string | null }>,
   ): Promise<void> {
-    const repos = c.get('repos')
-    const editor = c.get('user')
-    const team = eventType.ownerTeamId ? await repos.teams.byId(eventType.ownerTeamId) : null
-    if (!team || eventType.schedulingType === 'personal') return
-    for (const host of after) {
-      if (before.has(host.userId) || host.userId === editor.id) continue
-      const user = await repos.users.byId(host.userId)
-      if (!user) continue
-      const schedule = host.scheduleId ? await repos.availability.byId(host.userId, host.scheduleId) : null
-      const content = hostAddedEmail({
-        brandName,
-        hostName: user.name || user.slug,
-        eventTitle: eventType.title,
-        teamName: team.name,
-        schedulingType: eventType.schedulingType,
-        required: host.required,
-        scheduleName: schedule?.name ?? null,
-        editorName: editor.name || editor.slug,
-        availabilityUrl: `${ports.config.baseUrl.replace(/\/$/, '')}/dashboard/availability`,
-        ...(ports.config.supportEmail ? { supportEmail: ports.config.supportEmail } : {}),
-      })
-      await ports.email
-        .send({ to: user.email, toName: user.name, subject: content.subject, html: content.html, text: content.text })
-        .catch((err) => console.error('[punctual] host-added email not sent', err))
-    }
+    await notifyNewHostsShared(ports, c.get('repos'), c.get('user'), eventType, before, after)
   }
 
   app.post('/dashboard/event-types', requireSession, async (c) => {

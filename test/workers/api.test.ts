@@ -811,7 +811,7 @@ describe('team event types through the API', () => {
     expect(((await mine.json()) as { data: { hosts: unknown[] } }).data.hosts).toHaveLength(1)
   })
 
-  it('a member or outsider cannot create under the team; a host who is not on the team is refused with 422', async () => {
+  it('a member or outsider cannot create under the team; a bad host list is refused BEFORE anything is written', async () => {
     const ports = testPorts()
     const app = buildApp(ports)
     const t = await team(ports)
@@ -820,13 +820,29 @@ describe('team event types through the API', () => {
     expect((await app.request('/api/v1/event-types', { method: 'POST', ...json(t.member.apiKey, base) })).status).toBe(403)
     expect((await app.request('/api/v1/event-types', { method: 'POST', ...json(t.outsider.apiKey, base) })).status).toBe(403)
 
+    // Not on the team: 400, and no event type left behind.
     const bad = await app.request('/api/v1/event-types', {
       method: 'POST',
       ...json(t.admin.apiKey, { ...base, hosts: [{ userId: t.outsider.user.id }] }),
     })
-    expect(bad.status).toBe(422)
-    // Created nonetheless, hosting every member — the message says so.
-    expect((await t.repos.eventTypes.listForTeam(t.team.id)).some((et) => et.slug === 'x')).toBe(true)
+    expect(bad.status).toBe(400)
+    expect((await t.repos.eventTypes.listForTeam(t.team.id)).some((et) => et.slug === 'x')).toBe(false)
+
+    // A collective with no required host would never offer a slot: refused, on create and on patch.
+    const allOptional = await app.request('/api/v1/event-types', {
+      method: 'POST',
+      ...json(t.admin.apiKey, { ...base, schedulingType: 'collective', hosts: [{ userId: t.member.user.id, required: false }] }),
+    })
+    expect(allOptional.status).toBe(400)
+    expect(((await allOptional.json()) as { detail: string }).detail).toContain('at least one required host')
+    await t.repos.eventTypes.create({ ...t.admin.eventType, id: 'evt_api_coll', ownerUserId: null, ownerTeamId: t.team.id, schedulingType: 'collective', slug: 'coll', scheduleId: null })
+    const patchBad = await app.request('/api/v1/event-types/evt_api_coll', {
+      method: 'PATCH',
+      ...json(t.admin.apiKey, { title: 'Renamed', hosts: [{ userId: t.member.user.id, required: false }] }),
+    })
+    expect(patchBad.status).toBe(400)
+    // Rejected before any write: the title did not change either.
+    expect((await t.repos.eventTypes.byId('evt_api_coll'))?.title).toBe(t.admin.eventType.title)
 
     // hosts on a personal event type is a 400.
     const personal = await app.request('/api/v1/event-types', {
@@ -876,6 +892,23 @@ describe('team event types through the API', () => {
     expect((await app.request(`/api/v1/event-types/evt_api_hosts/hosts/${t.member.user.id}`, { method: 'PATCH', ...json(t.admin.apiKey, { scheduleId: null }) })).status).toBe(200)
   })
 
+  it('a host added over the API gets the same host-added email as one added on the dashboard', async () => {
+    const ports = testPorts()
+    const sent: Array<{ to: string; subject: string }> = []
+    ports.email = { async send(m) { sent.push({ to: m.to, subject: m.subject }) } }
+    const app = buildApp(ports)
+    const t = await team(ports)
+    await t.repos.eventTypes.create({ ...t.admin.eventType, id: 'evt_api_mail', ownerUserId: null, ownerTeamId: t.team.id, schedulingType: 'round_robin', slug: 'mail', scheduleId: null })
+    // Narrow to the admin alone, then add the member: only the member is new.
+    await t.repos.eventTypeHosts.replace('evt_api_mail', [{ userId: t.admin.user.id, required: true, scheduleId: null, rrWeight: null }])
+    const res = await app.request('/api/v1/event-types/evt_api_mail', {
+      method: 'PATCH',
+      ...json(t.admin.apiKey, { hosts: [{ userId: t.admin.user.id }, { userId: t.member.user.id }] }),
+    })
+    expect(res.status).toBe(200)
+    expect(sent).toEqual([{ to: t.member.user.email, subject: "You're a host on Thirty minutes" }])
+  })
+
   it("a team admin's key manages a member's schedules; a member's key cannot", async () => {
     const ports = testPorts()
     const app = buildApp(ports)
@@ -897,9 +930,13 @@ describe('team event types through the API', () => {
     const names = ((await listed.json()) as { data: Array<{ name: string }> }).data.map((sch) => sch.name)
     expect(names).toContain('Afternoons')
 
+    // Give it a date override, then rename WITHOUT sending overrides: they must survive (review).
+    await t.repos.availability.update(t.member.user.id, made.id, { overrides: [{ date: '2026-12-24', windows: [] }] })
     const renamed = await app.request(`${path}/${made.id}`, { method: 'PATCH', ...json(t.admin.apiKey, { name: 'Support hours' }) })
     expect(renamed.status).toBe(200)
-    expect((await t.repos.availability.byId(t.member.user.id, made.id))?.name).toBe('Support hours')
+    const after = await t.repos.availability.byId(t.member.user.id, made.id)
+    expect(after?.name).toBe('Support hours')
+    expect(after?.overrides).toEqual([{ date: '2026-12-24', windows: [] }])
     // Not on the team → 404, not a hint that the user exists.
     expect((await app.request(`/api/v1/teams/${t.team.id}/members/${t.outsider.user.id}/schedules`, { headers: auth(t.admin.apiKey) })).status).toBe(404)
   })

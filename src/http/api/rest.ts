@@ -36,6 +36,7 @@ import type {
   WeeklySchedule,
 } from '../../core/domain/types.js'
 import { canManageTeam } from '../../core/domain/teams.js'
+import { currentHostIds, notifyNewHosts } from '../host-notifications.js'
 import { hostUsers, resolveHosts as resolveEventTypeHosts, type ResolvedHost } from '../../core/domain/hosts.js'
 import type { EnginePorts, Repositories, RequestScope } from '../../ports.js'
 import type { SlotService } from '../../engine.js'
@@ -401,20 +402,21 @@ const dayWindowSchema = z
   })
   .refine((w) => w.endMinute > w.startMinute, 'endMinute must be after startMinute')
 
+const overridesSchema = z
+  .array(
+    z.object({
+      date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'YYYY-MM-DD'),
+      windows: z.array(dayWindowSchema).max(12),
+    }),
+  )
+  .max(370)
+
 const availabilityBody = z.object({
   timezone: z.string().refine(isValidTimeZone, 'not an IANA timezone'),
   // Index 0 is Sunday, matching `Date.getUTCDay()` — stated in the schema so a
   // client cannot discover it by writing to the wrong day.
   weekly: z.array(z.array(dayWindowSchema).max(12)).length(7),
-  overrides: z
-    .array(
-      z.object({
-        date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'YYYY-MM-DD'),
-        windows: z.array(dayWindowSchema).max(12),
-      }),
-    )
-    .max(370)
-    .default([]),
+  overrides: overridesSchema.default([]),
 })
 
 const bookingCreateBody = z.object({
@@ -569,6 +571,13 @@ export function buildApiRoutes(ports: EnginePorts, slots: SlotService): Hono<Api
     if (body.scheduleId && !(await repos.availability.byId(user.id, body.scheduleId))) {
       return problem(400, 'Invalid request', 'scheduleId does not exist or is not yours.')
     }
+    if (team) {
+      // Checked BEFORE the row is written, so a mistyped host never leaves
+      // a live event type behind; the SQL guard in `replace` stays as the
+      // backstop for a member removed or a schedule deleted in between.
+      const rejected = await validateHosts(repos, team.id, body.schedulingType, body.hosts)
+      if (rejected) return rejected
+    }
 
     const created = await repos.eventTypes.create({
       id: `evt_${ports.crypto.randomToken(12)}`,
@@ -592,22 +601,64 @@ export function buildApiRoutes(ports: EnginePorts, slots: SlotService): Hono<Api
       scheduleId: body.scheduleId,
     })
 
-    if (team && body.hosts.length > 0) {
-      // Guarded in SQL: a host who is not on the team, or a schedule that
-      // is not theirs, fails the whole set. The event type stays; the
-      // caller fixes the list and PATCHes `hosts`.
-      const ok = await repos.eventTypeHosts.replace(created.id, body.hosts.map(hostRow))
-      if (!ok) {
-        return problem(
-          422,
-          'Hosts not accepted',
-          'Every host must be a member of the team, and a scheduleId must belong to that host. The event type was created with every member hosting it; PATCH `hosts` to fix the list.',
-        )
+    if (team) {
+      if (body.hosts.length > 0) {
+        const ok = await repos.eventTypeHosts.replace(created.id, body.hosts.map(hostRow))
+        if (!ok) {
+          // Lost the race the pre-check cannot cover. The row exists with
+          // every member hosting it; say so, with the id, rather than
+          // leave the caller to find it.
+          return problem(
+            422,
+            'Hosts not accepted',
+            `A host left the team or a schedule was deleted while creating. Event type ${created.id} exists with every member hosting it; PATCH its \`hosts\` to fix the list.`,
+          )
+        }
       }
+      await notifyNewHosts(
+        ports,
+        repos,
+        user,
+        created,
+        new Set(),
+        body.hosts.length > 0
+          ? body.hosts.map((h) => ({ userId: h.userId, required: h.required, scheduleId: h.scheduleId }))
+          : (await repos.teams.members(team.id)).map((m) => ({ userId: m.userId, required: true, scheduleId: null })),
+      )
     }
 
     return c.json({ data: await eventTypeWithHosts(repos, user, created) }, 201)
   })
+
+  /**
+   * The checks the dashboard's Hosts block makes, for the API: every host on
+   * the team, every scheduleId that host's own, and a collective set with at
+   * least one required host — an all-optional collective is accepted by the
+   * engine and then never offers a slot (computeSlots returns nothing
+   * without a required host), which is a 400 here, not a silent dead page.
+   */
+  async function validateHosts(
+    repos: Repositories,
+    teamId: string,
+    schedulingType: EventType['schedulingType'],
+    hosts: Array<z.infer<typeof hostInput>>,
+  ): Promise<Response | null> {
+    if (hosts.length === 0) return null
+    const members = new Set((await repos.teams.members(teamId)).map((m) => m.userId))
+    const seen = new Set<string>()
+    for (const h of hosts) {
+      if (seen.has(h.userId)) return problem(400, 'Invalid request', `hosts lists ${h.userId} twice.`)
+      seen.add(h.userId)
+      if (!members.has(h.userId)) return problem(400, 'Invalid request', `${h.userId} is not a member of the team.`)
+      if (h.scheduleId && !(await repos.availability.byId(h.userId, h.scheduleId))) {
+        return problem(400, 'Invalid request', `scheduleId ${h.scheduleId} does not exist or is not ${h.userId}'s.`)
+      }
+    }
+    if (schedulingType === 'collective' && !hosts.some((h) => h.required)) {
+      return problem(400, 'Invalid request', 'A collective event type needs at least one required host.')
+    }
+    return null
+  }
 
   /** `hosts[]` from the API to the repository's shape. */
   function hostRow(h: z.infer<typeof hostInput>): { userId: string; required: boolean; scheduleId: string | null; rrWeight: number | null } {
@@ -649,14 +700,26 @@ export function buildApiRoutes(ports: EnginePorts, slots: SlotService): Hono<Api
     if (hosts !== undefined && !et.ownerTeamId) {
       return problem(400, 'Invalid request', '`hosts` only applies to a team event type.')
     }
+    if (hosts !== undefined && et.ownerTeamId) {
+      // Validated before ANY write, so a bad host list does not save the
+      // other fields and then 422 (review).
+      const rejected = await validateHosts(repos, et.ownerTeamId, et.schedulingType, hosts)
+      if (rejected) return rejected
+    }
+    const before = hosts !== undefined ? await currentHostIds(repos, et) : new Set<string>()
 
     if (Object.keys(fields).length > 0) await repos.eventTypes.update(id, fields as Partial<EventType>)
-    if (hosts !== undefined) {
+    if (hosts !== undefined && et.ownerTeamId) {
       // Atomic, SQL-guarded replace — same as the dashboard's Hosts block.
       const ok = await repos.eventTypeHosts.replace(id, hosts.map(hostRow))
       if (!ok) {
-        return problem(422, 'Hosts not accepted', 'Every host must be a member of the team, and a scheduleId must belong to that host.')
+        return problem(422, 'Hosts not accepted', 'A host left the team or a schedule was deleted meanwhile; the other fields were saved. Reload and retry `hosts`.')
       }
+      const after =
+        hosts.length > 0
+          ? hosts.map((h) => ({ userId: h.userId, required: h.required, scheduleId: h.scheduleId }))
+          : (await repos.teams.members(et.ownerTeamId)).map((m) => ({ userId: m.userId, required: true, scheduleId: null }))
+      await notifyNewHosts(ports, repos, user, { ...et, ...(fields as Partial<EventType>) }, before, after)
     }
     // Read-after-write on the same bookmarked session, so the response is the
     // row as stored rather than the patch echoed back.
@@ -713,7 +776,16 @@ export function buildApiRoutes(ports: EnginePorts, slots: SlotService): Hono<Api
     weekly: availabilityBody.shape.weekly,
     overrides: availabilityBody.shape.overrides,
   })
-  const schedulePatchBody = scheduleBody.partial()
+  // Built field by field rather than `.partial()` of the above: `overrides`
+  // carries `.default([])` for creates, and a partial keeps the default —
+  // so a rename that omitted `overrides` would silently blank the member's
+  // date overrides (review). Optional here means "not sent", nothing else.
+  const schedulePatchBody = z.object({
+    name: z.string().min(1).max(120).optional(),
+    timezone: availabilityBody.shape.timezone.optional(),
+    weekly: availabilityBody.shape.weekly.optional(),
+    overrides: overridesSchema.optional(),
+  })
 
   /** The member, if the key's user manages the team and the member is on it. Anything else is the same 404. */
   async function managedMember(
