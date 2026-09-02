@@ -409,10 +409,17 @@ describe('team event types', () => {
     expect(row).toBeNull()
   })
 
-  it('the public booking page resolves at /<team-slug>/<event-slug>', async () => {
+  it('the public booking page resolves at /<team-slug>/<event-slug>, headed by the team and naming the hosts', async () => {
     const res = await publicApp.fetch(new Request(`${BASE}/support-crew/support-call`))
     expect(res.status).toBe(200)
-    expect(await res.text()).toContain('Support call')
+    const html = await res.text()
+    expect(html).toContain('Support call')
+    // The team heads the page, not the representative member.
+    expect(html).toContain('<p class="pu-host-name">Support Crew</p>')
+    expect(html).toContain('<title>Support call · Support Crew</title>')
+    // Round robin names the pool, never one person.
+    expect(html).toContain('With one of <strong>Alice Host or Bob Host</strong>')
+    expect(html).not.toContain('<p class="pu-host-name">Alice Host</p>')
   })
 
   it('the dashboard home lists the team event type with the TEAM-slug URL', async () => {

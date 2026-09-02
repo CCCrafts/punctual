@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { EventType, Slot, User } from '../../src/core/domain/types.js'
-import { eventHeader, monthGrid, shellFoot, slotList, type BookingPageData } from '../../src/http/pages/booking.js'
+import { eventHeader, hostsRow, joinNames, monthGrid, shellFoot, slotList, type BookingPageData } from '../../src/http/pages/booking.js'
 
 const host: User = {
   id: 'u_host',
@@ -279,5 +279,54 @@ describe('slotList slot-state wiring', () => {
   it('still renders as a real, focusable link — available slots stay interactive', () => {
     const html = slotList(pageData({ selectedDate: '2026-09-10', slots }))
     expect(html).toMatch(/<a class="pu-slot pu-slot-available" href="[^"]+">/)
+  })
+})
+
+
+// ===========================================================================
+// Team pages: the team heads the page; the hosts row says who the guest meets
+// ===========================================================================
+
+describe('team-owned page header and hosts row', () => {
+  const team = { id: 't_1', name: 'Support Crew', slug: 'support-crew', logoKey: null, createdAt: 0 }
+  const teamEvent: EventType = { ...eventType, ownerUserId: null, ownerTeamId: 't_1', schedulingType: 'collective' }
+  const person = (id: string, name: string): User => ({ ...host, id, name, slug: id })
+
+  it('heads a team page with the team name, not the representative member', () => {
+    const html = eventHeader(pageData({ team, eventType: teamEvent }))
+    expect(html).toContain('<p class="pu-host-name">Support Crew</p>')
+    expect(html).not.toContain('Grace Hopper')
+  })
+
+  it('collective: "You\'ll meet" every host, and; round robin: "With one of", or', () => {
+    const hosts = [person('a', 'Alice'), person('b', 'Bob'), person('c', 'Carol')]
+    const collective = hostsRow({ eventType: teamEvent, hosts })
+    expect(collective).toContain("You'll meet <strong>Alice, Bob and Carol</strong>")
+    const rr = hostsRow({ eventType: { ...teamEvent, schedulingType: 'round_robin' }, hosts })
+    expect(rr).toContain('With one of <strong>Alice, Bob or Carol</strong>')
+    expect(rr.match(/pu-hosts-stack/g)).toHaveLength(1)
+  })
+
+  it('more than four hosts collapse to three plus a CSS-only "and N more"', () => {
+    const hosts = ['Alice', 'Bob', 'Carol', 'Dan', 'Eve'].map((n) => person(n.toLowerCase(), n))
+    const html = hostsRow({ eventType: teamEvent, hosts })
+    expect(html).toContain('<strong>Alice, Bob, Carol</strong>')
+    expect(html).toContain('<summary>and 2 more</summary><span>Dan and Eve</span>')
+    expect(html).toContain('<span class="pu-hosts-count" aria-hidden="true">+2</span>')
+    expect(html).not.toContain('<script')
+  })
+
+  it('renders nothing for a personal page, and escapes names', () => {
+    expect(hostsRow({ eventType, hosts: [host] })).toBe('')
+    const html = hostsRow({ eventType: teamEvent, hosts: [person('x', '<b>X</b>')] })
+    expect(html).not.toContain('<b>X</b>')
+    expect(html).toContain('&lt;b&gt;X&lt;/b&gt;')
+  })
+
+  it('joinNames', () => {
+    expect(joinNames([])).toBe('')
+    expect(joinNames(['A'])).toBe('A')
+    expect(joinNames(['A', 'B'])).toBe('A and B')
+    expect(joinNames(['A', 'B', 'C'], 'or')).toBe('A, B or C')
   })
 })

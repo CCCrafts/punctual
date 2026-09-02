@@ -40,6 +40,8 @@ import {
   slotList,
   slotTakenPage,
   type BookingPageData,
+  hostsRow,
+  joinNames,
 } from './pages/booking.js'
 
 type Env = Record<string, unknown>
@@ -208,7 +210,7 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
     // One round trip, not two awaits — see EventTypeRepository.bookingPageContext.
     const ctx = await repos.eventTypes.bookingPageContext(userSlug, eventSlug)
     if (!ctx) return notFound(c, ports)
-    const { host, eventType } = ctx
+    const { host, eventType, team } = ctx
 
     const guestTimezone = resolveGuestTimezone(c.req.query('tz'), c.req.raw, host.tz)
     const embed = c.req.query('embed') === '1'
@@ -274,6 +276,7 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
     // we already have.
     const headerData: BookingPageData = {
       host,
+      team,
       ownerSlug: userSlug,
       eventType,
       month,
@@ -286,7 +289,7 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
 
     const head =
       shellHead({
-        title: `${eventType.title} · ${host.name || host.slug}`,
+        title: `${eventType.title} · ${team ? team.name : host.name || host.slug}`,
         description: eventType.description || undefined,
         brandName: ports.config.brandName,
         // The one link that's actually meant to be shared — a host posts it
@@ -325,6 +328,7 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
 
       const data: BookingPageData = {
         ...headerData,
+        hosts: hostUsers,
         // Keyed on guestTimezone to match the day filter above — otherwise a
         // day the calendar marks bookable can filter to zero slots (or vice
         // versa) once the guest's local date diverges from the host's.
@@ -333,7 +337,7 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
         slots: daySlots,
       }
 
-      return `<div class="pu-grid">${monthGrid(data)}${slotList(data)}</div>`
+      return `${hostsRow(data)}<div class="pu-grid">${monthGrid(data)}${slotList(data)}</div>`
     }, shellFoot(true, embed, displayCompany(headerData)))
   })
 
@@ -348,7 +352,7 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
     const { userSlug, eventSlug } = c.req.param()
     const ctx = await repos.eventTypes.bookingPageContext(userSlug, eventSlug)
     if (!ctx) return notFound(c, ports)
-    const { host, eventType } = ctx
+    const { host, eventType, team } = ctx
 
     const start = Number(c.req.query('start'))
     if (!Number.isSafeInteger(start) || Math.abs(start) > 8.64e15) return notFound(c, ports)
@@ -357,6 +361,8 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
 
     const data: BookingPageData = {
       host,
+      team,
+      hosts: await resolveHosts(repos, eventType, host),
       ownerSlug: userSlug,
       eventType,
       month: localDateString(start, host.tz).slice(0, 7),
@@ -370,6 +376,7 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
     const html =
       shellHead({ title: `Confirm · ${eventType.title}`, brandName: ports.config.brandName }) +
       eventHeader(data) +
+      hostsRow(data) +
       confirmForm(data, start) +
       shellFoot(true, embed, displayCompany(data))
     return c.html(html)
@@ -398,7 +405,7 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
     const repos = ports.repositories({ consistency: 'bookmark' })
     const ctx = await repos.eventTypes.bookingPageContext(userSlug, eventSlug)
     if (!ctx) return notFound(c, ports)
-    const { host, eventType } = ctx
+    const { host, eventType, team } = ctx
 
     const form = await c.req.formData()
     const start = Number(form.get('start'))
@@ -420,6 +427,8 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
 
     const data: BookingPageData = {
       host,
+      team,
+      hosts: await resolveHosts(repos, eventType, host),
       ownerSlug: userSlug,
       eventType,
       month: localDateString(start, host.tz).slice(0, 7),
@@ -457,7 +466,7 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
       )
     }
 
-    const hostUsers = await resolveHosts(repos, eventType, host)
+    const hostUsers = data.hosts ?? [host]
     const outcome = await ports.coordinator.book(host.id, {
       eventTypeId: eventType.id,
       hostUserIds: hostUsers.map((u) => u.id),
@@ -496,7 +505,15 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
       shellHead({ title: 'Booked', brandName: ports.config.brandName }) +
         bookedConfirmation({
           eventTitle: eventType.title,
-          hostName: host.name || host.slug,
+          // Who actually attends — the round-robin pick, or the required
+          // hosts plus the optional ones that were free — not the page's
+          // representative member.
+          hostName: joinNames(
+            outcome.booking.hostUserIds
+              .map((id) => hostUsers.find((u) => u.id === id))
+              .filter((u): u is User => u !== undefined)
+              .map((u) => u.name || u.slug),
+          ) || host.name || host.slug,
           start: outcome.booking.startUtc,
           guestTimezone,
           manageUrl,

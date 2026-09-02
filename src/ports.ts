@@ -130,7 +130,7 @@ export interface EventTypeRepository {
   bookingPageContext(
     ownerSlug: string,
     eventSlug: string,
-  ): Promise<{ host: User; eventType: EventType } | null>
+  ): Promise<{ host: User; eventType: EventType; team: Team | null } | null>
   listForUser(userId: string): Promise<EventType[]>
   listForTeam(teamId: string): Promise<EventType[]>
   create(et: Omit<EventType, 'createdAt'>): Promise<EventType>

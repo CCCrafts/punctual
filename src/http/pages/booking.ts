@@ -15,7 +15,8 @@
  * while the page is still useless (ADR-0007 §3).
  */
 
-import type { EventType, Slot, User } from '../../core/domain/types.js'
+import type {
+  Team, EventType, Slot, User } from '../../core/domain/types.js'
 import { effectiveQuestions } from '../../core/domain/booking-service.js'
 import { slotStateClassName } from '../../core/slot-state.js'
 import { formatInZone, localDateString, offsetLabel } from '../../core/time/zone.js'
@@ -147,6 +148,15 @@ export function slotsSkeleton(): string {
 
 export interface BookingPageData {
   host: User
+  /** The owning team, for a team-owned page: its name and logo head the page instead of `host`'s. */
+  team?: Team | null
+  /**
+   * The hosts the guest will meet — the resolved set (core/domain/hosts.ts),
+   * in display order. Rendered by `hostsRow`, separately from the header,
+   * because resolving them is a D1 read and the header is flushed before
+   * any of those (ADR-0007 §3).
+   */
+  hosts?: User[]
   /**
    * The slug this page is actually reachable at — a user's OR a team's.
    * `host` is a representative user for display/timezone-default purposes
@@ -225,16 +235,55 @@ function identityLineHtml(d: Pick<BookingPageData, 'host' | 'eventType'>): strin
   return parts.length > 0 ? parts.join(', ') : null
 }
 
+/** "Alice", "Alice and Bob", "Alice, Bob and Carol" — `conjunction` is "and" or "or". */
+export function joinNames(names: string[], conjunction: 'and' | 'or' = 'and'): string {
+  if (names.length === 0) return ''
+  if (names.length === 1) return names[0]!
+  return `${names.slice(0, -1).join(', ')} ${conjunction} ${names[names.length - 1]}`
+}
+
+/**
+ * Who the guest will meet, for a team-owned page. Collective names every
+ * host (required and optional alike — an optional host is named in the
+ * confirmation only if they actually join); round-robin names the pool and
+ * never a specific person, because the host is picked at commit (ADR-0004
+ * §5: listings are advisory about who). More than four collapses to three
+ * plus a CSS-only "and N more" — no script. Empty for a personal page.
+ */
+export function hostsRow(d: Pick<BookingPageData, 'eventType' | 'hosts'>): string {
+  const hosts = d.hosts ?? []
+  if (d.eventType.ownerTeamId === null || hosts.length === 0) return ''
+  const names = hosts.map((h) => h.name || h.slug)
+  const shown = hosts.length > 4 ? hosts.slice(0, 3) : hosts
+  const rest = hosts.length > 4 ? names.slice(3) : []
+  const stack = shown.map((h) => avatarHtml({ key: h.avatarKey, name: h.name || h.slug, size: 32 })).join('')
+  const collective = d.eventType.schedulingType === 'collective'
+  const lead = collective ? "You'll meet " : 'With one of '
+  const visible = rest.length > 0 ? names.slice(0, 3).join(', ') : joinNames(names, collective ? 'and' : 'or')
+  const more =
+    rest.length > 0
+      ? ` <details class="pu-hosts-more"><summary>and ${rest.length} more</summary><span>${escapeHtml(joinNames(rest, collective ? 'and' : 'or'))}</span></details>`
+      : ''
+  return `<div class="pu-hosts" aria-label="Hosts">
+    <div class="pu-hosts-stack">${stack}${rest.length > 0 ? `<span class="pu-hosts-count" aria-hidden="true">+${rest.length}</span>` : ''}</div>
+    <p class="pu-hosts-text">${lead}<strong>${escapeHtml(visible)}</strong>${more}</p>
+  </div>`
+}
+
 export function eventHeader(d: BookingPageData): string {
   const durationLabel = `${d.eventType.durationMinutes} min`
   const location = locationLabel(d.eventType)
-  const identity = identityLineHtml(d)
-  const hostName = d.host.name || d.host.slug
+  // A team-owned page is headed by the TEAM — its name and logo — not by
+  // the representative member `bookingPageContext` picked for the
+  // timezone default. Who the guest meets is `hostsRow`, below the header.
+  const identity = d.team ? null : identityLineHtml(d)
+  const headName = d.team ? d.team.name : d.host.name || d.host.slug
+  const headKey = d.team ? d.team.logoKey : d.host.avatarKey
   return `<header class="pu-event-header">
   <div class="pu-host">
-    ${avatarHtml({ key: d.host.avatarKey, name: hostName, size: 56 })}
+    ${avatarHtml({ key: headKey, name: headName, size: 56 })}
     <div>
-      <p class="pu-host-name">${escapeHtml(hostName)}</p>
+      <p class="pu-host-name">${escapeHtml(headName)}</p>
       ${identity ? `<p class="pu-host-org">${identity}</p>` : ''}
     </div>
   </div>

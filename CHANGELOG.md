@@ -46,6 +46,15 @@ still change interfaces.
 - **"Team events" on the Availability page**: each team event type a host
   is on, with a select of their own schedules for it — the host's side of
   the same setting, changeable at any time.
+- **The booking page says who the guest will meet.** A team-owned page is
+  headed by the team's name and logo instead of one representative member,
+  and a hosts row under the header names the hosts with their avatars:
+  collective "You'll meet Alice, Bob and Carol", round robin "With one of
+  Alice, Bob or Carol" — never a specific person, since the host is picked
+  at commit. More than four collapses to three and a CSS-only "and N more".
+  The confirmation screen names the people who actually attend: the
+  round-robin pick, or the required hosts plus the optional ones that were
+  free.
 - REST: `PATCH`/`DELETE /event-types/:id` on a team-owned event type now
   require a team admin's key (403 otherwise); reading and listing are
   unchanged for every member.

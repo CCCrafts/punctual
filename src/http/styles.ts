@@ -271,6 +271,17 @@ time,.pu-time{font-family:var(--pu-font-mono);font-variant-numeric:tabular-nums}
 .pu-host-org{margin:.1rem 0 0;font-size:.875rem;line-height:1.35;color:var(--pu-text-secondary)}
 .pu-host-link{color:var(--pu-green-700);text-decoration:none}
 .pu-host-link:hover{text-decoration:underline}
+.pu-hosts{display:flex;align-items:center;gap:.75rem;margin:0 0 1.25rem}
+.pu-hosts-stack{display:flex;align-items:center}
+.pu-hosts-stack>*{margin-left:-8px;box-shadow:0 0 0 2px var(--pu-paper);border-radius:50%}
+.pu-hosts-stack>:first-child{margin-left:0}
+.pu-hosts-count{width:32px;height:32px;display:flex;align-items:center;justify-content:center;background:var(--pu-paper-dim);color:var(--pu-ink-500);font-family:var(--pu-font-mono);font-size:.75rem}
+.pu-hosts-text{margin:0;font-size:.9375rem;line-height:1.4;color:var(--pu-text-secondary)}
+.pu-hosts-text strong{color:var(--pu-ink-950);font-weight:600}
+.pu-hosts-more{display:inline}
+.pu-hosts-more summary{display:inline;cursor:pointer;color:var(--pu-green-700);list-style:none}
+.pu-hosts-more summary::-webkit-details-marker{display:none}
+.pu-hosts-more[open] summary{display:none}
 .pu-mark{font-family:var(--pu-font-mono);font-weight:600;letter-spacing:-.02em;
   text-decoration:none;color:var(--pu-text-primary)}
 .pu-mark span{color:var(--pu-signal)}
