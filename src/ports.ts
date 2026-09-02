@@ -165,6 +165,15 @@ export interface EventTypeHostRepository {
    */
   replace(eventTypeId: string, hosts: Array<Omit<EventTypeHost, 'eventTypeId' | 'position'>>): Promise<boolean>
   /**
+   * Insert any of `hosts` that are not already in the set, leaving existing
+   * rows untouched — the implicit-to-explicit conversion a host's own
+   * schedule choice triggers (dashboard "Team events"). Insert-if-absent
+   * rather than replace so two hosts converting the same event type at
+   * once each keep their own row and their own choice. Same membership
+   * guard as `replace`; a non-member is skipped, not stored.
+   */
+  ensure(eventTypeId: string, hosts: Array<Omit<EventTypeHost, 'eventTypeId' | 'position'>>): Promise<void>
+  /**
    * Set (or clear, with null) one host's per-event schedule. Same guard as
    * `replace` on the schedule. Returns `false` when the host row does not
    * exist or the schedule is not theirs.

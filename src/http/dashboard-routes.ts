@@ -889,6 +889,10 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
           eventType: existing,
           teams: await managedTeams(c),
           schedules: await c.get('repos').availability.listForUser(c.get('user').id),
+          // The message below tells the admin to untick "Visible" on THIS
+          // form and save; without the Hosts block that save would read
+          // every host as unticked and 400.
+          hostChoices: await hostChoicesFor(c, existing),
           errors: {
             delete:
               'This event type still has upcoming confirmed bookings. Cancel them first, or untick ' +
@@ -1043,21 +1047,20 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
       return c.html(schedulesPage({ ...(await schedulesData(c, who)), errors: { [errorKey]: 'Not one of your schedules' } }), 400)
     }
 
-    const rows = await repos.eventTypeHosts.forEventType(eventType.id)
-    let ok: boolean
-    if (rows.length > 0) {
-      ok = await repos.eventTypeHosts.setSchedule(eventType.id, user.id, scheduleId)
-    } else {
-      // No explicit set yet: the host's choice makes it explicit — every
-      // current member, required, as the implicit set already meant, plus
-      // this one preference. From here on an admin edits the list; new
-      // members no longer join it automatically, and the form says so.
+    // No explicit set yet: the host's choice makes it explicit — every
+    // current member, required, as the implicit set already meant. Insert-
+    // if-absent, not replace: two hosts converting at the same moment each
+    // keep their own row, and the setSchedule below is the only write that
+    // touches THIS host's. From here on an admin edits the list; new
+    // members no longer join it automatically, and the form says so.
+    if ((await repos.eventTypeHosts.forEventType(eventType.id)).length === 0) {
       const members = await repos.teams.members(eventType.ownerTeamId)
-      ok = await repos.eventTypeHosts.replace(
+      await repos.eventTypeHosts.ensure(
         eventType.id,
-        members.map((m) => ({ userId: m.userId, required: true, scheduleId: m.userId === user.id ? scheduleId : null, rrWeight: null })),
+        members.map((m) => ({ userId: m.userId, required: true, scheduleId: null, rrWeight: null })),
       )
     }
+    const ok = await repos.eventTypeHosts.setSchedule(eventType.id, user.id, scheduleId)
     if (!ok) {
       return c.html(
         schedulesPage({ ...(await schedulesData(c, who)), errors: { [errorKey]: 'That could not be saved — reload and try again.' } }),

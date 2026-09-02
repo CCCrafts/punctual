@@ -1536,6 +1536,48 @@ describe('hosts editor', () => {
     expect(rows.find((r) => r.userId === BOB_ID)?.scheduleId).toBe('sch_bob_support')
   })
 
+  it('two hosts converting the same implicit set each keep their own choice', async () => {
+    const et = await repos().eventTypes.create({
+      ...(await repos().eventTypes.byId(crewEventTypeId))!,
+      id: 'et_crew_race',
+      slug: 'crew-race',
+    })
+    const members = (await repos().teams.members(crewId)).map((m) => ({ userId: m.userId, required: true, scheduleId: null, rrWeight: null }))
+    // Both requests read "no rows" before either wrote — modelled as two
+    // ensure+setSchedule pairs whose ensures both ran on the empty set.
+    await repos().eventTypeHosts.ensure(et.id, members)
+    expect(await repos().eventTypeHosts.setSchedule(et.id, BOB_ID, 'sch_bob_support')).toBe(true)
+    await repos().eventTypeHosts.ensure(et.id, members) // Carol's late conversion: a no-op on existing rows
+    expect(await repos().eventTypeHosts.setSchedule(et.id, ALICE_ID, 'sch_alice_default')).toBe(true)
+    const rows = await repos().eventTypeHosts.forEventType(et.id)
+    expect(rows.find((r) => r.userId === BOB_ID)?.scheduleId).toBe('sch_bob_support')
+    expect(rows.find((r) => r.userId === ALICE_ID)?.scheduleId).toBe('sch_alice_default')
+    expect(rows).toHaveLength(members.length)
+    // A non-member in the list is skipped, not stored.
+    await repos().eventTypeHosts.ensure(et.id, [{ userId: OUTSIDER_ID, required: true, scheduleId: null, rrWeight: null }])
+    expect((await repos().eventTypeHosts.forEventType(et.id)).some((r) => r.userId === OUTSIDER_ID)).toBe(false)
+  })
+
+  it('the delete-refused form still carries the Hosts block, so the advised "untick Visible" save works', async () => {
+    // An upcoming confirmed booking blocks the delete.
+    const start = Date.now() + 3 * 24 * 3_600_000
+    await db
+      .prepare(
+        `INSERT INTO bookings (id,event_type_id,host_user_id,host_user_ids_json,guest_name,guest_email,guest_timezone,start_utc,end_utc,local_date,status,answers_json,external_event_ids_json,manage_token_hash,created_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      )
+      .bind('bk_crew_block', crewEventTypeId, ALICE_ID, JSON.stringify([ALICE_ID]), 'G', 'g@example.test', 'UTC', start, start + 1_800_000, '2026-01-01', 'confirmed', '{}', '{}', 'h_block', Date.now())
+      .run()
+    const alice = await seedSession(ALICE_ID)
+    const csrf = await csrfFrom(`/dashboard/event-types/${crewEventTypeId}`, alice)
+    const refused = await post(`/dashboard/event-types/${crewEventTypeId}/delete`, { csrf }, alice)
+    expect(refused.status).toBe(409)
+    const html = await refused.text()
+    expect(html).toContain('<legend style="font-weight:600">Hosts</legend>')
+    expect(html).toContain(`name="host-${ALICE_ID}" value="on" checked`)
+    await db.prepare('DELETE FROM bookings WHERE id = ?').bind('bk_crew_block').run()
+  })
+
   it('someone who does not host the event type gets a 404 from the team-events route', async () => {
     const outsider = await seedSession(OUTSIDER_ID)
     const csrf = await csrfFrom('/dashboard/availability', outsider)

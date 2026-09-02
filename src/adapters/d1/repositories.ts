@@ -867,6 +867,31 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
         throw err
       }
     },
+    async ensure(eventTypeId, hosts) {
+      if (hosts.length === 0) return
+      // OR IGNORE covers both the primary key (row already there: keep it)
+      // and the NOT NULL guards (not a member, foreign schedule: skip it).
+      // Positions continue after whatever exists, so a set an admin ordered
+      // keeps its order and the newcomers follow.
+      const base = await first<{ n: number }>(
+        'SELECT COALESCE(MAX(position), -1) + 1 AS n FROM event_type_hosts WHERE event_type_id = ?',
+        eventTypeId,
+      )
+      const start = base?.n ?? 0
+      await session.batch(
+        hosts.map((h, i) =>
+          q(
+            HOST_INSERT.replace('INSERT INTO', 'INSERT OR IGNORE INTO'),
+            eventTypeId,
+            eventTypeId, h.userId,
+            h.required ? 1 : 0,
+            h.scheduleId,
+            h.rrWeight,
+            h.scheduleId, h.scheduleId, h.userId, start + i,
+          ),
+        ),
+      )
+    },
     async setSchedule(eventTypeId, userId, scheduleId) {
       // Same guard, as an UPDATE: a schedule that is not this host's makes
       // the WHERE false, so nothing changes and the caller hears `false`.

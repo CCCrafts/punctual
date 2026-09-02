@@ -302,6 +302,7 @@ export function createFakeRepositories(): FakeRepositories {
       async forEventType() {
         return []
       },
+      async ensure() {},
     }),
     availability: availabilityRepo,
     slotLocks: unimplemented('slotLocks'),
