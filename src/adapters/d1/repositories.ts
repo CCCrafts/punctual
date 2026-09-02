@@ -888,9 +888,14 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
       await run('UPDATE teams SET logo_key = ? WHERE id = ?', logoKey, id)
     },
     async addMember(m) {
+      // On conflict only the weight moves. Roles change through `setRole`
+      // alone, which carries the last-admin guard: an upsert that also wrote
+      // `role` would let a stale "add Carol as member" submit, landing after
+      // another admin promoted her, silently demote an admin — past the
+      // guard, because this statement never had one.
       await run(
         `INSERT INTO team_members (team_id,user_id,role,rr_weight) VALUES (?,?,?,?)
-         ON CONFLICT(team_id,user_id) DO UPDATE SET role = excluded.role, rr_weight = excluded.rr_weight`,
+         ON CONFLICT(team_id,user_id) DO UPDATE SET rr_weight = excluded.rr_weight`,
         m.teamId, m.userId, m.role, m.rrWeight,
       )
     },

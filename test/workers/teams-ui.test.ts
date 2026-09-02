@@ -1031,6 +1031,34 @@ describe('team roles', () => {
     await repos.teams.addMember({ teamId: crewId, userId: BOB_ID, role: 'member', rrWeight: 1 })
   })
 
+  it('re-adding an existing member changes only their weight, never their role', async () => {
+    const repos = createD1Repositories(db, { consistency: 'bookmark' })
+    // The upsert path with a stale "member" role must not demote an admin.
+    await repos.teams.addMember({ teamId: crewId, userId: ALICE_ID, role: 'member', rrWeight: 7 })
+    expect(await sqlRole(ALICE_ID)).toBe('admin')
+    const row = await db.prepare('SELECT rr_weight FROM team_members WHERE team_id = ? AND user_id = ?').bind(crewId, ALICE_ID).first<{ rr_weight: number }>()
+    expect(row?.rr_weight).toBe(7)
+    await repos.teams.addMember({ teamId: crewId, userId: ALICE_ID, role: 'member', rrWeight: 1 })
+  })
+
+  it('a member\'s display name is escaped everywhere the on-behalf pages print it', async () => {
+    const hostile = '<img src=x onerror="alert(1)">'
+    await db.prepare('UPDATE users SET name = ? WHERE id = ?').bind(hostile, BOB_ID).run()
+    const alice = await seedSession(ALICE_ID)
+    const base = `/dashboard/teams/${crewId}/members/${BOB_ID}/availability`
+    for (const path of [base, '/dashboard/teams']) {
+      const html = await (await get(path, alice)).text()
+      expect(html).not.toContain(hostile)
+      expect(html).toContain('&lt;img src=x')
+    }
+    const sched = await db.prepare('SELECT id FROM schedules WHERE user_id = ? LIMIT 1').bind(BOB_ID).first<{ id: string }>()
+    if (sched) {
+      const html = await (await get(`${base}/${sched.id}`, alice)).text()
+      expect(html).not.toContain(hostile)
+    }
+    await db.prepare('UPDATE users SET name = ? WHERE id = ?').bind('Bob Host', BOB_ID).run()
+  })
+
   it('setRole is one statement: demoting the last admin changes nothing', async () => {
     const repos = createD1Repositories(db, { consistency: 'bookmark' })
     expect(await repos.teams.setRole(crewId, ALICE_ID, 'member')).toBe(false)

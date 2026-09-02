@@ -752,7 +752,7 @@ export function schedulesPage(d: SchedulesPageData): string {
   const errors = d.errors ?? {}
   const base = d.scope?.basePath ?? '/dashboard/availability'
   const subject = d.scope?.subject ?? d.user
-  const whose = d.scope ? `${subject.name || subject.slug}'s` : 'your'
+  const whose = d.scope ? `${escapeHtml(subject.name || subject.slug)}'s` : 'your'
   const cards = d.schedules
     .map((s) => {
       const id = encodeURIComponent(s.id)

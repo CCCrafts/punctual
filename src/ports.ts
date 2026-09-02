@@ -318,6 +318,11 @@ export interface TeamRepository {
   ): Promise<Team | null>
   /** Every team on the instance, oldest first — for the instance admin's view, which is not membership-scoped. */
   list(): Promise<Team[]>
+  /**
+   * Insert, or update the weight of, a membership. `member.role` applies to
+   * the INSERT only — an existing row keeps its role, because role changes
+   * go through `setRole` and its last-admin guard.
+   */
   addMember(member: TeamMember): Promise<void>
   removeMember(teamId: string, userId: string): Promise<void>
   /**

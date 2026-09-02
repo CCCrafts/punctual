@@ -1277,17 +1277,11 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     }
 
     // `addMember` upserts on (team, user), which is how a weight is changed
-    // without JS: re-add the same email with the new weight. Preserve the
-    // existing role on that path — the form has no opinion about roles, and
-    // silently rewriting one would be a surprise waiting for the pass that
-    // makes roles mean something.
-    const existing = (await repos.teams.members(team.id)).find((m) => m.userId === target.id)
-    await repos.teams.addMember({
-      teamId: team.id,
-      userId: target.id,
-      role: existing?.role ?? 'member',
-      rrWeight: weight,
-    })
+    // without JS: re-add the same email with the new weight. The role given
+    // here applies only when the row is new — an existing member keeps
+    // theirs inside the statement itself, so a stale submit racing a
+    // promotion cannot demote anyone.
+    await repos.teams.addMember({ teamId: team.id, userId: target.id, role: 'member', rrWeight: weight })
     await advanceBookmark(c)
     return c.html(
       teamsPage({
