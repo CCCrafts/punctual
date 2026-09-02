@@ -75,6 +75,26 @@ describe('the dynamic OG card', () => {
     expect(keys[0]!.name.length).toBeLessThan(200)
   })
 
+  it('a collective with long names still gets a real card: first names, then a count, then the team', async () => {
+    const now = Date.now()
+    const ids = ['usr_og_l1', 'usr_og_l2', 'usr_og_l3']
+    const names = ['Alexandra Konstantinova', 'Bartholomew Fitzgerald', 'Christabel Montgomery']
+    await env.DB.batch([
+      ...ids.map((id, i) =>
+        env.DB.prepare('INSERT INTO users (id,email,name,tz,slug,created_at) VALUES (?,?,?,?,?,?)').bind(id, `${id}@example.com`, names[i], 'UTC', id.replace('usr_', ''), now),
+      ),
+      env.DB.prepare('INSERT INTO teams (id,name,slug,logo_key,created_at) VALUES (?,?,?,?,?)').bind('team_og_long', 'Long Names', 'og-long', null, now),
+      ...ids.map((id) => env.DB.prepare('INSERT INTO team_members (team_id,user_id,role,rr_weight) VALUES (?,?,?,?)').bind('team_og_long', id, 'member', 1)),
+      env.DB.prepare(
+        `INSERT INTO event_types (id,owner_user_id,owner_team_id,scheduling_type,slug,title,duration_minutes,created_at)
+         VALUES (?,?,?,?,?,?,?,?)`,
+      ).bind('et_og_long', null, 'team_og_long', 'collective', 'long', 'Long call', 30, now),
+    ])
+    const res = await getOg('/og/og-long/long.png')
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toBe('image/png')
+  })
+
   it('renders a team card naming the hosts, and one with a real avatar', async () => {
     const now = Date.now()
     // A 1x1 PNG — photon decodes it, so the thumbnail path is exercised for real.

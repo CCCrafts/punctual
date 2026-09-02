@@ -61,13 +61,7 @@ export function buildOgRoutes(ports: EnginePorts): Hono<{ Bindings: Env }> {
     // an hour.
     const hosts = await resolveHosts(repos, eventType, host)
     const names = hosts.map((h) => h.user.name || h.user.slug)
-    const subject = !team
-      ? (names[0] ?? host.name) || host.slug
-      : eventType.schedulingType === 'collective'
-        ? names.length <= 3
-          ? joinNames(names)
-          : `${names.slice(0, 2).join(', ')} and ${names.length - 2} more`
-        : `the ${team.name} team`
+    const subject = !team ? (names[0] ?? host.name) || host.slug : cardSubject(names, team.name, eventType.schedulingType)
     // Hashed, not concatenated: KV rejects keys over 512 bytes, and six
     // hosts with photos would pass that — silently, since the cache calls
     // below swallow errors, leaving every crawler hit to re-render.
@@ -108,6 +102,29 @@ export function buildOgRoutes(ports: EnginePorts): Hono<{ Bindings: Env }> {
   })
 
   return app
+}
+
+/** "with …" must fit the card's label cap (safety.ts); this is the same number, minus the word. */
+const MAX_SUBJECT_LENGTH = 35
+
+/**
+ * Who a team card says the meeting is with. Round robin: the team, never
+ * one person (ADR-0004 §5). Collective: the hosts by full name, then by
+ * first name, then two names and a count, then the team — the first that
+ * fits the label cap, so three long names degrade to something true
+ * rather than to the static default card.
+ */
+function cardSubject(names: string[], teamName: string, schedulingType: string): string {
+  const team = `the ${teamName} team`
+  if (schedulingType !== 'collective' || names.length === 0) return team
+  const first = names.map((n) => n.split(/\s+/)[0] ?? n)
+  const candidates = [
+    joinNames(names),
+    joinNames(first),
+    names.length > 2 ? `${first.slice(0, 2).join(', ')} and ${names.length - 2} more` : '',
+    team,
+  ]
+  return candidates.find((c) => c !== '' && c.length <= MAX_SUBJECT_LENGTH) ?? team
 }
 
 /**

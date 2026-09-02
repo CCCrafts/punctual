@@ -697,7 +697,7 @@ function hostsFields(d: EventTypeFormData, errors: Record<string, string>): stri
         <td><label style="display:flex;align-items:center;gap:.6rem;margin:0;font-weight:400">
           <input type="checkbox" name="host-${uid}" value="on"${c.selected ? ' checked' : ''}>
           ${avatarHtml({ key: c.user.avatarKey, name, size: 28 })}
-          <span>${escapeHtml(name)}</span></label></td>
+          <span style="white-space:nowrap">${escapeHtml(name)}</span></label></td>
         <td>${mode}</td>
         <td><select name="host-${uid}-schedule" aria-label="${escapeHtml(name)}: schedule for this event type">
             <option value=""${!c.row?.scheduleId ? ' selected' : ''}>Default</option>${scheduleOptions}
