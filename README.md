@@ -70,7 +70,8 @@ Full walkthrough, including connecting Google and Microsoft calendars:
 - **Google Calendar and Microsoft 365** sync, using your own OAuth app
 - **Event types** with buffers, notice windows, horizons, daily caps, custom
   questions
-- **Teams** — round-robin and collective scheduling
+- **Teams** — round-robin and collective scheduling; team admins manage
+  members, event types and each member's availability
 - **Emails with .ics invites**, reschedule and cancel links, 24 h and 1 h
   reminders
 - **REST API**, HMAC-signed webhooks, embed widget

@@ -47,6 +47,8 @@ import type {
   Schedule,
   Session,
   Team,
+  TeamMember,
+  TeamRole,
   User,
 } from '../core/domain/types.js'
 import {
@@ -73,6 +75,7 @@ import { OAUTH_ENDPOINTS, scopesFor, type OAuthPurpose } from '../adapters/oauth
 import { dayRange } from '../engine.js'
 import { isValidTimeZone, localDateString } from '../core/time/zone.js'
 import { validateSlug } from '../core/domain/slugs.js'
+import { canManageTeam, isManagingRole } from '../core/domain/teams.js'
 import {
   MAX_DECODED_PIXELS,
   MAX_UPLOAD_BYTES,
@@ -107,6 +110,8 @@ import {
   type EventTypeListItem,
   type TeamView,
   type SchedulesPageData,
+  type ScheduleFormData,
+  type ScheduleScope,
   type TeamsPageData,
   type UpcomingBooking,
   type WeeklyDayDraft,
@@ -555,9 +560,11 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     const eventTypes: EventTypeListItem[] = (await repos.eventTypes.listForUser(user.id)).map(
       (eventType) => ({ eventType, ownerSlug: user.slug }),
     )
+    const memberships = await repos.teams.memberships(user.id)
     for (const team of await userTeams(c)) {
+      const canEdit = canManageTeam(user, memberships.find((m) => m.teamId === team.id))
       for (const eventType of await repos.eventTypes.listForTeam(team.id)) {
-        eventTypes.push({ eventType, ownerSlug: team.slug, teamName: team.name })
+        eventTypes.push({ eventType, ownerSlug: team.slug, teamName: team.name, canEdit })
       }
     }
 
@@ -595,7 +602,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
         user: c.get('user'),
         csrf: c.get('csrf'),
         emailDelivery,
-        teams: await userTeams(c),
+        teams: await managedTeams(c),
         schedules: await c.get('repos').availability.listForUser(c.get('user').id),
       }),
     ),
@@ -611,7 +618,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
         csrf: c.get('csrf'),
         emailDelivery,
         eventType,
-        teams: await userTeams(c),
+        teams: await managedTeams(c),
         schedules: await c.get('repos').availability.listForUser(c.get('user').id),
       }),
     )
@@ -635,7 +642,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
           eventType: draft,
           questionsText,
           errors,
-          teams: await userTeams(c),
+          teams: await managedTeams(c),
           schedules: await repos.availability.listForUser(user.id),
         }),
         400,
@@ -669,7 +676,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
           eventType: draft,
           questionsText: read.questionsText,
           errors,
-          teams: await userTeams(c),
+          teams: await managedTeams(c),
           schedules: await repos.availability.listForUser(user.id),
         }),
         400,
@@ -699,7 +706,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
           csrf: c.get('csrf'),
           emailDelivery,
           eventType: existing,
-          teams: await userTeams(c),
+          teams: await managedTeams(c),
           schedules: await c.get('repos').availability.listForUser(c.get('user').id),
           errors: {
             delete:
@@ -715,19 +722,29 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
 
   /**
    * Ownership is checked here, once, rather than trusted from the URL.
-   * A team-owned event type is "owned" by every member of that team — the
-   * same any-member-manages model as the teams page.
+   * A team-owned event type is edited by the team's ADMINS (and the
+   * instance admin) — a plain member hosts it and sees it on the home page,
+   * but the same person who picks the hosts arranges the event type
+   * (core/domain/teams.ts). Non-admins get the same 404 as a wrong id.
    */
   async function ownedEventType(c: Ctx): Promise<EventType | null> {
     const found = await c.get('repos').eventTypes.byId(c.req.param('id') ?? '')
     if (!found) return null
     const user = c.get('user')
     if (found.ownerUserId === user.id) return found
-    if (found.ownerTeamId) {
-      const memberships = await c.get('repos').teams.memberships(user.id)
-      if (memberships.some((m) => m.teamId === found.ownerTeamId)) return found
-    }
+    if (found.ownerTeamId && (await managesTeam(c, found.ownerTeamId))) return found
     return null
+  }
+
+  /** The signed-in user's own row on `teamId`, or null when they are not on it. */
+  async function membershipOn(c: Ctx, teamId: string): Promise<TeamMember | null> {
+    const memberships = await c.get('repos').teams.memberships(c.get('user').id)
+    return memberships.find((m) => m.teamId === teamId) ?? null
+  }
+
+  /** `canManageTeam` for the signed-in user and one team. */
+  async function managesTeam(c: Ctx, teamId: string): Promise<boolean> {
+    return canManageTeam(c.get('user'), await membershipOn(c, teamId))
   }
 
   /** The signed-in user's teams, resolved from their memberships. */
@@ -742,40 +759,101 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     return teams
   }
 
+  /**
+   * The teams the signed-in user can put an event type under: the ones they
+   * are an admin of, plus every team for an instance admin. Offered by the
+   * event-type form's owner select, so the select never lists a team the
+   * validator would then refuse.
+   */
+  async function managedTeams(c: Ctx): Promise<Team[]> {
+    const repos = c.get('repos')
+    const user = c.get('user')
+    if (user.role === 'admin') return repos.teams.list()
+    const memberships = await repos.teams.memberships(user.id)
+    const teams: Team[] = []
+    for (const membership of memberships) {
+      if (!isManagingRole(membership.role)) continue
+      const team = await repos.teams.byId(membership.teamId)
+      if (team) teams.push(team)
+    }
+    return teams
+  }
+
   // ===========================================================================
   // Dashboard — availability (named schedules)
   // ===========================================================================
 
-  async function schedulesData(c: Ctx): Promise<SchedulesPageData> {
-    const user = c.get('user')
+  /**
+   * Whose schedules a request is about. The personal routes below are about
+   * the signed-in user. The team routes further down are about the member
+   * named in the URL, on behalf of whom a team admin is acting — `scope`
+   * carries that, and every page link and form action then hangs off the
+   * team path instead of /dashboard/availability.
+   */
+  interface ScheduleSubject {
+    subject: User
+    scope?: ScheduleScope
+  }
+
+  const selfSubject = (c: Ctx): ScheduleSubject => ({ subject: c.get('user') })
+
+  async function schedulesData(c: Ctx, who: ScheduleSubject): Promise<SchedulesPageData> {
+    const repos = c.get('repos')
+    const schedules = await repos.availability.listForUser(who.subject.id)
+    // "set up by …" needs names for creators other than the owner. Deleted
+    // creators simply stay out of the map; the page says "a team admin".
+    const creatorNames: Record<string, string> = {}
+    const creatorIds = new Set(
+      schedules.map((sc) => sc.createdBy).filter((id): id is string => typeof id === 'string' && id !== who.subject.id),
+    )
+    for (const id of creatorIds) {
+      const creator = await repos.users.byId(id)
+      if (creator) creatorNames[id] = creator.name || creator.slug
+    }
     return {
       brandName,
-      user,
+      user: c.get('user'),
       csrf: c.get('csrf'),
       emailDelivery,
-      schedules: await c.get('repos').availability.listForUser(user.id),
+      schedules,
+      creatorNames,
+      ...(who.scope ? { scope: who.scope } : {}),
     }
   }
 
-  /** Scoped by the signed-in user, same reasoning as `memberManagedTeam` — no cross-user id-guessing. */
-  async function ownedSchedule(c: Ctx): Promise<Schedule | null> {
-    return c.get('repos').availability.byId(c.get('user').id, c.req.param('id') ?? '')
+  /** Scoped by the subject, same reasoning as `managedTeam` — no cross-user id-guessing. */
+  async function subjectSchedule(c: Ctx, who: ScheduleSubject, param: string): Promise<Schedule | null> {
+    return c.get('repos').availability.byId(who.subject.id, c.req.param(param) ?? '')
   }
 
-  app.get('/dashboard/availability', requireSession, async (c) => {
-    return c.html(schedulesPage(await schedulesData(c)))
-  })
+  function scheduleFormData(c: Ctx, who: ScheduleSubject, schedule: Schedule): ScheduleFormData {
+    return {
+      brandName,
+      user: c.get('user'),
+      csrf: c.get('csrf'),
+      emailDelivery,
+      schedule,
+      ...(who.scope ? { scope: who.scope } : {}),
+    }
+  }
 
-  app.post('/dashboard/availability/new', requireSession, async (c) => {
+  async function listSchedules(c: Ctx, who: ScheduleSubject): Promise<Response> {
+    return c.html(schedulesPage(await schedulesData(c, who)))
+  }
+
+  async function createSchedule(c: Ctx, who: ScheduleSubject): Promise<Response> {
     const form = await c.req.formData()
     if (!(await csrfOk(c, form))) return csrfRejected(c)
 
-    const user = c.get('user')
     const repos = c.get('repos')
     const name = String(form.get('name') ?? '').trim()
     if (name === '' || name.length > 120) {
       return c.html(
-        schedulesPage({ ...(await schedulesData(c)), nameValue: name, errors: { 'schedule-name': 'Required, up to 120 characters' } }),
+        schedulesPage({
+          ...(await schedulesData(c, who)),
+          nameValue: name,
+          errors: { 'schedule-name': 'Required, up to 120 characters' },
+        }),
         400,
       )
     }
@@ -783,34 +861,38 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     // Starts as a copy of the default's hours — a blank week is a worse
     // starting point than "the same as what already works," and the host
     // edits it immediately after on its own page anyway.
-    const base = (await repos.availability.forUser(user.id)) ?? defaultSchedule(user, '')
-    const created = await repos.availability.create(user.id, {
-      id: `sch_${ports.crypto.randomToken(12)}`,
-      userId: user.id,
-      name,
-      isDefault: false,
-      timezone: base.timezone,
-      weekly: base.weekly,
-      overrides: [],
-    })
+    const base = (await repos.availability.forUser(who.subject.id)) ?? defaultSchedule(who.subject, '')
+    const created = await repos.availability.create(
+      who.subject.id,
+      {
+        id: `sch_${ports.crypto.randomToken(12)}`,
+        userId: who.subject.id,
+        name,
+        isDefault: false,
+        timezone: base.timezone,
+        weekly: base.weekly,
+        overrides: [],
+      },
+      c.get('user').id,
+    )
     await advanceBookmark(c)
-    return c.redirect(`/dashboard/availability/${encodeURIComponent(created.id)}`, 302)
-  })
+    const basePath = who.scope?.basePath ?? '/dashboard/availability'
+    return c.redirect(`${basePath}/${encodeURIComponent(created.id)}`, 302)
+  }
 
-  app.get('/dashboard/availability/:id', requireSession, async (c) => {
-    const schedule = await ownedSchedule(c)
+  async function editSchedule(c: Ctx, who: ScheduleSubject, param: string): Promise<Response> {
+    const schedule = await subjectSchedule(c, who, param)
     if (!schedule) return notFound(c)
-    return c.html(scheduleForm({ brandName, user: c.get('user'), csrf: c.get('csrf'),
- emailDelivery, schedule }))
-  })
+    return c.html(scheduleForm(scheduleFormData(c, who, schedule)))
+  }
 
-  app.post('/dashboard/availability/:id', requireSession, async (c) => {
+  async function saveSchedule(c: Ctx, who: ScheduleSubject, param: string): Promise<Response> {
     const form = await c.req.formData()
     if (!(await csrfOk(c, form))) return csrfRejected(c)
 
-    const user = c.get('user')
+    const actor = c.get('user')
     const repos = c.get('repos')
-    const schedule = await ownedSchedule(c)
+    const schedule = await subjectSchedule(c, who, param)
     if (!schedule) return notFound(c)
 
     const weeklyDraft = readWeeklyDraftFromForm(form)
@@ -856,10 +938,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
         name: nameValue || schedule.name,
         timezone: isValidTimeZone(timezoneValue) ? timezoneValue : schedule.timezone,
       }
-      return c.html(
-        scheduleForm({ brandName, user, csrf: c.get('csrf'),
- emailDelivery, schedule: draft, nameValue, weeklyDraft, overridesText }),
-      )
+      return c.html(scheduleForm({ ...scheduleFormData(c, who, draft), nameValue, weeklyDraft, overridesText }))
     }
 
     const errors: Record<string, string> = {}
@@ -893,11 +972,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
       // pointing at this box asking them to fix it.
       return c.html(
         scheduleForm({
-          brandName,
-          user,
-          csrf: c.get('csrf'),
-          emailDelivery,
-          schedule: draft,
+          ...scheduleFormData(c, who, draft),
           errors,
           weeklyDraft,
           overridesText: String(form.get('overrides') ?? ''),
@@ -906,41 +981,34 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
       )
     }
 
-    await repos.availability.update(user.id, schedule.id, {
-      name: draft.name,
-      timezone: draft.timezone,
-      weekly: draft.weekly,
-      overrides: draft.overrides,
-    })
+    await repos.availability.update(
+      who.subject.id,
+      schedule.id,
+      { name: draft.name, timezone: draft.timezone, weekly: draft.weekly, overrides: draft.overrides },
+      actor.id,
+    )
     // The booking page renders the host's month grid in `users.tz`, so for
     // the DEFAULT schedule specifically, leaving the two to drift would show
     // a calendar that disagrees with the schedule actually in effect for
     // most of the host's event types. A non-default schedule's timezone has
-    // no such single-field mirror to keep in sync.
-    if (schedule.isDefault && draft.timezone !== user.tz) {
-      await repos.users.update(user.id, { tz: draft.timezone })
+    // no such single-field mirror to keep in sync. The subject's row, not
+    // the actor's: an admin editing a member's default moves the MEMBER's
+    // calendar.
+    if (schedule.isDefault && draft.timezone !== who.subject.tz) {
+      await repos.users.update(who.subject.id, { tz: draft.timezone })
     }
     await advanceBookmark(c)
 
-    return c.html(
-      scheduleForm({
-        brandName,
-        user: schedule.isDefault ? { ...user, tz: draft.timezone } : user,
-        csrf: c.get('csrf'),
-        emailDelivery,
-        schedule: draft,
-        notice: 'Schedule saved.',
-      }),
-    )
-  })
+    const chromeUser = !who.scope && schedule.isDefault ? { ...actor, tz: draft.timezone } : actor
+    return c.html(scheduleForm({ ...scheduleFormData(c, who, draft), user: chromeUser, notice: 'Schedule saved.' }))
+  }
 
-  app.post('/dashboard/availability/:id/duplicate', requireSession, async (c) => {
+  async function duplicateSchedule(c: Ctx, who: ScheduleSubject, param: string): Promise<Response> {
     const form = await c.req.formData()
     if (!(await csrfOk(c, form))) return csrfRejected(c)
 
-    const user = c.get('user')
     const repos = c.get('repos')
-    const schedule = await ownedSchedule(c)
+    const schedule = await subjectSchedule(c, who, param)
     if (!schedule) return notFound(c)
 
     // The 120-char cap enforced on the name field (both here and on the
@@ -949,30 +1017,33 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     // name today and then refuse to save on the very next edit, since that
     // route re-validates the same limit.
     const copyName = `${schedule.name} copy`.slice(0, 120)
-    await repos.availability.create(user.id, {
-      id: `sch_${ports.crypto.randomToken(12)}`,
-      userId: user.id,
-      name: copyName,
-      isDefault: false,
-      timezone: schedule.timezone,
-      weekly: schedule.weekly,
-      overrides: schedule.overrides,
-    })
+    await repos.availability.create(
+      who.subject.id,
+      {
+        id: `sch_${ports.crypto.randomToken(12)}`,
+        userId: who.subject.id,
+        name: copyName,
+        isDefault: false,
+        timezone: schedule.timezone,
+        weekly: schedule.weekly,
+        overrides: schedule.overrides,
+      },
+      c.get('user').id,
+    )
     await advanceBookmark(c)
-    return c.html(schedulesPage({ ...(await schedulesData(c)), notice: 'Schedule duplicated.' }))
-  })
+    return c.html(schedulesPage({ ...(await schedulesData(c, who)), notice: 'Schedule duplicated.' }))
+  }
 
-  app.post('/dashboard/availability/:id/set-default', requireSession, async (c) => {
+  async function setDefaultSchedule(c: Ctx, who: ScheduleSubject, param: string): Promise<Response> {
     const form = await c.req.formData()
     if (!(await csrfOk(c, form))) return csrfRejected(c)
 
-    const user = c.get('user')
     const repos = c.get('repos')
-    const schedule = await ownedSchedule(c)
+    const schedule = await subjectSchedule(c, who, param)
     if (!schedule) return notFound(c)
-    if (schedule.isDefault) return c.html(schedulesPage(await schedulesData(c))) // stale page double-submit
+    if (schedule.isDefault) return c.html(schedulesPage(await schedulesData(c, who))) // stale page double-submit
 
-    const didSetDefault = await repos.availability.setDefault(user.id, schedule.id)
+    const didSetDefault = await repos.availability.setDefault(who.subject.id, schedule.id)
     if (!didSetDefault) {
       // Refused because the target vanished between the read above and this
       // write (a concurrent delete from another tab) — the repository's own
@@ -980,25 +1051,38 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
       // there is nothing to roll back here. A stale-page no-op, same
       // distinction as team-member removal and admin demotion elsewhere.
       await advanceBookmark(c)
-      return c.html(schedulesPage(await schedulesData(c)))
+      return c.html(schedulesPage(await schedulesData(c, who)))
     }
     // Mirrors the save route's reasoning: the booking page renders in
     // `users.tz`, which must track whichever schedule is now the default.
-    if (schedule.timezone !== user.tz) await repos.users.update(user.id, { tz: schedule.timezone })
+    if (schedule.timezone !== who.subject.tz) await repos.users.update(who.subject.id, { tz: schedule.timezone })
     await advanceBookmark(c)
-    return c.html(schedulesPage({ ...(await schedulesData(c)), notice: `"${schedule.name}" is now your default.` }))
-  })
+    const owner = who.scope ? `${who.subject.name || who.subject.slug}'s` : 'your'
+    return c.html(
+      schedulesPage({ ...(await schedulesData(c, who)), notice: `"${schedule.name}" is now ${owner} default.` }),
+    )
+  }
 
+  app.get('/dashboard/availability', requireSession, (c) => listSchedules(c, selfSubject(c)))
+  app.post('/dashboard/availability/new', requireSession, (c) => createSchedule(c, selfSubject(c)))
+  app.get('/dashboard/availability/:id', requireSession, (c) => editSchedule(c, selfSubject(c), 'id'))
+  app.post('/dashboard/availability/:id', requireSession, (c) => saveSchedule(c, selfSubject(c), 'id'))
+  app.post('/dashboard/availability/:id/duplicate', requireSession, (c) => duplicateSchedule(c, selfSubject(c), 'id'))
+  app.post('/dashboard/availability/:id/set-default', requireSession, (c) => setDefaultSchedule(c, selfSubject(c), 'id'))
+
+  // Delete is personal-only, by design: an admin sets a member's
+  // availability up; what of theirs goes away is the member's call.
   app.post('/dashboard/availability/:id/delete', requireSession, async (c) => {
     const form = await c.req.formData()
     if (!(await csrfOk(c, form))) return csrfRejected(c)
 
+    const who = selfSubject(c)
     const user = c.get('user')
     const repos = c.get('repos')
-    const schedule = await ownedSchedule(c)
+    const schedule = await subjectSchedule(c, who, 'id')
     // A stale page double-submit (already gone) is a no-op, same distinction
     // as team-member removal and admin demotion below.
-    if (!schedule) return c.html(schedulesPage(await schedulesData(c)))
+    if (!schedule) return c.html(schedulesPage(await schedulesData(c, who)))
 
     const deleted = await repos.availability.delete(user.id, schedule.id)
     if (!deleted) {
@@ -1008,47 +1092,78 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
       const reason = schedule.isDefault
         ? 'Cannot delete your default schedule — set another one as default first.'
         : 'Cannot delete a schedule an event type is still using.'
-      return c.html(schedulesPage({ ...(await schedulesData(c)), errors: { [`schedule-${schedule.id}`]: reason } }), 400)
+      return c.html(schedulesPage({ ...(await schedulesData(c, who)), errors: { [`schedule-${schedule.id}`]: reason } }), 400)
     }
     await advanceBookmark(c)
-    return c.html(schedulesPage({ ...(await schedulesData(c)), notice: 'Schedule deleted.' }))
+    return c.html(schedulesPage({ ...(await schedulesData(c, who)), notice: 'Schedule deleted.' }))
   })
 
   // ===========================================================================
   // Dashboard — teams
   //
-  // Permission model for this pass, stated rather than implied: ANY member of
-  // a team can manage that team's members. No owner/admin gradient inside a
-  // team, and instance admins get no special power here — a 10-person
-  // self-hosted team is peers, and the roles column exists for a later pass
-  // that actually needs it. Deleting a whole team is deliberately out of
-  // scope; the page copy says so.
+  // Permission model (core/domain/teams.ts): a team's ADMINS manage its
+  // members, roles, event types and — on each member's behalf — availability.
+  // A plain member hosts meetings and adjusts their own hours. The instance
+  // admin manages every team, member or not. Deleting a whole team is
+  // deliberately out of scope; the page copy says so.
   // ===========================================================================
 
-  /** Everything the teams page renders, from the signed-in user's memberships. */
+  /**
+   * Everything the teams page renders: the signed-in user's own teams, and
+   * for an instance admin every other team on the instance as well, marked
+   * as such.
+   */
   async function teamsData(c: Ctx): Promise<Pick<TeamsPageData, 'brandName' | 'user' | 'csrf' | 'emailDelivery' | 'teams'>> {
     const repos = c.get('repos')
+    const user = c.get('user')
+    const memberships = await repos.teams.memberships(user.id)
     const views: TeamView[] = []
-    for (const team of await userTeams(c)) {
+    const seen = new Set<string>()
+    const view = async (team: Team, viaInstanceAdmin: boolean): Promise<TeamView> => {
       const members = []
       for (const member of await repos.teams.members(team.id)) {
         members.push({ member, user: await repos.users.byId(member.userId) })
       }
-      views.push({ team, members })
+      const canManage = canManageTeam(user, memberships.find((m) => m.teamId === team.id))
+      return { team, members, canManage, ...(viaInstanceAdmin ? { viaInstanceAdmin } : {}) }
     }
-    return { brandName, user: c.get('user'), csrf: c.get('csrf'), emailDelivery, teams: views }
+    for (const team of await userTeams(c)) {
+      seen.add(team.id)
+      views.push(await view(team, false))
+    }
+    if (user.role === 'admin') {
+      for (const team of await repos.teams.list()) {
+        if (!seen.has(team.id)) views.push(await view(team, true))
+      }
+    }
+    return { brandName, user, csrf: c.get('csrf'), emailDelivery, teams: views }
   }
 
   /**
-   * The team the URL names, IF the signed-in user is one of its members.
-   * A non-member gets the same 404 as a wrong id — confirming the team
-   * exists would leak instance structure to anyone with an account.
+   * The team the URL names, IF the signed-in user manages it. Anyone else —
+   * outsider or plain member — gets the same 404 as a wrong id: confirming
+   * the team exists would leak instance structure to anyone with an account.
    */
-  async function memberManagedTeam(c: Ctx): Promise<Team | null> {
+  async function managedTeam(c: Ctx): Promise<Team | null> {
     const teamId = c.req.param('id') ?? ''
-    const memberships = await c.get('repos').teams.memberships(c.get('user').id)
-    if (!memberships.some((m) => m.teamId === teamId)) return null
+    if (!(await managesTeam(c, teamId))) return null
     return c.get('repos').teams.byId(teamId)
+  }
+
+  /**
+   * A member of the managed team, as the subject of the availability routes
+   * below. Not a member (any more) → 404, same as the team itself.
+   */
+  async function managedMember(c: Ctx): Promise<ScheduleSubject | null> {
+    const team = await managedTeam(c)
+    if (!team) return null
+    const repos = c.get('repos')
+    const userId = c.req.param('userId') ?? ''
+    if (!(await repos.teams.members(team.id)).some((m) => m.userId === userId)) return null
+    const subject = await repos.users.byId(userId)
+    if (!subject) return null
+    const basePath = `/dashboard/teams/${encodeURIComponent(team.id)}/members/${encodeURIComponent(userId)}/availability`
+    return { subject, scope: { subject, team, basePath } }
   }
 
   app.get('/dashboard/teams', requireSession, async (c) =>
@@ -1134,7 +1249,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     const form = await c.req.formData()
     if (!(await csrfOk(c, form))) return csrfRejected(c)
 
-    const team = await memberManagedTeam(c)
+    const team = await managedTeam(c)
     if (!team) return notFound(c)
 
     const repos = c.get('repos')
@@ -1186,7 +1301,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     const form = await c.req.formData()
     if (!(await csrfOk(c, form))) return csrfRejected(c)
 
-    const team = await memberManagedTeam(c)
+    const team = await managedTeam(c)
     if (!team) return notFound(c)
 
     const repos = c.get('repos')
@@ -1212,7 +1327,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
       return c.html(
         teamsPage({
           ...(await teamsData(c)),
-          errors: { [`members-${team.id}`]: 'A team must keep at least one member.' },
+          errors: { [`members-${team.id}`]: 'A team must keep at least one member, and at least one admin.' },
         }),
         400,
       )
@@ -1222,6 +1337,68 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     // longer lists that team, which is the honest rendering of what happened.
     return c.html(teamsPage({ ...(await teamsData(c)), notice: 'Member removed.' }))
   })
+
+  app.post('/dashboard/teams/:id/members/:userId/role', requireSession, async (c) => {
+    const form = await c.req.formData()
+    if (!(await csrfOk(c, form))) return csrfRejected(c)
+
+    const team = await managedTeam(c)
+    if (!team) return notFound(c)
+
+    const repos = c.get('repos')
+    const roleRaw = String(form.get('role') ?? '')
+    if (roleRaw !== 'admin' && roleRaw !== 'member') {
+      return c.html(
+        teamsPage({ ...(await teamsData(c)), errors: { [`members-${team.id}`]: 'Not a role this team has.' } }),
+        400,
+      )
+    }
+    const role: TeamRole = roleRaw
+    const targetId = c.req.param('userId') ?? ''
+    const target = (await repos.teams.members(team.id)).find((m) => m.userId === targetId)
+    // Already gone, or already that role: a stale page's double submit.
+    if (!target || target.role === role || (isManagingRole(target.role) && role === 'admin')) {
+      return c.html(teamsPage(await teamsData(c)))
+    }
+
+    // The last-admin guard is inside the UPDATE (setRole): two demotions
+    // racing on a two-admin team cannot both pass. Demoting YOURSELF as the
+    // last admin is refused the same way — the page then simply shows you
+    // as a member next time, if another admin demotes you.
+    const changed = await repos.teams.setRole(team.id, targetId, role)
+    if (!changed) {
+      return c.html(
+        teamsPage({
+          ...(await teamsData(c)),
+          errors: { [`members-${team.id}`]: 'A team must keep at least one admin — make someone else an admin first.' },
+        }),
+        400,
+      )
+    }
+    await advanceBookmark(c)
+    const name = (await repos.users.byId(targetId))?.name || targetId
+    return c.html(
+      teamsPage({ ...(await teamsData(c)), notice: `${name} is now ${role === 'admin' ? 'an admin' : 'a member'} of ${team.name}.` }),
+    )
+  })
+
+  // A member's availability, managed by a team admin on their behalf. The
+  // same handlers as the personal routes above, with the URL naming whose
+  // schedules these are and `scope` making every page say so.
+  const memberAvailability = '/dashboard/teams/:id/members/:userId/availability'
+  const onBehalf =
+    (handler: (c: Ctx, who: ScheduleSubject) => Promise<Response>) =>
+    async (c: Ctx): Promise<Response> => {
+      const who = await managedMember(c)
+      if (!who) return notFound(c)
+      return handler(c, who)
+    }
+  app.get(memberAvailability, requireSession, onBehalf(listSchedules))
+  app.post(`${memberAvailability}/new`, requireSession, onBehalf(createSchedule))
+  app.get(`${memberAvailability}/:sid`, requireSession, onBehalf((c, who) => editSchedule(c, who, 'sid')))
+  app.post(`${memberAvailability}/:sid`, requireSession, onBehalf((c, who) => saveSchedule(c, who, 'sid')))
+  app.post(`${memberAvailability}/:sid/duplicate`, requireSession, onBehalf((c, who) => duplicateSchedule(c, who, 'sid')))
+  app.post(`${memberAvailability}/:sid/set-default`, requireSession, onBehalf((c, who) => setDefaultSchedule(c, who, 'sid')))
 
   // ===========================================================================
   // Dashboard — calendar connections
@@ -2388,13 +2565,16 @@ async function validateEventType(
 
   if (draft.title === '' || draft.title.length > 120) errors['title'] = 'Give it a title (up to 120 characters)'
 
-  // Team ownership requires the submitter to BE a member — the owner id
-  // arrives from a form field, and without this check any signed-in user
-  // could publish event types under any team's slug.
+  // Team ownership requires the submitter to be one of the team's ADMINS —
+  // the owner id arrives from a form field, and without this check any
+  // signed-in user could publish event types under any team's slug. A
+  // member who is not an admin gets the same refusal as an outsider: the
+  // form only offers the teams they can put an event under.
   if (draft.ownerTeamId !== null) {
     const memberships = await repos.teams.memberships(user.id)
-    if (!memberships.some((m) => m.teamId === draft.ownerTeamId)) {
-      errors['owner'] = 'You are not a member of that team'
+    const membership = memberships.find((m) => m.teamId === draft.ownerTeamId)
+    if (!canManageTeam(user, membership)) {
+      errors['owner'] = membership ? 'Only an admin of that team can put an event type under it' : 'You are not a member of that team'
     }
   }
 

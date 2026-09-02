@@ -501,7 +501,7 @@ describe('repository-level atomic guards', () => {
       overrides: [],
     })
 
-    expect(await repos.availability.forUser('usr_avail')).toEqual(cleared)
+    expect(await repos.availability.forUser('usr_avail')).toEqual({ ...cleared, createdBy: 'usr_avail' })
   })
 
   it('availability.saveIfAbsent inserts when no row exists', async () => {
@@ -518,7 +518,7 @@ describe('repository-level atomic guards', () => {
       overrides: [],
     }
     await repos.availability.saveIfAbsent('usr_avail_new', fresh)
-    expect(await repos.availability.forUser('usr_avail_new')).toEqual(fresh)
+    expect(await repos.availability.forUser('usr_avail_new')).toEqual({ ...fresh, createdBy: 'usr_avail_new' })
   })
 
   it('setDefault atomically moves the default flag, even under concurrent calls', async () => {
@@ -901,5 +901,250 @@ describe('slug_claims — the shared namespace constraint', () => {
       .prepare("SELECT owner_id FROM slug_claims WHERE slug='new-free-slug'")
       .first<{ owner_id: string }>()
     expect(newClaim?.owner_id).toBe('usr_slugrace_4')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Team roles with teeth (core/domain/teams.ts): admins manage, members host.
+// ---------------------------------------------------------------------------
+
+describe('team roles', () => {
+  const ROOT_ID = 'usr_root'
+  const CAROL_ID = 'usr_carol'
+  let crewId = ''
+  let crewEventTypeId = ''
+
+  async function sqlRole(userId: string): Promise<string | null> {
+    const row = await db
+      .prepare('SELECT role FROM team_members WHERE team_id = ? AND user_id = ?')
+      .bind(crewId, userId)
+      .first<{ role: string }>()
+    return row?.role ?? null
+  }
+
+  beforeAll(async () => {
+    const insert = 'INSERT INTO users (id,email,name,tz,slug,role,created_at) VALUES (?,?,?,?,?,?,?)'
+    await db.prepare(insert).bind(ROOT_ID, 'root@example.test', 'Root Admin', 'UTC', 'root', 'admin', NOW).run()
+    await db.prepare(insert).bind(CAROL_ID, 'carol@example.test', 'Carol Host', 'UTC', 'carol', 'member', NOW).run()
+
+    // Alice creates the team (and so is its admin); Bob joins as a member.
+    const cookie = await seedSession(ALICE_ID)
+    const csrf = await csrfFrom('/dashboard/teams', cookie)
+    await post('/dashboard/teams', { name: 'Roles Crew', slug: 'roles-crew', csrf }, cookie)
+    const team = await db.prepare('SELECT id FROM teams WHERE slug = ?').bind('roles-crew').first<{ id: string }>()
+    crewId = team!.id
+    await post(`/dashboard/teams/${crewId}/members`, { email: BOB_EMAIL, weight: '1', csrf }, cookie)
+
+    const etCsrf = await csrfFrom('/dashboard/event-types/new', cookie)
+    await post(
+      '/dashboard/event-types',
+      { title: 'Crew call', slug: 'crew-call', durationMinutes: '30', owner: crewId, schedulingType: 'collective', active: '1', csrf: etCsrf },
+      cookie,
+    )
+    const et = await db.prepare('SELECT id FROM event_types WHERE slug = ?').bind('crew-call').first<{ id: string }>()
+    crewEventTypeId = et!.id
+  })
+
+  it('a member sees the team read-only: no add form, no remove or role buttons', async () => {
+    const cookie = await seedSession(BOB_ID)
+    const html = await (await get('/dashboard/teams', cookie)).text()
+    expect(html).toContain('Roles Crew')
+    expect(html).toContain('managed by its admins')
+    expect(html).not.toContain(`/dashboard/teams/${crewId}/members"`)
+    expect(html).not.toContain(`/members/${ALICE_ID}/remove`)
+    expect(html).not.toContain(`/members/${ALICE_ID}/role`)
+  })
+
+  it('a member cannot add, remove or re-role anyone — same 404 as an outsider', async () => {
+    const cookie = await seedSession(BOB_ID)
+    const csrf = await csrfFrom('/dashboard/teams', cookie)
+    expect((await post(`/dashboard/teams/${crewId}/members`, { email: 'carol@example.test', weight: '1', csrf }, cookie)).status).toBe(404)
+    expect((await post(`/dashboard/teams/${crewId}/members/${ALICE_ID}/remove`, { csrf }, cookie)).status).toBe(404)
+    expect((await post(`/dashboard/teams/${crewId}/members/${BOB_ID}/role`, { role: 'admin', csrf }, cookie)).status).toBe(404)
+    expect(await sqlRole(BOB_ID)).toBe('member')
+  })
+
+  it('a member hosts the team event type but cannot edit it; the home page says so', async () => {
+    const bob = await seedSession(BOB_ID)
+    expect((await get(`/dashboard/event-types/${crewEventTypeId}`, bob)).status).toBe(404)
+    const bobHome = await (await get('/dashboard', bob)).text()
+    expect(bobHome).toContain('Crew call')
+    expect(bobHome).toContain('Managed by the team')
+    expect(bobHome).not.toContain(`/dashboard/event-types/${crewEventTypeId}"`)
+
+    const alice = await seedSession(ALICE_ID)
+    expect((await get(`/dashboard/event-types/${crewEventTypeId}`, alice)).status).toBe(200)
+    expect(await (await get('/dashboard', alice)).text()).toContain(`/dashboard/event-types/${crewEventTypeId}"`)
+  })
+
+  it('a member cannot put an event type under the team, and the form does not offer it', async () => {
+    const cookie = await seedSession(BOB_ID)
+    const form = await (await get('/dashboard/event-types/new', cookie)).text()
+    expect(form).not.toContain(`value="${crewId}"`)
+
+    const csrf = await csrfFrom('/dashboard/event-types/new', cookie)
+    const res = await post(
+      '/dashboard/event-types',
+      { title: 'Sneaky', slug: 'sneaky', durationMinutes: '30', owner: crewId, schedulingType: 'round_robin', active: '1', csrf },
+      cookie,
+    )
+    expect(res.status).toBe(400)
+    expect(await res.text()).toContain('Only an admin of that team')
+    expect(await db.prepare('SELECT id FROM event_types WHERE slug = ?').bind('sneaky').first()).toBeNull()
+  })
+
+  it('an admin promotes and demotes; the last admin cannot be demoted', async () => {
+    const cookie = await seedSession(ALICE_ID)
+    const csrf = await csrfFrom('/dashboard/teams', cookie)
+
+    // Demoting herself while she is the only admin: refused, inside the UPDATE.
+    const refused = await post(`/dashboard/teams/${crewId}/members/${ALICE_ID}/role`, { role: 'member', csrf }, cookie)
+    expect(refused.status).toBe(400)
+    expect(await refused.text()).toContain('at least one admin')
+    expect(await sqlRole(ALICE_ID)).toBe('admin')
+
+    const promoted = await post(`/dashboard/teams/${crewId}/members/${BOB_ID}/role`, { role: 'admin', csrf }, cookie)
+    expect(promoted.status).toBe(200)
+    expect(await promoted.text()).toContain('Bob Host is now an admin')
+    expect(await sqlRole(BOB_ID)).toBe('admin')
+
+    // Two admins now: Bob can manage too, and Alice can be demoted.
+    const bob = await seedSession(BOB_ID)
+    const bobCsrf = await csrfFrom('/dashboard/teams', bob)
+    const demoted = await post(`/dashboard/teams/${crewId}/members/${ALICE_ID}/role`, { role: 'member', csrf: bobCsrf }, bob)
+    expect(demoted.status).toBe(200)
+    expect(await sqlRole(ALICE_ID)).toBe('member')
+
+    // Restore for the tests below: Bob promotes Alice back, then steps down.
+    await post(`/dashboard/teams/${crewId}/members/${ALICE_ID}/role`, { role: 'admin', csrf: bobCsrf }, bob)
+    await post(`/dashboard/teams/${crewId}/members/${BOB_ID}/role`, { role: 'member', csrf: bobCsrf }, bob)
+    expect(await sqlRole(ALICE_ID)).toBe('admin')
+    expect(await sqlRole(BOB_ID)).toBe('member')
+  })
+
+  it('removing the last admin is refused inside the DELETE, even with other members present', async () => {
+    const repos = createD1Repositories(db, { consistency: 'bookmark' })
+    expect(await repos.teams.removeMemberGuarded(crewId, ALICE_ID)).toBe(false)
+    expect(await sqlRole(ALICE_ID)).toBe('admin')
+    // A non-admin with an admin remaining goes fine — and comes back.
+    expect(await repos.teams.removeMemberGuarded(crewId, BOB_ID)).toBe(true)
+    await repos.teams.addMember({ teamId: crewId, userId: BOB_ID, role: 'member', rrWeight: 1 })
+  })
+
+  it('setRole is one statement: demoting the last admin changes nothing', async () => {
+    const repos = createD1Repositories(db, { consistency: 'bookmark' })
+    expect(await repos.teams.setRole(crewId, ALICE_ID, 'member')).toBe(false)
+    expect(await sqlRole(ALICE_ID)).toBe('admin')
+    expect(await repos.teams.setRole(crewId, 'usr_not_on_team', 'admin')).toBe(false)
+  })
+
+  it('the backfill in migration 0010 gives an all-member team its earliest member as admin', async () => {
+    await db.prepare('INSERT INTO teams (id,name,slug,logo_key,created_at) VALUES (?,?,?,?,?)').bind('team_orphan', 'Orphan', 'orphan', null, NOW).run()
+    await db.prepare('INSERT INTO team_members (team_id,user_id,role,rr_weight) VALUES (?,?,?,?)').bind('team_orphan', CAROL_ID, 'member', 1).run()
+    await db.prepare('INSERT INTO team_members (team_id,user_id,role,rr_weight) VALUES (?,?,?,?)').bind('team_orphan', BOB_ID, 'member', 1).run()
+
+    // The exact statement the migration runs, re-run against rows that
+    // exist only now — the migration itself ran before any test seeded data.
+    await db
+      .prepare(
+        `UPDATE team_members SET role = 'admin'
+         WHERE rowid IN (
+           SELECT MIN(rowid) FROM team_members AS tm
+           WHERE NOT EXISTS (
+             SELECT 1 FROM team_members AS m
+             WHERE m.team_id = tm.team_id AND m.role IN ('owner', 'admin')
+           )
+           GROUP BY tm.team_id
+         )`,
+      )
+      .run()
+
+    const rows = await db
+      .prepare('SELECT user_id, role FROM team_members WHERE team_id = ? ORDER BY rowid')
+      .bind('team_orphan')
+      .all<{ user_id: string; role: string }>()
+    expect(rows.results.map((r) => [r.user_id, r.role])).toEqual([[CAROL_ID, 'admin'], [BOB_ID, 'member']])
+    // Teams that already had an admin are untouched.
+    expect(await sqlRole(BOB_ID)).toBe('member')
+  })
+
+  it('an admin sets up a member\'s schedule on their behalf; the member sees who did it', async () => {
+    const alice = await seedSession(ALICE_ID)
+    const base = `/dashboard/teams/${crewId}/members/${BOB_ID}/availability`
+
+    const page = await get(base, alice)
+    expect(page.status).toBe(200)
+    const html = await page.text()
+    expect(html).toContain('Bob Host&rsquo;s availability')
+    expect(html).toContain('as an admin of <strong>Roles Crew</strong>')
+
+    const csrf = await csrfFrom(base, alice)
+    const created = await post(`${base}/new`, { name: 'Support hours', csrf }, alice)
+    expect(created.status).toBe(302)
+    const location = created.headers.get('location') ?? ''
+    expect(location.startsWith(`${base}/sch_`)).toBe(true)
+
+    const row = await db
+      .prepare('SELECT id, user_id, created_by, updated_by FROM schedules WHERE user_id = ? AND name = ?')
+      .bind(BOB_ID, 'Support hours')
+      .first<{ id: string; user_id: string; created_by: string; updated_by: string }>()
+    expect(row?.created_by).toBe(ALICE_ID)
+    expect(row?.updated_by).toBe(ALICE_ID)
+
+    // Edit on Bob's behalf: the editor renders with the banner, and a save
+    // lands on Bob's row with Alice as the last writer.
+    const editor = await get(location, alice)
+    expect(editor.status).toBe(200)
+    expect(await editor.text()).toContain('You are editing <strong>Bob Host</strong>')
+    const saved = await post(
+      location,
+      {
+        name: 'Support hours',
+        timezone: 'Europe/Kyiv',
+        'day-1-enabled': 'on',
+        'day-1-start-0': '10:00',
+        'day-1-end-0': '14:00',
+        overrides: '',
+        csrf,
+      },
+      alice,
+    )
+    expect(saved.status).toBe(200)
+    expect(await saved.text()).toContain('Schedule saved.')
+    const after = await db.prepare('SELECT timezone, updated_by FROM schedules WHERE id = ?').bind(row!.id).first<{ timezone: string; updated_by: string }>()
+    expect(after?.timezone).toBe('Europe/Kyiv')
+    expect(after?.updated_by).toBe(ALICE_ID)
+
+    // Bob's own page shows the schedule, badged, and he can open and edit it himself.
+    const bob = await seedSession(BOB_ID)
+    const bobPage = await (await get('/dashboard/availability', bob)).text()
+    expect(bobPage).toContain('Support hours')
+    expect(bobPage).toContain('set up by Alice Host')
+    expect((await get(`/dashboard/availability/${row!.id}`, bob)).status).toBe(200)
+    // And Alice's own page carries no such badge on her own rows.
+    expect(await (await get('/dashboard/availability', alice)).text()).not.toContain('set up by')
+  })
+
+  it('a member or outsider cannot reach another member\'s availability through the team path', async () => {
+    const base = `/dashboard/teams/${crewId}/members/${ALICE_ID}/availability`
+    expect((await get(base, await seedSession(BOB_ID))).status).toBe(404)
+    expect((await get(base, await seedSession(OUTSIDER_ID))).status).toBe(404)
+    // A user who is not on the team is not a subject either, even for an admin.
+    const alice = await seedSession(ALICE_ID)
+    expect((await get(`/dashboard/teams/${crewId}/members/${OUTSIDER_ID}/availability`, alice)).status).toBe(404)
+  })
+
+  it('the instance admin manages a team they are not on, and the page says why they see it', async () => {
+    const root = await seedSession(ROOT_ID)
+    const html = await (await get('/dashboard/teams', root)).text()
+    expect(html).toContain('Roles Crew')
+    expect(html).toContain('Instance admin view')
+
+    const csrf = await csrfFrom('/dashboard/teams', root)
+    const added = await post(`/dashboard/teams/${crewId}/members`, { email: 'carol@example.test', weight: '2', csrf }, root)
+    expect(added.status).toBe(200)
+    expect(await sqlRole(CAROL_ID)).toBe('member')
+    expect((await get(`/dashboard/event-types/${crewEventTypeId}`, root)).status).toBe(200)
+    expect((await get(`/dashboard/teams/${crewId}/members/${CAROL_ID}/availability`, root)).status).toBe(200)
   })
 })

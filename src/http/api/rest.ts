@@ -34,6 +34,7 @@ import type {
   WebhookEvent,
   WeeklySchedule,
 } from '../../core/domain/types.js'
+import { canManageTeam } from '../../core/domain/teams.js'
 import type { EnginePorts, Repositories, RequestScope } from '../../ports.js'
 import type { SlotService } from '../../engine.js'
 import { authenticateApiKey } from '../../core/domain/auth-flows.js'
@@ -561,6 +562,9 @@ export function buildApiRoutes(ports: EnginePorts, slots: SlotService): Hono<Api
     const id = c.req.param('id')
     const et = await repos.eventTypes.byId(id)
     if (!et || !(await ownsEventType(repos, user, et))) return notFound('event type')
+    if (!(await canEditEventType(repos, user, et))) {
+      return problem(403, 'Forbidden', "Only an admin of the team that owns this event type can change it.")
+    }
 
     const parsed = await readBody(c.req.raw, eventTypePatchBody)
     if (!parsed.ok) return parsed.response
@@ -590,6 +594,9 @@ export function buildApiRoutes(ports: EnginePorts, slots: SlotService): Hono<Api
     const { repos, user } = c.get('auth')
     const et = await repos.eventTypes.byId(c.req.param('id'))
     if (!et || !(await ownsEventType(repos, user, et))) return notFound('event type')
+    if (!(await canEditEventType(repos, user, et))) {
+      return problem(403, 'Forbidden', "Only an admin of the team that owns this event type can delete it.")
+    }
     const deleted = await repos.eventTypes.delete(et.id, ports.clock.now())
     if (!deleted) {
       return problem(
@@ -1005,6 +1012,25 @@ export async function ownsEventType(
   if (eventType.ownerTeamId) {
     const memberships = await repos.teams.memberships(user.id)
     return memberships.some((m) => m.teamId === eventType.ownerTeamId)
+  }
+  return false
+}
+
+/**
+ * Whether `user` may CHANGE an event type — stricter than `ownsEventType`
+ * for a team's: reading, listing and booking a team event type is every
+ * member's, editing and deleting it is its admins' (core/domain/teams.ts),
+ * the same split the dashboard makes.
+ */
+export async function canEditEventType(
+  repos: Repositories,
+  user: User,
+  eventType: EventType,
+): Promise<boolean> {
+  if (eventType.ownerUserId === user.id) return true
+  if (eventType.ownerTeamId) {
+    const memberships = await repos.teams.memberships(user.id)
+    return canManageTeam(user, memberships.find((m) => m.teamId === eventType.ownerTeamId))
   }
   return false
 }

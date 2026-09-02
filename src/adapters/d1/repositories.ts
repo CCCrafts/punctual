@@ -422,10 +422,11 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
         ),
       )
     },
-    async create(userId, schedule) {
+    async create(userId, schedule, actorId) {
+      const by = actorId ?? userId
       await run(
-        `INSERT INTO schedules (id,user_id,name,is_default,timezone,weekly_json,overrides_json,updated_at)
-         VALUES (?,?,?,?,?,?,?,?)`,
+        `INSERT INTO schedules (id,user_id,name,is_default,timezone,weekly_json,overrides_json,updated_at,created_by,updated_by)
+         VALUES (?,?,?,?,?,?,?,?,?,?)`,
         schedule.id,
         userId,
         schedule.name,
@@ -434,10 +435,12 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
         JSON.stringify(schedule.weekly),
         JSON.stringify(schedule.overrides),
         Date.now(),
+        by,
+        by,
       )
-      return schedule
+      return { ...schedule, createdBy: by }
     },
-    async update(userId, scheduleId, patch) {
+    async update(userId, scheduleId, patch, actorId) {
       const sets: string[] = []
       const binds: unknown[] = []
       if (patch.name !== undefined) (sets.push('name = ?'), binds.push(patch.name))
@@ -448,8 +451,8 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
         binds.push(JSON.stringify(patch.overrides))
       }
       if (sets.length === 0) return
-      sets.push('updated_at = ?')
-      binds.push(Date.now())
+      sets.push('updated_at = ?', 'updated_by = ?')
+      binds.push(Date.now(), actorId ?? userId)
       binds.push(scheduleId, userId)
       await run(`UPDATE schedules SET ${sets.join(', ')} WHERE id = ? AND user_id = ?`, ...binds)
     },
@@ -509,8 +512,8 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
       // exact predicate — a bare `ON CONFLICT(user_id)` does not match a
       // partial index.
       await run(
-        `INSERT INTO schedules (id,user_id,name,is_default,timezone,weekly_json,overrides_json,updated_at)
-         VALUES (?,?,?,1,?,?,?,?)
+        `INSERT INTO schedules (id,user_id,name,is_default,timezone,weekly_json,overrides_json,updated_at,created_by,updated_by)
+         VALUES (?,?,?,1,?,?,?,?,?,?)
          ON CONFLICT(user_id) WHERE is_default = 1 DO NOTHING`,
         schedule.id,
         userId,
@@ -519,6 +522,8 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
         JSON.stringify(schedule.weekly),
         JSON.stringify(schedule.overrides),
         Date.now(),
+        userId,
+        userId,
       )
     },
   }
@@ -803,11 +808,17 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
       return mapTeam(await first('SELECT * FROM teams WHERE slug = ?', slug))
     },
     async members(teamId) {
+      // rowid order = insertion order: the page lists members in the order
+      // they joined, and stays stable between renders.
       const rows = await all<Record<string, unknown>>(
-        'SELECT * FROM team_members WHERE team_id = ?',
+        'SELECT * FROM team_members WHERE team_id = ? ORDER BY rowid',
         teamId,
       )
       return rows.map(mapMember)
+    },
+    async list() {
+      const rows = await all<Record<string, unknown>>('SELECT * FROM teams ORDER BY created_at, id')
+      return rows.map((r) => mapTeam(r)!).filter(Boolean)
     },
     async memberships(userId) {
       const rows = await all<Record<string, unknown>>(
@@ -887,14 +898,36 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
       await run('DELETE FROM team_members WHERE team_id = ? AND user_id = ?', teamId, userId)
     },
     async removeMemberGuarded(teamId, userId) {
-      // One statement, same discipline as `demoteAdmin`: the member count is
+      // One statement, same discipline as `demoteAdmin`: both counts are
       // evaluated inside the delete, so concurrent removals cannot both pass
-      // a separate check and leave the team with zero members.
+      // a separate check and leave the team with zero members — or with
+      // members but nobody who can manage them.
       const res = await q(
         `DELETE FROM team_members
          WHERE team_id = ? AND user_id = ?
-           AND (SELECT COUNT(*) FROM team_members WHERE team_id = ?) > 1`,
-        teamId, userId, teamId,
+           AND (SELECT COUNT(*) FROM team_members WHERE team_id = ?) > 1
+           AND (
+             role NOT IN ('owner', 'admin')
+             OR (SELECT COUNT(*) FROM team_members
+                 WHERE team_id = ? AND role IN ('owner', 'admin') AND user_id != ?) > 0
+           )`,
+        teamId, userId, teamId, teamId, userId,
+      ).run()
+      return (res.meta.changes ?? 0) > 0
+    },
+    async setRole(teamId, userId, role) {
+      // Promotion always passes. Demotion passes only while ANOTHER admin
+      // remains — counted inside the UPDATE, so two concurrent demotions on
+      // a two-admin team cannot both succeed.
+      const res = await q(
+        `UPDATE team_members SET role = ?
+         WHERE team_id = ? AND user_id = ?
+           AND (
+             ? IN ('owner', 'admin')
+             OR (SELECT COUNT(*) FROM team_members
+                 WHERE team_id = ? AND role IN ('owner', 'admin') AND user_id != ?) > 0
+           )`,
+        role, teamId, userId, role, teamId, userId,
       ).run()
       return (res.meta.changes ?? 0) > 0
     },
@@ -1231,6 +1264,7 @@ function mapSchedule(row: Record<string, unknown> | null): Schedule | null {
     timezone: String(row['timezone']),
     weekly: JSON.parse(String(row['weekly_json'])) as WeeklySchedule,
     overrides: JSON.parse(String(row['overrides_json'] ?? '[]')),
+    createdBy: row['created_by'] == null ? null : String(row['created_by']),
   }
 }
 

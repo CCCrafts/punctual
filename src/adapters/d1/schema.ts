@@ -142,6 +142,10 @@ export const schedules = sqliteTable(
     weeklyJson: text('weekly_json').notNull(),
     overridesJson: text('overrides_json').notNull().default('[]'),
     updatedAt: integer('updated_at').notNull(),
+    // Null = the owner, or a row older than the column; otherwise the team
+    // admin who set the schedule up on the owner's behalf (migration 0010).
+    createdBy: text('created_by'),
+    updatedBy: text('updated_by'),
   },
   (t) => [
     index('schedules_user_idx').on(t.userId),

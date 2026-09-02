@@ -97,9 +97,10 @@ export function createFakeRepositories(): FakeRepositories {
       const s = schedules.get(scheduleId)
       return s && s.userId === userId ? s : null
     },
-    async create(userId, schedule) {
-      schedules.set(schedule.id, { ...schedule, userId })
-      return schedule
+    async create(userId, schedule, actorId) {
+      const stored = { ...schedule, userId, createdBy: actorId ?? userId }
+      schedules.set(schedule.id, stored)
+      return stored
     },
     async update(userId, scheduleId, patch) {
       const existing = schedules.get(scheduleId)

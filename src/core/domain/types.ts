@@ -159,6 +159,14 @@ export interface Schedule extends Availability {
   name: string
   /** At most one per user — enforced by a partial unique index in D1. */
   isDefault: boolean
+  /**
+   * Who created the row: the owner themselves, or a team admin setting up
+   * availability on their behalf (core/domain/teams.ts). Null on rows that
+   * predate the column. The schedules page shows "set up by …" when this is
+   * someone other than the owner, because a host finding hours on their
+   * calendar they never typed deserves to know where they came from.
+   */
+  createdBy?: string | null
 }
 
 // ---------------------------------------------------------------------------

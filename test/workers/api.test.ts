@@ -235,6 +235,52 @@ describe('event types', () => {
     expect(body.data[0]!['url']).toBe(`https://punctual.test/${seed.user.slug}/30min`)
   })
 
+  it('a plain team member can read a team event type but not change it; an admin can', async () => {
+    const ports = testPorts()
+    const app = buildApp(ports)
+    const admin = await seedHost(ports)
+    const member = await seedHost(ports)
+    const repos = ports.repositories({ consistency: 'bookmark' })
+
+    const team = await repos.teams.createWithFirstMember(
+      { id: 'team_api_roles', name: 'API Roles Team', slug: 'api-roles-team', logoKey: null },
+      { userId: admin.user.id, role: 'admin', rrWeight: 1 },
+    )
+    await repos.teams.addMember({ teamId: team!.id, userId: member.user.id, role: 'member', rrWeight: 1 })
+    await repos.eventTypes.create({
+      ...admin.eventType,
+      id: 'evt_team_roles',
+      ownerUserId: null,
+      ownerTeamId: team!.id,
+      schedulingType: 'round_robin',
+      slug: 'roles-call',
+      scheduleId: null,
+    })
+
+    // Reading and listing: every member's.
+    const read = await app.request('/api/v1/event-types/evt_team_roles', { headers: auth(member.apiKey) })
+    expect(read.status).toBe(200)
+
+    // Changing: admins only, and the refusal says so rather than hiding the row.
+    const patch = (key: string) =>
+      app.request('/api/v1/event-types/evt_team_roles', {
+        method: 'PATCH',
+        headers: { ...auth(key), 'content-type': 'application/json' },
+        body: JSON.stringify({ title: 'Renamed' }),
+      })
+    const refused = await patch(member.apiKey)
+    expect(refused.status).toBe(403)
+    expect(((await refused.json()) as { detail: string }).detail).toContain('admin of the team')
+    expect((await repos.eventTypes.byId('evt_team_roles'))?.title).toBe(admin.eventType.title)
+
+    const del = await app.request('/api/v1/event-types/evt_team_roles', { method: 'DELETE', headers: auth(member.apiKey) })
+    expect(del.status).toBe(403)
+
+    const allowed = await patch(admin.apiKey)
+    expect(allowed.status).toBe(200)
+    expect((await repos.eventTypes.byId('evt_team_roles'))?.title).toBe('Renamed')
+  })
+
   it('lists team-owned event types too, with the TEAM slug in the URL', async () => {
     const ports = testPorts()
     const app = buildApp(ports)

@@ -25,6 +25,7 @@
  * two silently diverge.
  */
 
+import { isManagingRole } from '../../core/domain/teams.js'
 import type {
   ApiKey,
   Booking,
@@ -276,6 +277,12 @@ export interface EventTypeListItem {
   ownerSlug: string
   /** Set for team-owned rows, so the card can say whose event this is. */
   teamName?: string
+  /**
+   * False for a team-owned row the signed-in user may only look at — they
+   * host it but are not one of the team's admins (core/domain/teams.ts).
+   * The card then says so instead of offering an Edit link that 404s.
+   */
+  canEdit?: boolean
 }
 
 export interface DashboardHomeData extends DashboardChrome {
@@ -357,8 +364,12 @@ function eventTypeCard(d: DashboardHomeData, item: EventTypeListItem): string {
     <input id="${inputId}" class="pu-url-input" readonly value="${escapeHtml(url)}" onclick="this.select()">
     ${copyButton(url)}
   </div>
-  <div style="margin-top:.75rem;display:flex;gap:.75rem;flex-wrap:wrap">
-    <a class="pu-btn pu-btn-ghost" href="/dashboard/event-types/${encodeURIComponent(et.id)}">Edit</a>
+  <div style="margin-top:.75rem;display:flex;gap:.75rem;flex-wrap:wrap;align-items:center">
+    ${
+      item.canEdit === false
+        ? '<span class="pu-muted" style="font-size:.8125rem">Managed by the team&rsquo;s admins</span>'
+        : `<a class="pu-btn pu-btn-ghost" href="/dashboard/event-types/${encodeURIComponent(et.id)}">Edit</a>`
+    }
     <a class="pu-btn pu-btn-ghost" href="${escapeHtml(url)}">Preview</a>
   </div>
 </article>`
@@ -703,47 +714,78 @@ function scheduleSummary(s: Schedule): string {
   return `${activeDays} day${activeDays === 1 ? '' : 's'}/week &middot; ~${hours}h total &middot; ${escapeHtml(s.timezone)}`
 }
 
+/**
+ * Whose schedules a page is about. Absent = the signed-in user's own. Set
+ * when a team admin is on a member's availability page (core/domain/teams.ts):
+ * every link and form action then hangs off `basePath` instead of
+ * /dashboard/availability, and the page says whose hours these are.
+ */
+export interface ScheduleScope {
+  subject: User
+  basePath: string
+  team: Team
+}
+
 export interface SchedulesPageData extends DashboardChrome {
   schedules: Schedule[]
+  scope?: ScheduleScope
+  /**
+   * Display names for `Schedule.createdBy` ids that are NOT the subject —
+   * the "set up by …" badge. An id missing here (creator since deleted)
+   * renders as "a team admin".
+   */
+  creatorNames?: Record<string, string>
   /** Echo of a failed "new schedule" submit. */
   nameValue?: string
   errors?: Record<string, string>
   notice?: string
 }
 
+/** "set up by Alice" — for a schedule someone other than its owner created. Empty for the owner's own rows. */
+function setUpByBadge(s: Schedule, subjectId: string, creatorNames: Record<string, string> | undefined): string {
+  if (!s.createdBy || s.createdBy === subjectId) return ''
+  const name = creatorNames?.[s.createdBy]
+  return ` <span class="pu-badge" title="A team admin created this schedule on your behalf">set up by ${escapeHtml(name ?? 'a team admin')}</span>`
+}
+
 export function schedulesPage(d: SchedulesPageData): string {
   const errors = d.errors ?? {}
+  const base = d.scope?.basePath ?? '/dashboard/availability'
+  const subject = d.scope?.subject ?? d.user
+  const whose = d.scope ? `${subject.name || subject.slug}'s` : 'your'
   const cards = d.schedules
     .map((s) => {
       const id = encodeURIComponent(s.id)
       // A schedule that's the default, or the host's only one, has nothing
       // a Delete button could do but fail — hiding it here matches the
       // "only member" precedent on the Teams page rather than offering a
-      // control that can only 400.
-      const canDelete = !s.isDefault && d.schedules.length > 1
+      // control that can only 400. Deleting on a member's behalf is not
+      // offered at all: an admin sets availability up, the member decides
+      // what of theirs goes away.
+      const canDelete = !d.scope && !s.isDefault && d.schedules.length > 1
       return `<article class="pu-card">
   <div style="display:flex;align-items:baseline;justify-content:space-between;gap:1rem;flex-wrap:wrap">
-    <h2 style="margin:0">${escapeHtml(s.name)}${s.isDefault ? ' <span class="pu-badge">Default</span>' : ''}</h2>
-    <a href="/dashboard/availability/${id}" class="pu-btn pu-btn-ghost" style="padding:.3rem .6rem;font-size:.8125rem">Edit</a>
+    <h2 style="margin:0">${escapeHtml(s.name)}${s.isDefault ? ' <span class="pu-badge">Default</span>' : ''}${setUpByBadge(s, subject.id, d.creatorNames)}</h2>
+    <a href="${base}/${id}" class="pu-btn pu-btn-ghost" style="padding:.3rem .6rem;font-size:.8125rem">Edit</a>
   </div>
   <p class="pu-muted" style="font-size:.8125rem;margin:.5rem 0 0">${scheduleSummary(s)}</p>
   ${fieldError(`schedule-${s.id}`, errors)}
   <div style="display:flex;gap:.5rem;margin-top:.75rem;flex-wrap:wrap">
-    <form method="post" action="/dashboard/availability/${id}/duplicate" style="margin:0">
+    <form method="post" action="${base}/${id}/duplicate" style="margin:0">
       ${csrfField(d.csrf)}
       <button class="pu-btn pu-btn-ghost" type="submit" style="padding:.3rem .6rem;font-size:.8125rem">Duplicate</button>
     </form>
     ${
       s.isDefault
         ? ''
-        : `<form method="post" action="/dashboard/availability/${id}/set-default" style="margin:0">
+        : `<form method="post" action="${base}/${id}/set-default" style="margin:0">
       ${csrfField(d.csrf)}
       <button class="pu-btn pu-btn-ghost" type="submit" style="padding:.3rem .6rem;font-size:.8125rem">Set as default</button>
     </form>`
     }
     ${
       canDelete
-        ? `<form method="post" action="/dashboard/availability/${id}/delete" style="margin:0">
+        ? `<form method="post" action="${base}/${id}/delete" style="margin:0">
       ${csrfField(d.csrf)}
       <button class="pu-btn pu-btn-ghost" type="submit" style="padding:.3rem .6rem;font-size:.8125rem">Delete</button>
     </form>`
@@ -754,15 +796,23 @@ export function schedulesPage(d: SchedulesPageData): string {
     })
     .join('\n')
 
+  const heading = d.scope
+    ? `<p><a href="/dashboard/teams" class="pu-muted">&larr; Teams</a></p>
+  <h1>${escapeHtml(subject.name || subject.slug)}&rsquo;s availability</h1>
+  <p class="pu-muted">You are managing these as an admin of <strong>${escapeHtml(d.scope.team.name)}</strong>.
+    ${escapeHtml(subject.name || subject.slug)} sees every schedule here on their own Availability page, marked
+    with who set it up, and can change it at any time.</p>`
+    : `<h1>Availability</h1>
+  <p class="pu-muted">Each of your event types draws its hours from one of these schedules &mdash;
+    assign a specific one from the event type's own edit page, or leave it on the default.</p>`
+
   return (
-    shellTop(d, 'Availability', 'availability') +
+    shellTop(d, d.scope ? `${subject.name || subject.slug} · Availability` : 'Availability', d.scope ? 'teams' : 'availability') +
     (d.notice ? notice(d.notice) : '') +
     `<section aria-label="Availability schedules">
-  <h1>Availability</h1>
-  <p class="pu-muted">Each of your event types draws its hours from one of these schedules &mdash;
-    assign a specific one from the event type's own edit page, or leave it on the default.</p>
+  ${heading}
   <div style="display:grid;gap:1rem">${cards}</div>
-  <form class="pu-card" method="post" action="/dashboard/availability/new" style="margin-top:1.5rem">
+  <form class="pu-card" method="post" action="${base}/new" style="margin-top:1.5rem">
     ${csrfField(d.csrf)}
     <h2>New schedule</h2>
     <label for="schedule-name">Name</label>
@@ -770,7 +820,7 @@ export function schedulesPage(d: SchedulesPageData): string {
            placeholder="Evenings" value="${escapeHtml(d.nameValue ?? '')}"${describedBy('schedule-name', errors)}>
     ${fieldError('schedule-name', errors)}
     <p class="pu-muted" style="font-size:.8125rem;margin:.25rem 0 0">
-      Starts as a copy of your default schedule's hours &mdash; edit it after creating.</p>
+      Starts as a copy of ${whose} default schedule's hours &mdash; edit it after creating.</p>
     <div style="margin-top:1.25rem"><button class="pu-btn" type="submit">Create schedule</button></div>
   </form>
 </section>` +
@@ -780,6 +830,8 @@ export function schedulesPage(d: SchedulesPageData): string {
 
 export interface ScheduleFormData extends DashboardChrome {
   schedule: Schedule
+  /** See `SchedulesPageData.scope`. */
+  scope?: ScheduleScope
   /** Echo of a failed rename, same reasoning as settingsPage's slugValue. */
   nameValue?: string
   errors?: Record<string, string>
@@ -805,18 +857,25 @@ export interface ScheduleFormData extends DashboardChrome {
 export function scheduleForm(d: ScheduleFormData): string {
   const errors = d.errors ?? {}
   const id = encodeURIComponent(d.schedule.id)
+  const base = d.scope?.basePath ?? '/dashboard/availability'
+  const subjectName = d.scope ? d.scope.subject.name || d.scope.subject.slug : ''
+  const banner = d.scope
+    ? `<p class="pu-muted" style="margin:0 0 1rem">You are editing <strong>${escapeHtml(subjectName)}</strong>&rsquo;s schedule as an admin of
+    ${escapeHtml(d.scope.team.name)}. They can change it at any time.</p>`
+    : ''
   const draft = d.weeklyDraft ?? weeklyDraftFromSchedule(d.schedule.weekly)
   const rows = DAY_NAMES.map((name, index) => dayRow(index, name, draft[index]!, errors)).join('\n    ')
 
   const zones = [...new Set([d.schedule.timezone, ...COMMON_ZONES])]
 
   return (
-    shellTop(d, `${d.schedule.name} · Availability`, 'availability') +
+    shellTop(d, `${d.schedule.name} · Availability`, d.scope ? 'teams' : 'availability') +
     (d.notice ? notice(d.notice) : '') +
-    `<p><a href="/dashboard/availability" class="pu-muted">&larr; All schedules</a></p>
+    `<p><a href="${base}" class="pu-muted">&larr; ${d.scope ? `${escapeHtml(subjectName)}&rsquo;s schedules` : 'All schedules'}</a></p>
 <section class="pu-card" aria-label="Edit schedule">
   <h1>${escapeHtml(d.schedule.name)}${d.schedule.isDefault ? ' <span class="pu-badge">Default</span>' : ''}</h1>
-  <form method="post" action="/dashboard/availability/${id}">
+  ${banner}
+  <form method="post" action="${base}/${id}">
     ${csrfField(d.csrf)}
     <!-- Implicit submission (pressing Enter in any field) activates the FIRST
          submit button in tree order — without this, that would be Sunday's
@@ -837,7 +896,7 @@ export function scheduleForm(d: ScheduleFormData): string {
       ${zones.map((z) => `<option value="${escapeHtml(z)}"></option>`).join('\n      ')}
     </datalist>
     <p class="pu-muted" style="font-size:.8125rem;margin:.25rem 0 0">
-      Your weekly hours below are read in this zone, so they follow you through daylight saving.</p>
+      ${d.scope ? 'The' : 'Your'} weekly hours below are read in this zone, so they follow ${d.scope ? 'the host' : 'you'} through daylight saving.</p>
     ${fieldError('timezone', errors)}
 
     <h2 style="margin-top:1.5rem">Weekly hours</h2>
@@ -1024,6 +1083,10 @@ export interface TeamMemberView {
 export interface TeamView {
   team: Team
   members: TeamMemberView[]
+  /** Whether the signed-in user manages this team (core/domain/teams.ts): a team admin, or the instance admin. */
+  canManage: boolean
+  /** True on the instance admin's view of a team they are not on — the card says so, since "why do I see this" is a fair question. */
+  viaInstanceAdmin?: boolean
 }
 
 export interface TeamsPageData extends DashboardChrome {
@@ -1052,8 +1115,8 @@ export function teamsPage(d: TeamsPageData): string {
     `<section aria-label="Teams">
   <h1>Teams</h1>
   <p class="pu-muted">A team owns round-robin and collective event types, booked at
-    /&lt;team-slug&gt;/&lt;event&gt;. Any member can manage the team's members.
-    Deleting a team is not supported here yet.</p>
+    /&lt;team-slug&gt;/&lt;event&gt;. Team admins manage members and the team's event types, and can
+    set up each member's availability on their behalf. Deleting a team is not supported here yet.</p>
   <div style="display:grid;gap:1rem">${cards}</div>
   <form class="pu-card" method="post" action="/dashboard/teams" style="margin-top:1.5rem">
     ${csrfField(d.csrf)}
@@ -1067,7 +1130,7 @@ export function teamsPage(d: TeamsPageData): string {
            value="${escapeHtml(d.slugValue ?? '')}"${describedBy('team-slug', errors)}>
     <p class="pu-muted" style="font-size:.8125rem;margin:.25rem 0 0">
       Lowercase letters, numbers and hyphens, 2&ndash;40 characters. It becomes the first part of the
-      team's booking links: /&lt;slug&gt;/&lt;event&gt;. You join as the first member.</p>
+      team's booking links: /&lt;slug&gt;/&lt;event&gt;. You join as its first member and admin.</p>
     ${fieldError('team-slug', errors)}
     <div style="margin-top:1.25rem"><button class="pu-btn" type="submit">Create team</button></div>
   </form>
@@ -1081,42 +1144,60 @@ function teamCard(d: TeamsPageData, view: TeamView): string {
   const teamId = encodeURIComponent(team.id)
   const errors = d.errors ?? {}
   const add = d.addValues?.teamId === team.id ? d.addValues : { teamId: team.id, email: '', weight: '1' }
+  const adminCount = view.members.filter((m) => isManagingRole(m.member.role)).length
+  const small = 'padding:.3rem .6rem;font-size:.8125rem'
 
   const rows = view.members
     .map((m) => {
       const label = m.user ? m.user.name || m.user.slug : m.member.userId
       const email = m.user?.email ?? ''
-      // The only member gets no remove button at all — the server refuses it
-      // too, but offering a button that can only fail is UI lying (same
-      // reasoning as the admin page's last-admin row).
-      const action =
-        view.members.length <= 1
-          ? '<span class="pu-muted">Only member</span>'
-          : `<form method="post" style="margin:0"
-            action="/dashboard/teams/${teamId}/members/${encodeURIComponent(m.member.userId)}/remove">
+      const uid = encodeURIComponent(m.member.userId)
+      const isAdmin = isManagingRole(m.member.role)
+      const role = isAdmin ? 'Admin' : 'Member'
+      if (!view.canManage) {
+        return `<tr>
+        <td>${escapeHtml(label)}${email ? `<br><span class="pu-muted" style="font-size:.8125rem">${escapeHtml(email)}</span>` : ''}</td>
+        <td>${role}</td>
+        <td>${m.member.rrWeight}</td>
+        <td></td>
+      </tr>`
+      }
+      // Buttons that can only fail are not offered: the only member gets no
+      // Remove, the only admin gets neither Remove nor "Make member". The
+      // server refuses both anyway (removeMemberGuarded, setRole), so this
+      // is about not lying, same as the admin page's last-admin row.
+      const onlyMember = view.members.length <= 1
+      const onlyAdmin = isAdmin && adminCount <= 1
+      const roleAction = onlyAdmin
+        ? '<span class="pu-muted" style="font-size:.8125rem">Only admin</span>'
+        : `<form method="post" style="margin:0" action="/dashboard/teams/${teamId}/members/${uid}/role">
             ${csrfField(d.csrf)}
-            <button class="pu-btn pu-btn-ghost" type="submit" style="padding:.3rem .6rem;font-size:.8125rem">Remove</button>
+            <input type="hidden" name="role" value="${isAdmin ? 'member' : 'admin'}">
+            <button class="pu-btn pu-btn-ghost" type="submit" style="${small}">${isAdmin ? 'Make member' : 'Make admin'}</button>
+          </form>`
+      const removeAction =
+        onlyMember || onlyAdmin
+          ? ''
+          : `<form method="post" style="margin:0"
+            action="/dashboard/teams/${teamId}/members/${uid}/remove">
+            ${csrfField(d.csrf)}
+            <button class="pu-btn pu-btn-ghost" type="submit" style="${small}">Remove</button>
           </form>`
       return `<tr>
         <td>${escapeHtml(label)}${email ? `<br><span class="pu-muted" style="font-size:.8125rem">${escapeHtml(email)}</span>` : ''}</td>
+        <td>${role}</td>
         <td>${m.member.rrWeight}</td>
-        <td>${action}</td>
+        <td><div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
+          <a class="pu-btn pu-btn-ghost" style="${small}" href="/dashboard/teams/${teamId}/members/${uid}/availability">Availability</a>
+          ${roleAction}
+          ${removeAction}
+        </div></td>
       </tr>`
     })
     .join('\n')
 
-  return `<article class="pu-card">
-  <div style="display:flex;align-items:baseline;justify-content:space-between;gap:1rem;flex-wrap:wrap">
-    <h2 style="margin:0">${escapeHtml(team.name)}</h2>
-    <span class="pu-time pu-muted">/${escapeHtml(team.slug)}</span>
-  </div>
-  ${fieldError(`members-${team.id}`, errors)}
-  <div class="pu-docs-table-wrap"><table style="width:100%">
-    <thead><tr><th scope="col" style="text-align:left">Member</th>
-      <th scope="col" style="text-align:left">Weight</th><th scope="col" style="text-align:left"></th></tr></thead>
-    <tbody>${rows}</tbody>
-  </table></div>
-  <form method="post" action="/dashboard/teams/${teamId}/members" style="margin-top:1rem">
+  const addForm = view.canManage
+    ? `<form method="post" action="/dashboard/teams/${teamId}/members" style="margin-top:1rem">
     ${csrfField(d.csrf)}
     <div class="pu-grid" style="grid-template-columns:repeat(auto-fit,minmax(11rem,1fr));gap:0 1rem">
       <div>
@@ -1136,7 +1217,24 @@ function teamCard(d: TeamsPageData, view: TeamView): string {
       Anyone with an account on this instance. A higher weight takes a proportionally larger share of
       round-robin bookings. Adding someone already on the team updates their weight.</p>
     <div style="margin-top:.75rem"><button class="pu-btn" type="submit">Add member</button></div>
-  </form>
+  </form>`
+    : `<p class="pu-muted" style="font-size:.8125rem;margin:1rem 0 0">
+    Members, weights and the team's event types are managed by its admins. Your own availability is
+    under <a href="/dashboard/availability">Availability</a>.</p>`
+
+  return `<article class="pu-card">
+  <div style="display:flex;align-items:baseline;justify-content:space-between;gap:1rem;flex-wrap:wrap">
+    <h2 style="margin:0">${escapeHtml(team.name)}${view.viaInstanceAdmin ? ' <span class="pu-badge">Instance admin view</span>' : ''}</h2>
+    <span class="pu-time pu-muted">/${escapeHtml(team.slug)}</span>
+  </div>
+  ${fieldError(`members-${team.id}`, errors)}
+  <div class="pu-docs-table-wrap"><table style="width:100%">
+    <thead><tr><th scope="col" style="text-align:left">Member</th>
+      <th scope="col" style="text-align:left">Role</th>
+      <th scope="col" style="text-align:left">Weight</th><th scope="col" style="text-align:left"></th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table></div>
+  ${addForm}
 </article>`
 }
 

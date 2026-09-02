@@ -925,7 +925,7 @@ describe('admin bootstrap', () => {
       token: await requestAndGetToken(h, 'cleared@example.com'),
       now: NOW + 1000,
     })
-    expect(await h.repos.availability.forUser('usr_cleared')).toEqual(cleared)
+    expect(await h.repos.availability.forUser('usr_cleared')).toEqual({ ...cleared, createdBy: 'usr_cleared' })
   })
 })
 

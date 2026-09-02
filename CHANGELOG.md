@@ -6,6 +6,23 @@ still change interfaces.
 
 ## [Unreleased]
 
+### Added
+
+- **Team roles mean something** (migration `0010`). A team's admins manage
+  its members and roles, own its event types, and can set up or edit any
+  member's availability schedules on their behalf — from a per-member
+  availability page under the team. A plain member hosts the team's
+  meetings, sees its event types read-only, and keeps full control of their
+  own schedules, including ones an admin created, which are badged with who
+  set them up. The instance admin manages every team. Guards live in the
+  database, not the request handler: a team's last admin can be neither
+  demoted nor removed, in the same single-statement style as the instance's
+  last-admin guard. Existing teams keep their creator as admin; a team that
+  somehow had no admin gets its earliest member promoted by the migration.
+- REST: `PATCH`/`DELETE /event-types/:id` on a team-owned event type now
+  require a team admin's key (403 otherwise); reading and listing are
+  unchanged for every member.
+
 ## [0.2.0] — 2026-08-24
 
 Named availability schedules, a redesigned weekly-hours editor, a CLI
