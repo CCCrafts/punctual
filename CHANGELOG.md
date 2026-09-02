@@ -67,6 +67,18 @@ still change interfaces.
   gets Punctual's own confirmation with the `.ics` regardless). Cancel
   walks the stored event ids, so bookings written in the old shape keep
   cancelling.
+- **REST and MCP know about hosts.** Every event-type response carries
+  `ownerTeamId` and `hosts[]` (`userId`, `name`, `required`, `weight`,
+  `scheduleId`). `POST /event-types` creates a team event type with
+  `ownerTeamId`, `schedulingType` and `hosts[]` for a team admin's key;
+  `PATCH` replaces `hosts[]` atomically; `PATCH /event-types/:id/hosts/:userId`
+  sets one host's per-event schedule — the host's own key, or a team
+  admin's, and a 403 that names who can otherwise. Team admins manage a
+  member's schedules over the API too: `GET`/`POST
+  /teams/:id/members/:userId/schedules` and `PATCH …/:sid`, created rows
+  badged with `createdBy`. MCP `list_event_types` names each team event
+  type's hosts and whether they are required; `create_booking` reports who
+  actually attends.
 - REST: `PATCH`/`DELETE /event-types/:id` on a team-owned event type now
   require a team admin's key (403 otherwise); reading and listing are
   unchanged for every member.

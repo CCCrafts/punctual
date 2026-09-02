@@ -758,6 +758,153 @@ describe('collective event types with an explicit host set', () => {
   })
 })
 
+describe('team event types through the API', () => {
+  async function team(ports: EnginePorts) {
+    const admin = await seedHost(ports)
+    const member = await seedHost(ports)
+    const outsider = await seedHost(ports)
+    const repos = ports.repositories({ consistency: 'bookmark' })
+    const id = `team_api_${admin.user.id}`
+    const created = await repos.teams.createWithFirstMember(
+      { id, name: 'API Crew', slug: `api-crew-${admin.user.id}`, logoKey: null },
+      { userId: admin.user.id, role: 'admin', rrWeight: 1 },
+    )
+    await repos.teams.addMember({ teamId: id, userId: member.user.id, role: 'member', rrWeight: 2 })
+    return { admin, member, outsider, repos, team: created! }
+  }
+  const json = (key: string, body: unknown) => ({
+    headers: { ...auth(key), 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+
+  it('an admin creates a team event type with an explicit host set; the response lists the hosts', async () => {
+    const ports = testPorts()
+    const app = buildApp(ports)
+    const t = await team(ports)
+
+    const res = await app.request('/api/v1/event-types', {
+      method: 'POST',
+      ...json(t.admin.apiKey, {
+        title: 'Crew call',
+        slug: 'crew-call',
+        durationMinutes: 30,
+        ownerTeamId: t.team.id,
+        schedulingType: 'collective',
+        hosts: [
+          { userId: t.admin.user.id, required: true },
+          { userId: t.member.user.id, required: false, scheduleId: `sch_test_${t.member.user.id.split('_')[2]}` },
+        ],
+      }),
+    })
+    expect(res.status).toBe(201)
+    const body = (await res.json()) as { data: { id: string; url: string; ownerTeamId: string; schedulingType: string; hosts: Array<Record<string, unknown>> } }
+    expect(body.data.ownerTeamId).toBe(t.team.id)
+    expect(body.data.schedulingType).toBe('collective')
+    expect(body.data.url).toBe(`https://punctual.test/${t.team.slug}/crew-call`)
+    expect(body.data.hosts.map((h) => [h['userId'], h['required'], h['scheduleId']])).toEqual([
+      [t.admin.user.id, true, null],
+      [t.member.user.id, false, `sch_test_${t.member.user.id.split('_')[2]}`],
+    ])
+
+    // A personal event type lists its one host too.
+    const mine = await app.request(`/api/v1/event-types/${t.admin.eventType.id}`, { headers: auth(t.admin.apiKey) })
+    expect(((await mine.json()) as { data: { hosts: unknown[] } }).data.hosts).toHaveLength(1)
+  })
+
+  it('a member or outsider cannot create under the team; a host who is not on the team is refused with 422', async () => {
+    const ports = testPorts()
+    const app = buildApp(ports)
+    const t = await team(ports)
+    const base = { title: 'X', slug: 'x', durationMinutes: 30, ownerTeamId: t.team.id }
+
+    expect((await app.request('/api/v1/event-types', { method: 'POST', ...json(t.member.apiKey, base) })).status).toBe(403)
+    expect((await app.request('/api/v1/event-types', { method: 'POST', ...json(t.outsider.apiKey, base) })).status).toBe(403)
+
+    const bad = await app.request('/api/v1/event-types', {
+      method: 'POST',
+      ...json(t.admin.apiKey, { ...base, hosts: [{ userId: t.outsider.user.id }] }),
+    })
+    expect(bad.status).toBe(422)
+    // Created nonetheless, hosting every member — the message says so.
+    expect((await t.repos.eventTypes.listForTeam(t.team.id)).some((et) => et.slug === 'x')).toBe(true)
+
+    // hosts on a personal event type is a 400.
+    const personal = await app.request('/api/v1/event-types', {
+      method: 'POST',
+      ...json(t.admin.apiKey, { title: 'P', slug: 'p', durationMinutes: 30, hosts: [{ userId: t.admin.user.id }] }),
+    })
+    expect(personal.status).toBe(400)
+  })
+
+  it('PATCH hosts replaces the set (admin only); a host sets their own schedule, a co-host cannot set another\'s', async () => {
+    const ports = testPorts()
+    const app = buildApp(ports)
+    const t = await team(ports)
+    await t.repos.eventTypes.create({ ...t.admin.eventType, id: 'evt_api_hosts', ownerUserId: null, ownerTeamId: t.team.id, schedulingType: 'round_robin', slug: 'rr', scheduleId: null })
+
+    const patched = await app.request('/api/v1/event-types/evt_api_hosts', {
+      method: 'PATCH',
+      ...json(t.admin.apiKey, { hosts: [{ userId: t.member.user.id, weight: 5 }] }),
+    })
+    expect(patched.status).toBe(200)
+    const hosts = ((await patched.json()) as { data: { hosts: Array<Record<string, unknown>> } }).data.hosts
+    expect(hosts.map((h) => [h['userId'], h['weight']])).toEqual([[t.member.user.id, 5]])
+
+    // The member's own key sets their per-event schedule.
+    const memberSchedule = `sch_test_${t.member.user.id.split('_')[2]}`
+    const own = await app.request(`/api/v1/event-types/evt_api_hosts/hosts/${t.member.user.id}`, {
+      method: 'PATCH',
+      ...json(t.member.apiKey, { scheduleId: memberSchedule }),
+    })
+    expect(own.status).toBe(200)
+    expect((await t.repos.eventTypeHosts.forEventType('evt_api_hosts'))[0]?.scheduleId).toBe(memberSchedule)
+
+    // The member cannot replace the host list, nor set the admin's schedule.
+    expect((await app.request('/api/v1/event-types/evt_api_hosts', { method: 'PATCH', ...json(t.member.apiKey, { hosts: [] }) })).status).toBe(403)
+    // Put the admin back on the set first, so the target exists.
+    await t.repos.eventTypeHosts.replace('evt_api_hosts', [
+      { userId: t.admin.user.id, required: true, scheduleId: null, rrWeight: null },
+      { userId: t.member.user.id, required: true, scheduleId: memberSchedule, rrWeight: 5 },
+    ])
+    const other = await app.request(`/api/v1/event-types/evt_api_hosts/hosts/${t.admin.user.id}`, {
+      method: 'PATCH',
+      ...json(t.member.apiKey, { scheduleId: null }),
+    })
+    expect(other.status).toBe(403)
+    expect(((await other.json()) as { detail: string }).detail).toContain('an admin of the team')
+    // The admin can set anyone's.
+    expect((await app.request(`/api/v1/event-types/evt_api_hosts/hosts/${t.member.user.id}`, { method: 'PATCH', ...json(t.admin.apiKey, { scheduleId: null }) })).status).toBe(200)
+  })
+
+  it("a team admin's key manages a member's schedules; a member's key cannot", async () => {
+    const ports = testPorts()
+    const app = buildApp(ports)
+    const t = await team(ports)
+    const path = `/api/v1/teams/${t.team.id}/members/${t.member.user.id}/schedules`
+    const workday = [{ startMinute: 13 * 60, endMinute: 17 * 60 }]
+    const schedule = { name: 'Afternoons', timezone: 'UTC', weekly: [[], workday, workday, workday, workday, workday, []], overrides: [] }
+
+    expect((await app.request(path, { headers: auth(t.member.apiKey) })).status).toBe(403)
+    expect((await app.request(path, { method: 'POST', ...json(t.member.apiKey, schedule) })).status).toBe(403)
+    expect((await app.request(path, { headers: auth(t.outsider.apiKey) })).status).toBe(403)
+
+    const created = await app.request(path, { method: 'POST', ...json(t.admin.apiKey, schedule) })
+    expect(created.status).toBe(201)
+    const made = ((await created.json()) as { data: { id: string; createdBy: string; name: string } }).data
+    expect(made.createdBy).toBe(t.admin.user.id)
+
+    const listed = await app.request(path, { headers: auth(t.admin.apiKey) })
+    const names = ((await listed.json()) as { data: Array<{ name: string }> }).data.map((sch) => sch.name)
+    expect(names).toContain('Afternoons')
+
+    const renamed = await app.request(`${path}/${made.id}`, { method: 'PATCH', ...json(t.admin.apiKey, { name: 'Support hours' }) })
+    expect(renamed.status).toBe(200)
+    expect((await t.repos.availability.byId(t.member.user.id, made.id))?.name).toBe('Support hours')
+    // Not on the team → 404, not a hint that the user exists.
+    expect((await app.request(`/api/v1/teams/${t.team.id}/members/${t.outsider.user.id}/schedules`, { headers: auth(t.admin.apiKey) })).status).toBe(404)
+  })
+})
+
 describe('POST /bookings', () => {
   it('books a slot and lists it back', async () => {
     const ports = testPorts()
@@ -1129,6 +1276,35 @@ describe('MCP server', () => {
     })
     expect(denied.status).toBe(403)
     expect(denied.body.error?.code).toBe(-32003)
+  })
+
+  it('list_event_types names the hosts of a team event type', async () => {
+    const ports = testPorts()
+    const app = buildApp(ports)
+    const seed = await seedHost(ports)
+    const other = await seedHost(ports)
+    const repos = ports.repositories({ consistency: 'bookmark' })
+    const team = await repos.teams.createWithFirstMember(
+      { id: 'team_mcp_hosts', name: 'MCP Hosts', slug: 'mcp-hosts', logoKey: null },
+      { userId: seed.user.id, role: 'admin', rrWeight: 1 },
+    )
+    await repos.teams.addMember({ teamId: team!.id, userId: other.user.id, role: 'member', rrWeight: 1 })
+    await repos.eventTypes.create({ ...seed.eventType, id: 'evt_mcp_hosts', ownerUserId: null, ownerTeamId: team!.id, schedulingType: 'collective', slug: 'crew', scheduleId: null })
+    await repos.eventTypeHosts.replace('evt_mcp_hosts', [
+      { userId: seed.user.id, required: true, scheduleId: null, rrWeight: null },
+      { userId: other.user.id, required: false, scheduleId: null, rrWeight: null },
+    ])
+
+    const res = await rpc(app, seed.apiKey, 'tools/call', { name: 'list_event_types', arguments: {} })
+    const content = JSON.parse((res.body.result as { content: Array<{ text: string }> }).content[0]!.text) as {
+      eventTypes: Array<{ id: string; hosts?: Array<{ name: string; required: boolean }> }>
+    }
+    const crew = content.eventTypes.find((et) => et.id === 'evt_mcp_hosts')!
+    expect(crew.hosts).toEqual([
+      { name: 'Test Host', required: true },
+      { name: 'Test Host', required: false },
+    ])
+    expect(content.eventTypes.find((et) => et.id === seed.eventType.id)!.hosts).toBeUndefined()
   })
 
   it('list_event_types includes team-owned event types, with the team slug in bookingUrl', async () => {

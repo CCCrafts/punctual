@@ -37,6 +37,7 @@ import type { SlotService } from '../../engine.js'
 import type { Booking, EventType, User } from '../../core/domain/types.js'
 import { effectiveQuestions, pickDeclaredAnswers, validateAnswers } from '../../core/domain/booking-service.js'
 import { formatInZone, isValidTimeZone, localDateString } from '../../core/time/zone.js'
+import { resolveHosts as resolveEventTypeHosts } from '../../core/domain/hosts.js'
 import {
   API_SCOPE_READ,
   API_SCOPE_WRITE,
@@ -580,6 +581,14 @@ async function listEventTypes(
   if (visible.length === 0) {
     return text('This account has no bookable event types yet.')
   }
+  // Who the guest meets, so an agent can say so: every host for a
+  // collective (required or joining when free), the pool for round robin.
+  const hostsByType = new Map<string, Array<{ name: string; required: boolean }>>()
+  for (const et of visible) {
+    if (!et.ownerTeamId) continue
+    const hosts = await resolveEventTypeHosts(repos, et, user)
+    hostsByType.set(et.id, hosts.map((h) => ({ name: h.user.name || h.user.slug, required: h.required })))
+  }
   return text({
     host: { name: user.name, timezone: user.tz },
     eventTypes: visible.map((et) => ({
@@ -588,6 +597,7 @@ async function listEventTypes(
       description: et.description,
       durationMinutes: et.durationMinutes,
       schedulingType: et.schedulingType,
+      ...(hostsByType.has(et.id) ? { hosts: hostsByType.get(et.id) } : {}),
       locationType: et.locationType,
       minNoticeMinutes: et.minNoticeMinutes,
       maxHorizonDays: et.maxHorizonDays,
@@ -691,9 +701,16 @@ async function createBooking(
   // round-robin/collective re-pick the host at commit time, so for a team
   // event type the two can differ and the summary named the wrong person.
   const bookedHost = (await repos.users.byId(outcome.booking.hostUserId)) ?? user
+  // Everyone who actually attends — the round-robin pick, or the required
+  // hosts plus the optional ones that were free — not the pool.
+  const attending = outcome.booking.hostUserIds
+    .map((id) => hostUsers.find((u) => u.id === id))
+    .filter((u): u is User => u !== undefined)
+    .map((u) => u.name || u.slug)
   return text({
     booked: true,
     ...bookingSummary(outcome.booking, eventType, bookedHost, input.guestTimezone ?? user.tz),
+    ...(eventType.ownerTeamId ? { hosts: attending } : {}),
   })
 }
 

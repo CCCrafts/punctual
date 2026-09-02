@@ -27,6 +27,7 @@ import type {
   Booking,
   EventType,
   EventTypeQuestion,
+  Schedule,
   Interval,
   Slot,
   User,
@@ -35,7 +36,7 @@ import type {
   WeeklySchedule,
 } from '../../core/domain/types.js'
 import { canManageTeam } from '../../core/domain/teams.js'
-import { hostUsers, resolveHosts as resolveEventTypeHosts } from '../../core/domain/hosts.js'
+import { hostUsers, resolveHosts as resolveEventTypeHosts, type ResolvedHost } from '../../core/domain/hosts.js'
 import type { EnginePorts, Repositories, RequestScope } from '../../ports.js'
 import type { SlotService } from '../../engine.js'
 import { authenticateApiKey } from '../../core/domain/auth-flows.js'
@@ -356,8 +357,23 @@ const eventTypeFields = {
   scheduleId: z.string().min(1).max(64).nullable(),
 }
 
+/** One host of a team event type, as the API accepts and returns it. */
+const hostInput = z.object({
+  userId: z.string().min(1).max(64),
+  required: z.boolean().default(true),
+  scheduleId: z.string().min(1).max(64).nullable().default(null),
+  weight: z.number().int().min(1).max(100).nullable().default(null),
+})
+
 const eventTypeBody = z.object({
   ...eventTypeFields,
+  // Team ownership: the key's user must be an admin of the team (or the
+  // instance admin). Absent = a personal event type, as before.
+  ownerTeamId: z.string().min(1).max(64).nullable().default(null),
+  schedulingType: z.enum(['round_robin', 'collective']).default('round_robin'),
+  // The explicit host set (see EventTypeHost). Absent or empty = every
+  // member, required, on their default schedules.
+  hosts: z.array(hostInput).max(100).default([]),
   description: eventTypeFields.description.default(''),
   slotIntervalMinutes: eventTypeFields.slotIntervalMinutes.default(null),
   bufferBeforeMinutes: eventTypeFields.bufferBeforeMinutes.default(0),
@@ -372,7 +388,9 @@ const eventTypeBody = z.object({
   scheduleId: eventTypeFields.scheduleId.default(null),
 })
 
-const eventTypePatchBody = z.object(eventTypeFields).partial()
+const eventTypePatchBody = z.object({ ...eventTypeFields, hosts: z.array(hostInput).max(100) }).partial()
+
+const hostScheduleBody = z.object({ scheduleId: z.string().min(1).max(64).nullable() })
 
 const dayWindowSchema = z
   .object({
@@ -506,9 +524,21 @@ export function buildApiRoutes(ports: EnginePorts, slots: SlotService): Hono<Api
       list.push(...(await repos.eventTypes.listForTeam(membership.teamId)))
     }
     const data = []
-    for (const et of list) data.push(eventTypeJson(et, ports, await ownerSlugFor(repos, user, et)))
+    for (const et of list) data.push(await eventTypeWithHosts(repos, user, et))
     return c.json({ data })
   })
+
+  /** `eventTypeJson` plus the resolved host list — what every event-type response returns. */
+  async function eventTypeWithHosts(repos: Repositories, user: User, et: EventType): Promise<Record<string, unknown>> {
+    const hosts = await resolveEventTypeHosts(repos, et, user)
+    return eventTypeJson(et, ports, await ownerSlugFor(repos, user, et), hosts)
+  }
+
+  /** The key's user may manage this team: a team admin, or the instance admin (core/domain/teams.ts). */
+  async function managesTeam(repos: Repositories, user: User, teamId: string): Promise<boolean> {
+    const memberships = await repos.teams.memberships(user.id)
+    return canManageTeam(user, memberships.find((m) => m.teamId === teamId))
+  }
 
   app.post('/event-types', async (c) => {
     const { repos, user } = c.get('auth')
@@ -516,21 +546,35 @@ export function buildApiRoutes(ports: EnginePorts, slots: SlotService): Hono<Api
     if (!parsed.ok) return parsed.response
     const body = parsed.data
 
-    const clash = await repos.eventTypes.bySlug(user.slug, body.slug)
-    if (clash) return problem(409, 'Slug taken', `You already have an event type at /${user.slug}/${body.slug}.`)
+    // A team event type: the key's user must be one of that team's admins —
+    // the same rule as the dashboard, since a key carries exactly one
+    // user's authority.
+    const team = body.ownerTeamId ? await repos.teams.byId(body.ownerTeamId) : null
+    if (body.ownerTeamId) {
+      if (!team) return problem(404, 'Not found', 'No team with that id.')
+      if (!(await managesTeam(repos, user, team.id))) {
+        return problem(403, 'Forbidden', 'Only an admin of that team can create an event type under it.')
+      }
+      if (body.scheduleId) {
+        return problem(400, 'Invalid request', 'scheduleId only applies to a personal event type; set each host\'s schedule in `hosts`.')
+      }
+    } else if (body.hosts.length > 0) {
+      return problem(400, 'Invalid request', '`hosts` only applies to a team event type (set ownerTeamId).')
+    }
+
+    const ownerSlug = team ? team.slug : user.slug
+    const clash = await repos.eventTypes.bySlug(ownerSlug, body.slug)
+    if (clash) return problem(409, 'Slug taken', `There is already an event type at /${ownerSlug}/${body.slug}.`)
 
     if (body.scheduleId && !(await repos.availability.byId(user.id, body.scheduleId))) {
       return problem(400, 'Invalid request', 'scheduleId does not exist or is not yours.')
     }
 
-    // Owned by the key's user, always. A team event type is created through the
-    // team surface, because an API key carries one user's authority and nothing
-    // here can decide which of their teams was meant.
     const created = await repos.eventTypes.create({
       id: `evt_${ports.crypto.randomToken(12)}`,
-      ownerUserId: user.id,
-      ownerTeamId: null,
-      schedulingType: 'personal',
+      ownerUserId: team ? null : user.id,
+      ownerTeamId: team ? team.id : null,
+      schedulingType: team ? body.schedulingType : 'personal',
       slug: body.slug,
       title: body.title,
       description: body.description,
@@ -548,14 +592,33 @@ export function buildApiRoutes(ports: EnginePorts, slots: SlotService): Hono<Api
       scheduleId: body.scheduleId,
     })
 
-    return c.json({ data: eventTypeJson(created, ports, await ownerSlugFor(repos, user, created)) }, 201)
+    if (team && body.hosts.length > 0) {
+      // Guarded in SQL: a host who is not on the team, or a schedule that
+      // is not theirs, fails the whole set. The event type stays; the
+      // caller fixes the list and PATCHes `hosts`.
+      const ok = await repos.eventTypeHosts.replace(created.id, body.hosts.map(hostRow))
+      if (!ok) {
+        return problem(
+          422,
+          'Hosts not accepted',
+          'Every host must be a member of the team, and a scheduleId must belong to that host. The event type was created with every member hosting it; PATCH `hosts` to fix the list.',
+        )
+      }
+    }
+
+    return c.json({ data: await eventTypeWithHosts(repos, user, created) }, 201)
   })
+
+  /** `hosts[]` from the API to the repository's shape. */
+  function hostRow(h: z.infer<typeof hostInput>): { userId: string; required: boolean; scheduleId: string | null; rrWeight: number | null } {
+    return { userId: h.userId, required: h.required, scheduleId: h.scheduleId, rrWeight: h.weight }
+  }
 
   app.get('/event-types/:id', async (c) => {
     const { repos, user } = c.get('auth')
     const et = await repos.eventTypes.byId(c.req.param('id'))
     if (!et || !(await ownsEventType(repos, user, et))) return notFound('event type')
-    return c.json({ data: eventTypeJson(et, ports, await ownerSlugFor(repos, user, et)) })
+    return c.json({ data: await eventTypeWithHosts(repos, user, et) })
   })
 
   app.patch('/event-types/:id', async (c) => {
@@ -572,23 +635,169 @@ export function buildApiRoutes(ports: EnginePorts, slots: SlotService): Hono<Api
 
     if (parsed.data.scheduleId !== undefined) {
       // A team event type (round_robin/collective) has multiple hosts and no
-      // single schedule fits all of them — see engine.ts's forEventType.
+      // single schedule fits all of them — each host's is set in `hosts`.
       // Reject rather than silently ignore: the caller explicitly asked for
       // something this event type cannot express.
       if (et.ownerTeamId) {
-        return problem(400, 'Invalid request', 'scheduleId only applies to a personal event type.')
+        return problem(400, 'Invalid request', 'scheduleId only applies to a personal event type; set each host\'s schedule in `hosts`.')
       }
       if (parsed.data.scheduleId && !(await repos.availability.byId(user.id, parsed.data.scheduleId))) {
         return problem(400, 'Invalid request', 'scheduleId does not exist or is not yours.')
       }
     }
+    const { hosts, ...fields } = parsed.data
+    if (hosts !== undefined && !et.ownerTeamId) {
+      return problem(400, 'Invalid request', '`hosts` only applies to a team event type.')
+    }
 
-    await repos.eventTypes.update(id, parsed.data as Partial<EventType>)
+    if (Object.keys(fields).length > 0) await repos.eventTypes.update(id, fields as Partial<EventType>)
+    if (hosts !== undefined) {
+      // Atomic, SQL-guarded replace — same as the dashboard's Hosts block.
+      const ok = await repos.eventTypeHosts.replace(id, hosts.map(hostRow))
+      if (!ok) {
+        return problem(422, 'Hosts not accepted', 'Every host must be a member of the team, and a scheduleId must belong to that host.')
+      }
+    }
     // Read-after-write on the same bookmarked session, so the response is the
     // row as stored rather than the patch echoed back.
     const updated = await repos.eventTypes.byId(id)
     if (!updated) return notFound('event type')
-    return c.json({ data: eventTypeJson(updated, ports, await ownerSlugFor(repos, user, updated)) })
+    return c.json({ data: await eventTypeWithHosts(repos, user, updated) })
+  })
+
+  /**
+   * One host's per-event schedule: the host themselves (any key of theirs)
+   * or a team admin may set it — the same two people the dashboard lets.
+   * A plain co-host gets a 403 that says who can.
+   */
+  app.patch('/event-types/:id/hosts/:userId', async (c) => {
+    const { repos, user } = c.get('auth')
+    const et = await repos.eventTypes.byId(c.req.param('id'))
+    if (!et || !(await ownsEventType(repos, user, et))) return notFound('event type')
+    if (!et.ownerTeamId) return problem(400, 'Invalid request', 'A personal event type has one host; use `scheduleId` on the event type.')
+    const targetId = c.req.param('userId')
+    const hosts = await resolveEventTypeHosts(repos, et, user)
+    const target = hosts.find((h) => h.user.id === targetId)
+    if (!target) return notFound('host')
+    if (targetId !== user.id && !(await managesTeam(repos, user, et.ownerTeamId))) {
+      return problem(403, 'Forbidden', `Only ${target.user.name || target.user.slug} or an admin of the team can change their schedule for this event type.`)
+    }
+
+    const parsed = await readBody(c.req.raw, hostScheduleBody)
+    if (!parsed.ok) return parsed.response
+    const scheduleId = parsed.data.scheduleId
+    if (scheduleId && !(await repos.availability.byId(targetId, scheduleId))) {
+      return problem(400, 'Invalid request', 'scheduleId does not exist or is not that host\'s.')
+    }
+    // No explicit set yet: this choice makes it explicit, insert-if-absent
+    // so a concurrent choice by another host keeps theirs (dashboard rule).
+    if ((await repos.eventTypeHosts.forEventType(et.id)).length === 0) {
+      const members = await repos.teams.members(et.ownerTeamId)
+      await repos.eventTypeHosts.ensure(
+        et.id,
+        members.map((m) => ({ userId: m.userId, required: true, scheduleId: null, rrWeight: null })),
+      )
+    }
+    const ok = await repos.eventTypeHosts.setSchedule(et.id, targetId, scheduleId)
+    if (!ok) return problem(409, 'Conflict', 'That host is no longer on the event type, or the schedule was deleted. Reload and retry.')
+    return c.json({ data: await eventTypeWithHosts(repos, user, et) })
+  })
+
+  // ---------------------------------------------------------------------------
+  // Team member schedules — managed availability, for a team admin's key
+  // ---------------------------------------------------------------------------
+
+  const scheduleBody = z.object({
+    name: z.string().min(1).max(120),
+    timezone: availabilityBody.shape.timezone,
+    weekly: availabilityBody.shape.weekly,
+    overrides: availabilityBody.shape.overrides,
+  })
+  const schedulePatchBody = scheduleBody.partial()
+
+  /** The member, if the key's user manages the team and the member is on it. Anything else is the same 404. */
+  async function managedMember(
+    repos: Repositories,
+    user: User,
+    teamId: string,
+    memberId: string,
+  ): Promise<{ ok: true; member: User } | { ok: false; response: Response }> {
+    const team = await repos.teams.byId(teamId)
+    if (!team) return { ok: false, response: notFound('team') }
+    if (!(await managesTeam(repos, user, teamId))) {
+      return { ok: false, response: problem(403, 'Forbidden', 'Only an admin of the team can manage its members\' schedules.') }
+    }
+    if (!(await repos.teams.members(teamId)).some((m) => m.userId === memberId)) return { ok: false, response: notFound('member') }
+    const member = await repos.users.byId(memberId)
+    if (!member) return { ok: false, response: notFound('member') }
+    return { ok: true, member }
+  }
+
+  function scheduleJson(s: Schedule): Record<string, unknown> {
+    return {
+      id: s.id,
+      name: s.name,
+      isDefault: s.isDefault,
+      timezone: s.timezone,
+      weekly: s.weekly,
+      overrides: s.overrides,
+      createdBy: s.createdBy ?? null,
+    }
+  }
+
+  app.get('/teams/:id/members/:userId/schedules', async (c) => {
+    const { repos, user } = c.get('auth')
+    const found = await managedMember(repos, user, c.req.param('id'), c.req.param('userId'))
+    if (!found.ok) return found.response
+    return c.json({ data: (await repos.availability.listForUser(found.member.id)).map(scheduleJson) })
+  })
+
+  app.post('/teams/:id/members/:userId/schedules', async (c) => {
+    const { repos, user } = c.get('auth')
+    const found = await managedMember(repos, user, c.req.param('id'), c.req.param('userId'))
+    if (!found.ok) return found.response
+    const parsed = await readBody(c.req.raw, scheduleBody)
+    if (!parsed.ok) return parsed.response
+    // Created BY the admin FOR the member: the member's own row, badged with
+    // who set it up, editable by them.
+    const created = await repos.availability.create(
+      found.member.id,
+      {
+        id: `sch_${ports.crypto.randomToken(12)}`,
+        userId: found.member.id,
+        name: parsed.data.name,
+        isDefault: false,
+        timezone: parsed.data.timezone,
+        weekly: parsed.data.weekly as unknown as WeeklySchedule,
+        overrides: parsed.data.overrides,
+      },
+      user.id,
+    )
+    return c.json({ data: scheduleJson(created) }, 201)
+  })
+
+  app.patch('/teams/:id/members/:userId/schedules/:sid', async (c) => {
+    const { repos, user } = c.get('auth')
+    const found = await managedMember(repos, user, c.req.param('id'), c.req.param('userId'))
+    if (!found.ok) return found.response
+    const existing = await repos.availability.byId(found.member.id, c.req.param('sid'))
+    if (!existing) return notFound('schedule')
+    const parsed = await readBody(c.req.raw, schedulePatchBody)
+    if (!parsed.ok) return parsed.response
+    const patch = {
+      ...(parsed.data.name !== undefined ? { name: parsed.data.name } : {}),
+      ...(parsed.data.timezone !== undefined ? { timezone: parsed.data.timezone } : {}),
+      ...(parsed.data.weekly !== undefined ? { weekly: parsed.data.weekly as unknown as WeeklySchedule } : {}),
+      ...(parsed.data.overrides !== undefined ? { overrides: parsed.data.overrides } : {}),
+    }
+    await repos.availability.update(found.member.id, existing.id, patch, user.id)
+    // The member's default schedule's zone drives their booking page's
+    // calendar — same mirror the dashboard keeps.
+    if (existing.isDefault && patch.timezone && patch.timezone !== found.member.tz) {
+      await repos.users.update(found.member.id, { tz: patch.timezone })
+    }
+    const updated = await repos.availability.byId(found.member.id, existing.id)
+    return c.json({ data: updated ? scheduleJson(updated) : null })
   })
 
   app.delete('/event-types/:id', async (c) => {
@@ -1108,7 +1317,12 @@ function instantJson(ts: number): { iso: string; epochMs: number } {
  * team-owned event type, never the calling user's, whose personal slug would
  * make a dead link for anything a team owns.
  */
-export function eventTypeJson(et: EventType, ports: EnginePorts, ownerSlug: string): Record<string, unknown> {
+export function eventTypeJson(
+  et: EventType,
+  ports: EnginePorts,
+  ownerSlug: string,
+  hosts: ResolvedHost[] = [],
+): Record<string, unknown> {
   return {
     id: et.id,
     slug: et.slug,
@@ -1116,6 +1330,20 @@ export function eventTypeJson(et: EventType, ports: EnginePorts, ownerSlug: stri
     title: et.title,
     description: et.description,
     schedulingType: et.schedulingType,
+    ownerTeamId: et.ownerTeamId,
+    // Who hosts it, in display order (core/domain/hosts.ts): the owner for
+    // a personal event type; the explicit set, or every member, for a
+    // team's. `required` only matters for collective; `weight` only for
+    // round robin; `scheduleId` is that host's per-event schedule (null =
+    // their default) and is theirs or an admin's to change via
+    // PATCH /event-types/:id/hosts/:userId.
+    hosts: hosts.map((h) => ({
+      userId: h.user.id,
+      name: h.user.name || h.user.slug,
+      required: h.required,
+      weight: h.rrWeight,
+      scheduleId: h.scheduleId,
+    })),
     durationMinutes: et.durationMinutes,
     slotIntervalMinutes: et.slotIntervalMinutes,
     bufferBeforeMinutes: et.bufferBeforeMinutes,
