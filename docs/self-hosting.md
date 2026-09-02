@@ -291,8 +291,10 @@ other and each other's responses on one shared event instead of N copies
 each inviting the others. An attendee cannot edit the event; reschedule
 and cancel go through Punctual, which updates the one event. Optional
 hosts are marked optional in the invite. Hosts on the other provider get
-that provider's event; a host with no calendar connected is attached by
-email to the first event.
+that provider's event. A host with no calendar connected is listed on the
+first event by email address, which only lands on their calendar if that
+address is an account on that provider — they always get Punctual's own
+host confirmation with the `.ics` attached, so nothing is lost either way.
 
 **A host's calendar stopped syncing.** Their refresh token was revoked —
 usually a password change or an admin policy. Their connections page shows a

@@ -100,8 +100,11 @@ async function hmacHex(secret: string, payload: string): Promise<string> {
  * each other's responses on one shared event, instead of N events each
  * inviting the other N-1. A host with connections only on the other
  * provider is an attendee there instead; a host with no connection at all
- * rides on the primary provider's event by email. Optional hosts are
- * flagged optional in the invite.
+ * is listed on the primary provider's event by address — which lands on
+ * their calendar only if that address is an account there (Google sends
+ * no email under sendUpdates=none), so it is a courtesy on top of the
+ * host confirmation email that already carries the .ics, not the delivery
+ * path. Optional hosts are flagged optional in the invite.
  *
  * Per-provider failure is tolerated: the organizer's expired Google token
  * must not stop the event landing in Outlook.
@@ -301,8 +304,13 @@ async function syncCalendar(
  * provider's event: the guest, every host with a writable connection on
  * that provider (by their account email too, so a second account of theirs
  * gets the invitation as well), and — on the primary provider only — every
- * host with no writable connection anywhere. Optional hosts carry the
- * flag from `event_type_hosts` as it stands now.
+ * host with no writable connection anywhere, by address. Optional hosts
+ * carry the flag from `event_type_hosts` as it stands now.
+ *
+ * `byConnection` answers the (test-only today — reschedules create a new
+ * booking rather than updating) update path: a stored event this plan
+ * would organize on gets the plan's attendees, any other stored event is
+ * treated as a legacy per-host one.
  */
 async function planInvites(
   repos: Repositories,

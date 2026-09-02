@@ -62,10 +62,11 @@ still change interfaces.
   provider's one event and every host on the provider is an attendee of
   it, optional hosts flagged optional (Google `optional`, Graph `type:
   optional`). A host's second account on the same provider is invited by
-  its own address; a host with no calendar rides on the first event by
-  email. Cancel and reschedule walk the stored event ids, so bookings
-  written in the old shape keep cancelling and moving; a legacy per-host
-  event is updated with its own host only, never the whole team.
+  its own address; a host with no calendar is listed on the first event by
+  address (which lands only for an account on that provider — every host
+  gets Punctual's own confirmation with the `.ics` regardless). Cancel
+  walks the stored event ids, so bookings written in the old shape keep
+  cancelling.
 - REST: `PATCH`/`DELETE /event-types/:id` on a team-owned event type now
   require a team admin's key (403 otherwise); reading and listing are
   unchanged for every member.
