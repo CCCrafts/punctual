@@ -1275,6 +1275,10 @@ export async function ownsEventType(
 ): Promise<boolean> {
   if (eventType.ownerUserId === user.id) return true
   if (eventType.ownerTeamId) {
+    // The instance admin reaches every team's event types, member or not —
+    // the same reach `canManageTeam` grants them, so a key that can create
+    // one can also read, change and delete it.
+    if (user.role === 'admin') return true
     const memberships = await repos.teams.memberships(user.id)
     return memberships.some((m) => m.teamId === eventType.ownerTeamId)
   }

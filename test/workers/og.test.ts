@@ -69,8 +69,10 @@ describe('the dynamic OG card', () => {
 
     // Cached under the documented key/prefix (route.ts, ADR-0006 §1 split) —
     // a second request must not need to re-render.
-    const cached = await env.CACHE.get('og:v2:og-host-a:thirty:usr_og_a:-', 'arrayBuffer')
-    expect(cached).not.toBeNull()
+    // The key is the page plus a hash of the host/avatar list (KV caps keys at 512 bytes).
+    const keys = (await env.CACHE.list({ prefix: 'og:v2:og-host-a:thirty:' })).keys
+    expect(keys).toHaveLength(1)
+    expect(keys[0]!.name.length).toBeLessThan(200)
   })
 
   it('renders a team card naming the hosts, and one with a real avatar', async () => {
@@ -96,9 +98,14 @@ describe('the dynamic OG card', () => {
     expect(res.headers.get('content-type')).toBe('image/png')
     const bytes = new Uint8Array(await res.arrayBuffer())
     expect(Array.from(bytes.slice(0, 4))).toEqual(PNG_MAGIC)
-    // The key names both hosts and Alice's avatar, so a new photo is a new card.
-    const cached = await env.CACHE.get(`og:v2:og-crew:crew:usr_og_t1:${key},usr_og_t2:-`, 'arrayBuffer')
-    expect(cached).not.toBeNull()
+    // The key hashes both hosts and Alice's avatar, so a new photo is a new card.
+    const before = (await env.CACHE.list({ prefix: 'og:v2:og-crew:crew:' })).keys.map((k) => k.name)
+    expect(before).toHaveLength(1)
+    await env.DB.prepare('UPDATE users SET avatar_key = NULL WHERE id = ?').bind('usr_og_t1').run()
+    expect((await getOg('/og/og-crew/crew.png')).status).toBe(200)
+    const after = (await env.CACHE.list({ prefix: 'og:v2:og-crew:crew:' })).keys.map((k) => k.name)
+    expect(after).toHaveLength(2)
+    expect(after).toContain(before[0])
   })
 
   it('falls back to the static default card when the host name is not safely renderable', async () => {

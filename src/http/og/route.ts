@@ -68,8 +68,11 @@ export function buildOgRoutes(ports: EnginePorts): Hono<{ Bindings: Env }> {
           ? joinNames(names)
           : `${names.slice(0, 2).join(', ')} and ${names.length - 2} more`
         : `the ${team.name} team`
+    // Hashed, not concatenated: KV rejects keys over 512 bytes, and six
+    // hosts with photos would pass that — silently, since the cache calls
+    // below swallow errors, leaving every crawler hit to re-render.
     const faceKeys = hosts.map((h) => `${h.user.id}:${h.user.avatarKey ?? '-'}`).join(',')
-    const cacheKey = `og:v2:${userSlug}:${eventSlug}:${faceKeys}`
+    const cacheKey = `og:v2:${userSlug}:${eventSlug}:${await ports.crypto.hash(faceKeys)}`
 
     const cached = await safeGet(ports, cacheKey)
     if (cached) return pngResponse(c, cached)

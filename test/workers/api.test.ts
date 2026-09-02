@@ -892,6 +892,24 @@ describe('team event types through the API', () => {
     expect((await app.request(`/api/v1/event-types/evt_api_hosts/hosts/${t.member.user.id}`, { method: 'PATCH', ...json(t.admin.apiKey, { scheduleId: null }) })).status).toBe(200)
   })
 
+  it('the instance admin reaches a team event type over the API without being on the team', async () => {
+    const ports = testPorts()
+    const app = buildApp(ports)
+    const t = await team(ports)
+    const root = await seedHost(ports)
+    await env.DB.prepare("UPDATE users SET role = 'admin' WHERE id = ?").bind(root.user.id).run()
+
+    const created = await app.request('/api/v1/event-types', {
+      method: 'POST',
+      ...json(root.apiKey, { title: 'Root made this', slug: 'root-made', durationMinutes: 30, ownerTeamId: t.team.id }),
+    })
+    expect(created.status).toBe(201)
+    const id = ((await created.json()) as { data: { id: string } }).data.id
+    expect((await app.request(`/api/v1/event-types/${id}`, { headers: auth(root.apiKey) })).status).toBe(200)
+    expect((await app.request(`/api/v1/event-types/${id}`, { method: 'PATCH', ...json(root.apiKey, { title: 'Renamed' }) })).status).toBe(200)
+    expect((await app.request(`/api/v1/event-types/${id}`, { method: 'DELETE', headers: auth(root.apiKey) })).status).toBe(204)
+  })
+
   it('a host added over the API gets the same host-added email as one added on the dashboard', async () => {
     const ports = testPorts()
     const sent: Array<{ to: string; subject: string }> = []
