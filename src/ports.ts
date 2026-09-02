@@ -199,7 +199,8 @@ export interface AvailabilityRepository {
   /**
    * Refuses (returns `false`, no error thrown) rather than delete when the
    * target is the user's default schedule, their only remaining schedule, or
-   * still referenced by an event type — one D1-arbitrated statement, the
+   * still referenced by an event type (its own `scheduleId`, or a per-host
+   * row in `event_type_hosts`) — one D1-arbitrated statement, the
    * same discipline as `UserRepository.demoteAdmin`'s last-admin guard, not
    * an application-level check-then-delete.
    */

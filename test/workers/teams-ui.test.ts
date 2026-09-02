@@ -1287,6 +1287,35 @@ describe('event type hosts', () => {
     expect((await repos().eventTypeHosts.forEventType(crewEventTypeId)).map((h) => h.userId)).toEqual([ALICE_ID])
   })
 
+  it('a schedule assigned as a per-host schedule cannot be deleted while the row references it', async () => {
+    // Alice was seeded by SQL, so she has no default yet; without one the
+    // last-schedule guard would refuse the delete for a different reason.
+    const workday = [{ startMinute: 9 * 60, endMinute: 17 * 60 }]
+    await repos().availability.saveIfAbsent(ALICE_ID, {
+      id: 'sch_alice_default',
+      userId: ALICE_ID,
+      name: 'Working hours',
+      isDefault: true,
+      timezone: 'UTC',
+      weekly: [[], workday, workday, workday, workday, workday, []],
+      overrides: [],
+    })
+    await repos().eventTypeHosts.replace(crewEventTypeId, [
+      { userId: ALICE_ID, required: true, scheduleId: aliceSchedule, rrWeight: null },
+    ])
+    expect(await repos().availability.delete(ALICE_ID, aliceSchedule)).toBe(false)
+    expect(await repos().availability.byId(ALICE_ID, aliceSchedule)).not.toBeNull()
+    // The dashboard route reports it the same way as a direct event-type reference.
+    const alice = await seedSession(ALICE_ID)
+    const csrf = await csrfFrom('/dashboard/availability', alice)
+    const res = await post(`/dashboard/availability/${aliceSchedule}/delete`, { csrf }, alice)
+    expect(res.status).toBe(400)
+    expect(await res.text()).toContain('an event type is still using')
+    // Unassigned, it goes.
+    expect(await repos().eventTypeHosts.setSchedule(crewEventTypeId, ALICE_ID, null)).toBe(true)
+    expect(await repos().availability.delete(ALICE_ID, aliceSchedule)).toBe(true)
+  })
+
   it('deleting the event type takes its host set with it', async () => {
     const et = await repos().eventTypes.create({
       ...(await repos().eventTypes.byId(crewEventTypeId))!,

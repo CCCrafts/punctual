@@ -471,18 +471,23 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
     async delete(userId, scheduleId) {
       // One statement, same discipline as `demoteAdmin`: refuses the
       // default, the user's last schedule, or one an event type still
-      // points at — all evaluated inside the DELETE itself, so no
-      // interleaving between a check and the write can slip past any of the
-      // three.
+      // points at — directly, or as this host's per-event schedule on a
+      // team event type — all evaluated inside the DELETE itself, so no
+      // interleaving between a check and the write can slip past any of
+      // them. Without the second reference check a host could delete the
+      // schedule an admin assigned them, and every listing and commit would
+      // silently fall back to their default.
       const res = await q(
         `DELETE FROM schedules
          WHERE id = ? AND user_id = ?
            AND is_default = 0
            AND (SELECT COUNT(*) FROM schedules WHERE user_id = ?) > 1
-           AND NOT EXISTS (SELECT 1 FROM event_types WHERE schedule_id = ?)`,
+           AND NOT EXISTS (SELECT 1 FROM event_types WHERE schedule_id = ?)
+           AND NOT EXISTS (SELECT 1 FROM event_type_hosts WHERE schedule_id = ?)`,
         scheduleId,
         userId,
         userId,
+        scheduleId,
         scheduleId,
       ).run()
       return (res.meta.changes ?? 0) > 0
