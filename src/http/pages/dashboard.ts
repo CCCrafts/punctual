@@ -1978,7 +1978,8 @@ export function formatQuestions(questions: EventTypeQuestion[]): string {
 }
 
 /**
- * `Label | type | required | a, b` per line. Null on malformed input.
+ * `Label | type | required | a, b` per line. Null on malformed input; see
+ * `questionsParseError` for the message that names the line.
  *
  * The id is derived from the label rather than kept hidden in the form: this
  * editor has no client JS to carry ids around, and a stable derivation gives
@@ -1988,29 +1989,50 @@ export function formatQuestions(questions: EventTypeQuestion[]): string {
  * question.
  */
 export function parseQuestions(text: string): EventTypeQuestion[] | null {
+  const result = parseQuestionLines(text)
+  return Array.isArray(result) ? result : null
+}
+
+/**
+ * The form message for a questions box that did not parse — quoting the
+ * offending line, because "check the format" against ten lines of text sends
+ * the host back to re-read all ten. Null when the text parses.
+ */
+export function questionsParseError(text: string): string | null {
+  const result = parseQuestionLines(text)
+  if (Array.isArray(result)) return null
+  return `Line ${result.line} ("${result.text}"): ${result.reason}`
+}
+
+function parseQuestionLines(text: string): EventTypeQuestion[] | QuestionsParseError {
   const out: EventTypeQuestion[] = []
   const seen = new Set<string>()
-  for (const raw of text.split('\n')) {
-    const line = raw.trim()
+  const lines = text.split('\n')
+  for (let i = 0; i < lines.length; i++) {
+    const line = (lines[i] ?? '').trim()
     if (line === '') continue
+    const fail = (reason: string): QuestionsParseError => ({ line: i + 1, text: line, reason })
     const parts = line.split('|').map((p) => p.trim())
     const label = parts[0] ?? ''
-    if (label === '' || label.length > 200) return null
+    if (label === '') return fail('the label before the first | is missing')
+    if (label.length > 200) return fail('the label is over 200 characters')
 
     const type = (parts[1] ?? 'text') as EventTypeQuestion['type']
-    if (!QUESTION_TYPES.includes(type)) return null
+    if (!QUESTION_TYPES.includes(type)) return fail(`the type must be text, textarea or select, not "${type}"`)
 
     const requiredWord = (parts[2] ?? 'optional').toLowerCase()
-    if (requiredWord !== 'required' && requiredWord !== 'optional') return null
+    if (requiredWord !== 'required' && requiredWord !== 'optional') {
+      return fail(`the third part must be required or optional, not "${parts[2]}"`)
+    }
 
     const options = (parts[3] ?? '')
       .split(',')
       .map((o) => o.trim())
       .filter((o) => o !== '')
-    if (type === 'select' && options.length === 0) return null
+    if (type === 'select' && options.length === 0) return fail('a select needs its options after a fourth |, separated by commas')
 
     let id = slugify(label)
-    if (id === '') return null
+    if (id === '') return fail('the label needs at least one letter or number')
     // Two questions with the same label would otherwise share an id, and the
     // second answer would overwrite the first.
     let n = 2
