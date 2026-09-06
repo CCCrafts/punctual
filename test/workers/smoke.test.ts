@@ -422,18 +422,27 @@ describe('a team-owned event type has a working public booking page', () => {
     expect(body).not.toContain('/team-member/team-intro')
   })
 
-  it('honours the team logo shape when the event type has no logo of its own', async () => {
-    // Caught by review: the booking-page context query selected the team's
-    // logo key but not its shape, so a team logo set to "natural" rendered
-    // as the round crop on every team-owned booking page.
+  it('is headed by the company logo in its shape, read in the same round trip as the page context', async () => {
     const key = `${'ab'.repeat(32)}-thumb.webp`
-    await env.DB.prepare('UPDATE teams SET logo_key = ?, logo_shape = ? WHERE id = ?').bind(key, 'natural', 't_sales').run()
+    const now = Date.now()
+    await env.DB.batch([
+      env.DB.prepare('INSERT OR REPLACE INTO instance_settings (key,value,updated_at) VALUES (?,?,?)').bind('company_logo_key', key, now),
+      env.DB.prepare('INSERT OR REPLACE INTO instance_settings (key,value,updated_at) VALUES (?,?,?)').bind('company_logo_shape', 'natural', now),
+    ])
     const { default: worker } = await import('../../src/index.js')
     const res = await worker.fetch(new Request('https://punctual.sh/sales-team/team-intro'), env, createExecutionContext())
     expect(res.status).toBe(200)
     const body = await res.text()
     expect(body).toContain(`/avatars/${'ab'.repeat(32)}-fit.webp`)
     expect(body).not.toContain(`/avatars/${key}`)
+    // The team's name is a suffix after the hosts, not the header.
+    expect(body).toContain('<span class="pu-hosts-team">(Sales)</span>')
+    expect(body).toContain('<title>Team intro call · Sales</title>')
+
+    // A removed logo is an empty key, which the page treats as none.
+    await env.DB.prepare("UPDATE instance_settings SET value = '' WHERE key = 'company_logo_key'").run()
+    const again = await (await worker.fetch(new Request('https://punctual.sh/sales-team/team-intro'), env, createExecutionContext())).text()
+    expect(again).not.toContain('/avatars/')
   })
 })
 

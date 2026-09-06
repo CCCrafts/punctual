@@ -1407,7 +1407,7 @@ export function eventTypeJson(
     description: et.description,
     schedulingType: et.schedulingType,
     ownerTeamId: et.ownerTeamId,
-    // Read-only here; uploaded from the dashboard. Null = the page shows the host's photo or the team's logo.
+    // Read-only here; uploaded from the dashboard. Null = the page shows the host's photo, or the company logo on a team page.
     logoUrl: et.logoKey ? `${trimSlash(ports.config.baseUrl)}/avatars/${encodeURIComponent(et.logoKey)}` : null,
     // Who hosts it, in display order (core/domain/hosts.ts): the owner for
     // a personal event type; the explicit set, or every member, for a

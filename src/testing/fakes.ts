@@ -377,7 +377,7 @@ export function createFakeRepositories(): FakeRepositories {
       return full
     },
     seedTeam(team) {
-      const full: Team = { name: 'Seed Team', logoKey: null, createdAt: 0, ...team }
+      const full: Team = { name: 'Seed Team', logoKey: null, showName: true, createdAt: 0, ...team }
       teams.set(full.id, full)
       return full
     },

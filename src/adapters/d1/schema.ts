@@ -57,6 +57,8 @@ export const teams = sqliteTable(
     // Resized logo thumbnail's R2 key; same convention as `users.avatarKey`.
     logoKey: text('logo_key'),
     logoShape: text('logo_shape').notNull().default('circle'),
+    // 1 = guests see the team's name after the hosts' names (migration 0015).
+    showName: integer('show_name').notNull().default(1),
     createdAt: integer('created_at').notNull(),
   },
   (t) => [uniqueIndex('teams_slug_idx').on(t.slug)],

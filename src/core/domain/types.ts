@@ -1,5 +1,5 @@
 import type { LogoShape } from './media.js'
-export type { LogoShape } from './media.js'
+export type { CompanyLogo, LogoShape } from './media.js'
 
 /**
  * Domain types. Pure data — no I/O, no Cloudflare imports (ADR-0003 §5).
@@ -55,10 +55,18 @@ export interface Team {
   id: string
   name: string
   slug: string
-  /** Same convention as `User.avatarKey` — the resized logo thumbnail's key. */
+  /**
+   * No longer shown anywhere: a team is not a brand, so the company logo
+   * (an instance setting) heads team pages instead. The column is kept
+   * so a downgrade loses nothing; nothing reads it.
+   */
   logoKey: string | null
-  /** How the logo is shown; see `LogoShape`. Optional for older fixtures; the repository always fills it. */
-  logoShape?: LogoShape
+  /**
+   * Whether guests see the team's name — as a modest suffix after the
+   * hosts' names and in the page title. Optional for older fixtures; the
+   * repository always fills it, and absent means shown.
+   */
+  showName?: boolean
   createdAt: number
 }
 

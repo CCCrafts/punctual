@@ -248,7 +248,7 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
     // One round trip, not two awaits — see EventTypeRepository.bookingPageContext.
     const ctx = await repos.eventTypes.bookingPageContext(userSlug, eventSlug)
     if (!ctx) return notFound(c, ports)
-    const { host, eventType, team } = ctx
+    const { host, eventType, team, companyLogo } = ctx
 
     const guestTimezone = resolveGuestTimezone(c.req.query('tz'), c.req.raw, host.tz)
     const embed = c.req.query('embed') === '1'
@@ -315,6 +315,8 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
     const headerData: BookingPageData = {
       host,
       team,
+      companyLogo,
+      brandName: ports.config.brandName,
       ownerSlug: userSlug,
       eventType,
       month,
@@ -327,7 +329,7 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
 
     const head =
       shellHead({
-        title: `${eventType.title} · ${team ? team.name : host.name || host.slug}`,
+        title: `${eventType.title} · ${team ? (team.showName === false ? ports.config.brandName : team.name) : host.name || host.slug}`,
         description: eventType.description || undefined,
         brandName: ports.config.brandName,
         // The one link that's actually meant to be shared — a host posts it
@@ -396,7 +398,7 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
     const { userSlug, eventSlug } = c.req.param()
     const ctx = await repos.eventTypes.bookingPageContext(userSlug, eventSlug)
     if (!ctx) return notFound(c, ports)
-    const { host, eventType, team } = ctx
+    const { host, eventType, team, companyLogo } = ctx
 
     const start = Number(c.req.query('start'))
     if (!Number.isSafeInteger(start) || Math.abs(start) > 8.64e15) return notFound(c, ports)
@@ -406,6 +408,8 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
     const data: BookingPageData = {
       host,
       team,
+      companyLogo,
+      brandName: ports.config.brandName,
       hosts: await resolveEventTypeHosts(repos, eventType, host),
       ownerSlug: userSlug,
       eventType,
@@ -449,7 +453,7 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
     const repos = ports.repositories({ consistency: 'bookmark' })
     const ctx = await repos.eventTypes.bookingPageContext(userSlug, eventSlug)
     if (!ctx) return notFound(c, ports)
-    const { host, eventType, team } = ctx
+    const { host, eventType, team, companyLogo } = ctx
 
     const form = await c.req.formData()
     const start = Number(form.get('start'))
@@ -472,6 +476,8 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
     const data: BookingPageData = {
       host,
       team,
+      companyLogo,
+      brandName: ports.config.brandName,
       hosts: await resolveEventTypeHosts(repos, eventType, host),
       ownerSlug: userSlug,
       eventType,

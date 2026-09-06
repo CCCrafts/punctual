@@ -453,8 +453,11 @@ describe('team event types', () => {
     const html = await res.text()
     expect(html).toContain('Support call')
     // The team heads the page, not the representative member.
-    expect(html).toContain('<p class="pu-host-name">Support Crew</p>')
+    // The team is not the header (the company logo is, when set): it is a
+    // modest suffix after the hosts, and the page title.
+    expect(html).not.toContain('<p class="pu-host-name">Support Crew</p>')
     expect(html).toContain('<title>Support call · Support Crew</title>')
+    expect(html).toContain('<span class="pu-hosts-team">(Support Crew)</span>')
     // Round robin names the pool, never one person.
     expect(html).toContain('With one of <strong>Alice Host or Bob Host</strong>')
     expect(html).not.toContain('<p class="pu-host-name">Alice Host</p>')
@@ -1551,7 +1554,7 @@ describe('hosts editor', () => {
     expect(html).toContain("Guests will see: You'll meet <strong>Alice Host and Carol Host</strong>. <strong>Bob Host</strong> joins when free")
     expect(html).toContain('<a href="/roles-crew/crew-call" target="_blank" rel="noopener">Preview booking page (opens in a new tab)</a>')
     const page = await (await publicApp.fetch(new Request(`${BASE}/roles-crew/crew-call`))).text()
-    expect(page).toContain("You'll meet <strong>Alice Host and Carol Host</strong>. <strong>Bob Host</strong> joins when free")
+    expect(page).toContain("You'll meet <strong>Alice Host and Carol Host</strong> <span class=\"pu-hosts-team\">(Roles Crew)</span>. <strong>Bob Host</strong> joins when free")
 
     await repos().eventTypeHosts.replace(crewEventTypeId, [])
     sent().length = 0

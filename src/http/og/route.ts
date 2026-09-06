@@ -52,7 +52,7 @@ export function buildOgRoutes(ports: EnginePorts): Hono<{ Bindings: Env }> {
     const repos = ports.repositories(publicScope)
     const ctx = await repos.eventTypes.bookingPageContext(userSlug, eventSlug)
     if (!ctx) return c.notFound()
-    const { host, eventType, team } = ctx
+    const { host, eventType, team, companyLogo } = ctx
 
     // Who the meeting is with — the resolved hosts (core/domain/hosts.ts),
     // so the card and the page agree. Collective names them; round robin
@@ -62,17 +62,20 @@ export function buildOgRoutes(ports: EnginePorts): Hono<{ Bindings: Env }> {
     // an hour.
     const hosts = await resolveHosts(repos, eventType, host)
     const names = hosts.map((h) => h.user.name || h.user.slug)
-    const subject = !team ? (names[0] ?? host.name) || host.slug : cardSubject(names, team.name, eventType.schedulingType)
+    const subject = !team
+      ? (names[0] ?? host.name) || host.slug
+      : cardSubject(names, team.showName === false ? null : team.name, eventType.schedulingType)
     // Hashed, not concatenated: KV rejects keys over 512 bytes, and six
     // hosts with photos would pass that — silently, since the cache calls
     // below swallow errors, leaving every crawler hit to re-render.
     // The same precedence as the booking page header (pages/booking.ts,
-    // `eventHeader`): the event type's own logo, else the team's. A team
-    // that set a logo and shape expects every card of its event types to
-    // carry it, not only the ones that uploaded their own.
-    const logoKey = eventType.logoKey ?? team?.logoKey ?? null
-    const logoShape = (eventType.logoKey ? eventType.logoShape : team?.logoShape) ?? 'circle'
-    const faceKeys = `${logoKey ?? '-'}:${logoShape}|` + hosts.map((h) => `${h.user.id}:${h.user.avatarKey ?? '-'}`).join(',')
+    // `pageHead`): the event type's own logo, else — on a team page — the
+    // company logo. A personal page's card shows the host's face.
+    const logoKey = eventType.logoKey ?? (team ? (companyLogo?.key ?? null) : null)
+    const logoShape = (eventType.logoKey ? eventType.logoShape : companyLogo?.shape) ?? 'circle'
+    const faceKeys =
+      `${logoKey ?? '-'}:${logoShape}:${team?.showName === false ? 'anon' : 'named'}|` +
+      hosts.map((h) => `${h.user.id}:${h.user.avatarKey ?? '-'}`).join(',')
     const cacheKey = `og:v2:${userSlug}:${eventSlug}:${await ports.crypto.hash(faceKeys)}`
 
     const cached = await safeGet(ports, cacheKey)
@@ -127,8 +130,10 @@ const MAX_SUBJECT_LENGTH = 35
  * fits the label cap, so three long names degrade to something true
  * rather than to the static default card.
  */
-function cardSubject(names: string[], teamName: string, schedulingType: string): string {
-  const team = `the ${teamName} team`
+function cardSubject(names: string[], teamName: string | null, schedulingType: string): string {
+  // A team that hides its name from guests is "us": the card carries the
+  // company logo, and that is who the guest is booking with.
+  const team = teamName ? `the ${teamName} team` : 'us'
   if (schedulingType !== 'collective' || names.length === 0) return team
   const first = names.map((n) => n.split(/\s+/)[0] ?? n)
   const candidates = [

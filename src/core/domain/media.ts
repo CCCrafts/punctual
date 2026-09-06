@@ -213,3 +213,22 @@ function toHex(bytes: Uint8Array): string {
   for (let i = 0; i < bytes.length; i++) out += bytes[i]!.toString(16).padStart(2, '0')
   return out
 }
+
+/**
+ * The instance's company logo — one per deployment, set by an admin. It
+ * heads every team booking page and its social card, unless the event type
+ * has a logo of its own. Stored in `instance_settings` under these keys
+ * (an empty key means "removed": the settings table has no delete).
+ */
+export const COMPANY_LOGO_KEY = 'company_logo_key'
+export const COMPANY_LOGO_SHAPE = 'company_logo_shape'
+
+export interface CompanyLogo {
+  key: string
+  shape: LogoShape
+}
+
+export function companyLogoFrom(key: unknown, shape: unknown): CompanyLogo | null {
+  if (typeof key !== 'string' || key === '') return null
+  return { key, shape: shape === 'natural' ? 'natural' : 'circle' }
+}

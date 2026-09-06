@@ -150,7 +150,7 @@ beforeAll(async () => {
   const now = Date.now()
   const insertUser = 'INSERT INTO users (id,email,name,tz,slug,role,created_at) VALUES (?,?,?,?,?,?,?)'
   await db.batch([
-    db.prepare(insertUser).bind(L_ALICE, 'logo-alice@example.test', 'Alice Logo', 'UTC', 'logo-alice', 'member', now),
+    db.prepare(insertUser).bind(L_ALICE, 'logo-alice@example.test', 'Alice Logo', 'UTC', 'logo-alice', 'admin', now),
     db.prepare(insertUser).bind(L_BOB, 'logo-bob@example.test', 'Bob Logo', 'UTC', 'logo-bob', 'member', now),
     db.prepare('INSERT INTO slug_claims (slug,kind,owner_id,created_at) VALUES (?,?,?,?)').bind('logo-alice', 'user', L_ALICE, now),
     db.prepare('INSERT INTO slug_claims (slug,kind,owner_id,created_at) VALUES (?,?,?,?)').bind('logo-bob', 'user', L_BOB, now),
@@ -219,33 +219,97 @@ describe('event type logo', () => {
   })
 })
 
-describe('team editing', () => {
-  it('an admin uploads and removes the team logo; a member sees no settings', async () => {
+describe('company logo', () => {
+  const setting = (key: string) => db.prepare('SELECT value FROM instance_settings WHERE key = ?').bind(key).first<{ value: string }>()
+
+  it('an instance admin uploads it; team pages and their cards are headed by it, personal pages are not; a member cannot', async () => {
     const cookie = await seedSession(L_ALICE)
     const csrf = await csrfFor(cookie)
-    const res = await multipart(`/dashboard/teams/${L_TEAM}/logo`, cookie, csrf, 'logo', pngBytes())
+    const res = await multipart('/dashboard/admin/logo', cookie, csrf, 'logo', pngBytes())
     expect(res.status).toBe(200)
-    expect(await res.text()).toContain('logo updated.')
-    const row = await db.prepare('SELECT logo_key FROM teams WHERE id = ?').bind(L_TEAM).first<{ logo_key: string | null }>()
-    expect(row?.logo_key).toMatch(/-thumb\.webp$/)
-    // The team page is headed by it.
-    const page = await app.fetch(new Request(`${BASE}/logo-crew/crew-call`))
-    expect(await page.text()).toContain(`/avatars/${row!.logo_key}`)
+    expect(await res.text()).toContain('Company logo updated.')
+    const key = (await setting('company_logo_key'))?.value
+    expect(key).toMatch(/-thumb\.webp$/)
 
+    const teamPage = await (await app.fetch(new Request(`${BASE}/logo-crew/crew-call`))).text()
+    expect(teamPage).toContain(`/avatars/${key}`)
+    // Beside a round logo: the brand, not the team. The team is a suffix after the hosts.
+    expect(teamPage).toMatch(/<p class="pu-host-name">[^<]+<\/p>/)
+    expect(teamPage).not.toContain('<p class="pu-host-name">Logo Crew</p>')
+    expect(teamPage).toContain('<span class="pu-hosts-team">(Logo Crew)</span>')
+    const personal = await (await app.fetch(new Request(`${BASE}/logo-alice/intro`))).text()
+    expect(personal).not.toContain(`/avatars/${key}`)
+    const card = await app.fetch(new Request(`${BASE}/og/logo-crew/crew-call.png`))
+    expect(card.status).toBe(200)
+    expect(card.headers.get('content-type')).toContain('image/png')
+
+    const bob = await seedSession(L_BOB)
+    expect((await multipart('/dashboard/admin/logo', bob, await csrfFor(bob), 'logo', pngBytes())).status).not.toBe(200)
+  })
+
+  it('has the circle / own-proportions setting; natural heads the page with the fit image', async () => {
+    const cookie = await seedSession(L_ALICE)
+    const csrf = await csrfFor(cookie)
+    const res = await postForm('/dashboard/admin/logo-shape', cookie, { csrf, shape: 'natural' })
+    expect(res.status).toBe(200)
+    expect(await res.text()).toContain('Company logo shown in its own proportions.')
+    expect((await setting('company_logo_shape'))?.value).toBe('natural')
+    const key = (await setting('company_logo_key'))!.value
+    const page = await (await app.fetch(new Request(`${BASE}/logo-crew/crew-call`))).text()
+    expect(page).toContain(`/avatars/${fitKeyFor(key)}`)
+    // A wordmark says the name itself: nothing beside it.
+    expect(page).not.toMatch(/<p class="pu-host-name">/)
+    expect((await postForm('/dashboard/admin/logo-shape', cookie, { csrf, shape: 'square' })).status).toBe(400)
+  })
+
+  it('remove leaves an empty key, and the team page has no head row at all', async () => {
+    const cookie = await seedSession(L_ALICE)
+    const csrf = await csrfFor(cookie)
+    const res = await postForm('/dashboard/admin/logo/delete', cookie, { csrf })
+    expect(res.status).toBe(200)
+    expect(await res.text()).toContain('Company logo removed.')
+    expect((await setting('company_logo_key'))?.value).toBe('')
+    const page = await (await app.fetch(new Request(`${BASE}/logo-crew/crew-call`))).text()
+    expect(page).not.toContain('class="pu-host"')
+    expect((await postForm('/dashboard/admin/logo-shape', cookie, { csrf, shape: 'natural' })).status).toBe(400)
+  })
+})
+
+describe('team editing', () => {
+  it('a member sees no team settings and cannot edit', async () => {
     const bob = await seedSession(L_BOB)
     const bobPage = await app.fetch(new Request(`${BASE}/dashboard/teams`, { headers: { cookie: bob } }))
     expect(await bobPage.text()).not.toContain('Team settings')
-    expect((await multipart(`/dashboard/teams/${L_TEAM}/logo`, bob, await csrfFor(bob), 'logo', pngBytes())).status).toBe(404)
+    expect((await postForm(`/dashboard/teams/${L_TEAM}`, bob, { csrf: await csrfFor(bob), name: 'X', slug: 'logo-crew', show_name: '1' })).status).toBe(404)
+  })
 
-    const removed = await postForm(`/dashboard/teams/${L_TEAM}/logo/delete`, cookie, { csrf })
-    expect(removed.status).toBe(200)
-    expect((await db.prepare('SELECT logo_key FROM teams WHERE id = ?').bind(L_TEAM).first<{ logo_key: string | null }>())?.logo_key).toBeNull()
+  it('the team name is a suffix after the hosts, and a switch hides it from guests entirely', async () => {
+    const cookie = await seedSession(L_ALICE)
+    const csrf = await csrfFor(cookie)
+    // Shown by default.
+    const shown = await (await app.fetch(new Request(`${BASE}/logo-crew/crew-call`))).text()
+    expect(shown).toContain('<span class="pu-hosts-team">(Logo Crew)</span>')
+    expect(shown).toContain('<title>Crew call · Logo Crew</title>')
+
+    // Unticked checkbox = the field is absent from the post.
+    const res = await postForm(`/dashboard/teams/${L_TEAM}`, cookie, { csrf, name: 'Logo Crew', slug: 'logo-crew' })
+    expect(res.status).toBe(200)
+    expect(await res.text()).toContain('Team updated.')
+    expect((await db.prepare('SELECT show_name FROM teams WHERE id = ?').bind(L_TEAM).first<{ show_name: number }>())?.show_name).toBe(0)
+    const hidden = await (await app.fetch(new Request(`${BASE}/logo-crew/crew-call`))).text()
+    expect(hidden).not.toContain('<span class="pu-hosts-team">')
+    expect(hidden).not.toContain('Logo Crew')
+    expect(hidden).toContain('<title>Crew call · ')
+
+    // Back on.
+    expect((await postForm(`/dashboard/teams/${L_TEAM}`, cookie, { csrf, name: 'Logo Crew', slug: 'logo-crew', show_name: '1' })).status).toBe(200)
+    expect((await db.prepare('SELECT show_name FROM teams WHERE id = ?').bind(L_TEAM).first<{ show_name: number }>())?.show_name).toBe(1)
   })
 
   it('renames and re-slugs a team; the claim moves; the old address stops resolving', async () => {
     const cookie = await seedSession(L_ALICE)
     const csrf = await csrfFor(cookie)
-    const res = await postForm(`/dashboard/teams/${L_TEAM}`, cookie, { csrf, name: 'Logo Crew Ltd', slug: 'logo-crew-ltd' })
+    const res = await postForm(`/dashboard/teams/${L_TEAM}`, cookie, { csrf, name: 'Logo Crew Ltd', slug: 'logo-crew-ltd', show_name: '1' })
     expect(res.status).toBe(200)
     expect(await res.text()).toContain('Its booking links now start with /logo-crew-ltd')
     const team = await db.prepare('SELECT name, slug FROM teams WHERE id = ?').bind(L_TEAM).first<{ name: string; slug: string }>()
@@ -331,26 +395,4 @@ describe('logo shape', () => {
     expect(await env.AVATARS.get(fitKeyFor(row!.logo_key))).not.toBeNull()
   })
 
-  it('a team logo has the same setting, for admins only', async () => {
-    const cookie = await seedSession(L_ALICE)
-    const csrf = await csrfFor(cookie)
-    expect((await multipart(`/dashboard/teams/${L_TEAM}/logo`, cookie, csrf, 'logo', pngBytes())).status).toBe(200)
-    const res = await postForm(`/dashboard/teams/${L_TEAM}/logo-shape`, cookie, { csrf, shape: 'natural' })
-    expect(res.status).toBe(200)
-    expect(await res.text()).toContain('shown in its own proportions')
-    expect((await db.prepare('SELECT logo_shape FROM teams WHERE id = ?').bind(L_TEAM).first<{ logo_shape: string }>())?.logo_shape).toBe('natural')
-    const bob = await seedSession(L_BOB)
-    expect((await postForm(`/dashboard/teams/${L_TEAM}/logo-shape`, bob, { csrf: await csrfFor(bob), shape: 'circle' })).status).toBe(404)
-
-    // With the event type's own logo gone, the team's logo heads the
-    // booking page in the team's shape, and the social card takes the same
-    // precedence (it used to consult only the event type's logo).
-    expect((await postForm(`/dashboard/event-types/${L_ET}/logo/delete`, cookie, { csrf })).status).toBe(200)
-    const teamKey = (await db.prepare('SELECT logo_key FROM teams WHERE id = ?').bind(L_TEAM).first<{ logo_key: string }>())!.logo_key
-    const page = await (await app.fetch(new Request(`${BASE}/logo-crew-ltd/crew-call`))).text()
-    expect(page).toContain(`/avatars/${fitKeyFor(teamKey)}`)
-    const card = await app.fetch(new Request(`${BASE}/og/logo-crew-ltd/crew-call.png`))
-    expect(card.status).toBe(200)
-    expect(card.headers.get('content-type')).toContain('image/png')
-  })
 })

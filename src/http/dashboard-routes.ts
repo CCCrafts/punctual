@@ -41,7 +41,7 @@ import type {
   SignupPolicy,
 } from '../ports.js'
 import type { SlotService } from '../engine.js'
-import type {
+import type { CompanyLogo,
   Booking,
   CalendarConnection,
   EventType,
@@ -81,15 +81,13 @@ import { canManageTeam, isManagingRole } from '../core/domain/teams.js'
 import { hostUsers, resolveHosts as resolveEventTypeHosts } from '../core/domain/hosts.js'
 import { changeBookingHosts } from '../core/domain/booking-hosts.js'
 import { notifyNewHosts as notifyNewHostsShared } from './host-notifications.js'
-import {
-  MAX_DECODED_PIXELS,
+import { MAX_DECODED_PIXELS,
   MAX_UPLOAD_BYTES,
   THUMB_CONTENT_TYPE,
   deriveBlobKey,
   isAllowedImageType,
   readImageDimensions,
-  thumbKeyFor, fitKeyFor, originalKeyCandidates, isLogoShape,
-} from '../core/domain/media.js'
+  thumbKeyFor, fitKeyFor, originalKeyCandidates, isLogoShape, COMPANY_LOGO_KEY, COMPANY_LOGO_SHAPE, companyLogoFrom } from '../core/domain/media.js'
 import { resizeToFitThumbnail, resizeToSquareThumbnail } from '../adapters/image/resize.js'
 import { errorPage, shellFoot, shellHead } from './pages/booking.js'
 import {
@@ -1759,47 +1757,6 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     return c.html(teamsPage({ ...(await teamsData(c)), notice: 'Member removed.' }))
   })
 
-  app.post('/dashboard/teams/:id/logo', requireSession, async (c) => {
-    const form = await c.req.formData()
-    if (!(await csrfOk(c, form))) return csrfRejected(c)
-    const team = await managedTeam(c)
-    if (!team) return notFound(c)
-    const stored = await storeUploadedImage(form.get('logo'))
-    if (!stored.ok) {
-      return c.html(teamsPage({ ...(await teamsData(c)), errors: { [`logo-${team.id}`]: stored.message } }), 400)
-    }
-    await c.get('repos').teams.updateLogo(team.id, stored.key)
-    await advanceBookmark(c)
-    return c.html(teamsPage({ ...(await teamsData(c)), notice: `${team.name}'s logo updated.` }))
-  })
-
-  app.post('/dashboard/teams/:id/logo-shape', requireSession, async (c) => {
-    const form = await c.req.formData()
-    if (!(await csrfOk(c, form))) return csrfRejected(c)
-    const team = await managedTeam(c)
-    if (!team) return notFound(c)
-    const shape = String(form.get('shape') ?? '')
-    const fail = async (message: string) => c.html(teamsPage({ ...(await teamsData(c)), errors: { [`logo-${team.id}`]: message } }), 400)
-    if (!isLogoShape(shape)) return fail('Choose a circle or its own proportions.')
-    if (!team.logoKey) return fail('Upload a logo first.')
-    if (shape === 'natural' && !(await ensureFitThumb(team.logoKey))) {
-      return fail('The original of this logo is gone — upload it again to show it in its own proportions.')
-    }
-    await c.get('repos').teams.update(team.id, { logoShape: shape })
-    await advanceBookmark(c)
-    return c.html(teamsPage({ ...(await teamsData(c)), notice: shape === 'natural' ? `${team.name}'s logo shown in its own proportions.` : `${team.name}'s logo shown as a circle.` }))
-  })
-
-  app.post('/dashboard/teams/:id/logo/delete', requireSession, async (c) => {
-    const form = await c.req.formData()
-    if (!(await csrfOk(c, form))) return csrfRejected(c)
-    const team = await managedTeam(c)
-    if (!team) return notFound(c)
-    await c.get('repos').teams.updateLogo(team.id, null)
-    await advanceBookmark(c)
-    return c.html(teamsPage({ ...(await teamsData(c)), notice: `${team.name}'s logo removed.` }))
-  })
-
   /**
    * Rename or re-slug a team. The slug rules and the two-table collision
    * check are the settings page's, for the same reason: a team's slug is
@@ -1816,6 +1773,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     const repos = c.get('repos')
     const name = String(form.get('name') ?? '').trim()
     const raw = String(form.get('slug') ?? '').trim()
+    const showName = form.get('show_name') === '1'
     const errors: Record<string, string> = {}
     if (name === '' || name.length > 120) errors[`team-name-${team.id}`] = 'Give the team a name (up to 120 characters)'
     if (raw !== raw.toLowerCase()) {
@@ -1830,14 +1788,18 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
       }
     }
     if (Object.keys(errors).length > 0) {
-      return c.html(teamsPage({ ...(await teamsData(c)), editValues: { teamId: team.id, name, slug: raw }, errors }), 400)
+      return c.html(teamsPage({ ...(await teamsData(c)), editValues: { teamId: team.id, name, slug: raw, showName }, errors }), 400)
     }
-    const patch = { ...(name !== team.name ? { name } : {}), ...(raw !== team.slug ? { slug: raw } : {}) }
+    const patch = {
+      ...(name !== team.name ? { name } : {}),
+      ...(raw !== team.slug ? { slug: raw } : {}),
+      ...(showName !== (team.showName !== false) ? { showName } : {}),
+    }
     if (Object.keys(patch).length === 0) return c.html(teamsPage({ ...(await teamsData(c)), notice: 'Nothing to change.' }))
     const ok = await repos.teams.update(team.id, patch)
     if (!ok) {
       return c.html(
-        teamsPage({ ...(await teamsData(c)), editValues: { teamId: team.id, name, slug: raw }, errors: { [`team-slug-${team.id}`]: 'That slug is already taken' } }),
+        teamsPage({ ...(await teamsData(c)), editValues: { teamId: team.id, name, slug: raw, showName }, errors: { [`team-slug-${team.id}`]: 'That slug is already taken' } }),
         400,
       )
     }
@@ -2375,13 +2337,60 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
         emailDelivery,
         allUsers: await repos.users.listAll(),
         signups: { value, pinnedByEnv },
+        companyLogo: await companyLogo(repos),
         ...extra,
       }),
       status as 200,
     )
   }
 
+  async function companyLogo(repos: Repositories): Promise<CompanyLogo | null> {
+    const [key, shape] = await Promise.all([repos.settings.get(COMPANY_LOGO_KEY), repos.settings.get(COMPANY_LOGO_SHAPE)])
+    return companyLogoFrom(key, shape)
+  }
+
   app.get('/dashboard/admin', requireSession, requireAdmin, (c) => renderAdmin(c))
+
+  /**
+   * The company logo: one per instance, admin-only, heading every team
+   * booking page and social card (an event type's own logo wins). Same
+   * upload rules and the same circle/natural shape as the other logos;
+   * stored as two `instance_settings` rows, an empty key meaning removed.
+   */
+  app.post('/dashboard/admin/logo', requireSession, requireAdmin, async (c) => {
+    const form = await c.req.formData()
+    if (!(await csrfOk(c, form))) return csrfRejected(c)
+    const stored = await storeUploadedImage(form.get('logo'))
+    if (!stored.ok) return renderAdmin(c, { errors: { 'company-logo': stored.message } }, 400)
+    await c.get('repos').settings.set(COMPANY_LOGO_KEY, stored.key, ports.clock.now())
+    await advanceBookmark(c)
+    return renderAdmin(c, { notice: 'Company logo updated.' })
+  })
+
+  app.post('/dashboard/admin/logo-shape', requireSession, requireAdmin, async (c) => {
+    const form = await c.req.formData()
+    if (!(await csrfOk(c, form))) return csrfRejected(c)
+    const shape = String(form.get('shape') ?? '')
+    const fail = (message: string) => renderAdmin(c, { errors: { 'company-logo': message } }, 400)
+    if (!isLogoShape(shape)) return fail('Choose a circle or its own proportions.')
+    const repos = c.get('repos')
+    const current = await companyLogo(repos)
+    if (!current) return fail('Upload a logo first.')
+    if (shape === 'natural' && !(await ensureFitThumb(current.key))) {
+      return fail('The original of this logo is gone — upload it again to show it in its own proportions.')
+    }
+    await repos.settings.set(COMPANY_LOGO_SHAPE, shape, ports.clock.now())
+    await advanceBookmark(c)
+    return renderAdmin(c, { notice: shape === 'natural' ? 'Company logo shown in its own proportions.' : 'Company logo shown as a circle.' })
+  })
+
+  app.post('/dashboard/admin/logo/delete', requireSession, requireAdmin, async (c) => {
+    const form = await c.req.formData()
+    if (!(await csrfOk(c, form))) return csrfRejected(c)
+    await c.get('repos').settings.set(COMPANY_LOGO_KEY, '', ports.clock.now())
+    await advanceBookmark(c)
+    return renderAdmin(c, { notice: 'Company logo removed.' })
+  })
 
   app.post('/dashboard/admin/signups', requireSession, requireAdmin, async (c) => {
     const form = await c.req.formData()

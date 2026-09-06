@@ -6,6 +6,27 @@ still change interfaces.
 
 ## [Unreleased]
 
+### Added
+
+- **Company logo.** An admin sets one logo for the whole instance on the
+  Admin page — a circle or its own proportions — and it heads every team
+  booking page and social card. An event type's own logo still wins;
+  personal pages keep the host's photo.
+
+### Changed
+
+- **The team is a suffix, not a header.** A team's name now appears in
+  parentheses after the hosts' names — "With one of Alice, Bob or Carol
+  (Support Crew)" — and in the page title, with a team-settings switch to
+  show it or not. Off, the page carries only the company logo and the card
+  says "with us".
+
+### Removed
+
+- **Team logos.** A team is not a brand. The upload and shape controls are
+  gone from team settings and the image is no longer shown; the columns
+  stay so a downgrade loses nothing.
+
 ### Fixed
 
 - Search engines indexed the booking page under every `?date=…&tz=…` day

@@ -15,11 +15,11 @@
 
 import type {
   ApiKey,
+  CompanyLogo,
   Booking,
   CalendarConnection,
   EventType,
   EventTypeHost,
-  LogoShape,
   Interval,
   MagicLinkToken,
   Schedule,
@@ -131,7 +131,7 @@ export interface EventTypeRepository {
   bookingPageContext(
     ownerSlug: string,
     eventSlug: string,
-  ): Promise<{ host: User; eventType: EventType; team: Team | null } | null>
+  ): Promise<{ host: User; eventType: EventType; team: Team | null; companyLogo: CompanyLogo | null } | null>
   listForUser(userId: string): Promise<EventType[]>
   listForTeam(teamId: string): Promise<EventType[]>
   create(et: Omit<EventType, 'createdAt'>): Promise<EventType>
@@ -410,7 +410,7 @@ export interface TeamRepository {
    * the same shape as `UserRepository.update` with a slug.
    * @returns false when the new slug is already claimed (nothing changed).
    */
-  update(teamId: string, patch: { name?: string; slug?: string; logoShape?: LogoShape }): Promise<boolean>
+  update(teamId: string, patch: { name?: string; slug?: string; showName?: boolean }): Promise<boolean>
   /**
    * Insert, or update the weight of, a membership. `member.role` applies to
    * the INSERT only — an existing row keeps its role, because role changes
@@ -444,14 +444,6 @@ export interface TeamRepository {
    * the opposite of what ADR-0004 §5 specifies.
    */
   recordAssignment(teamId: string, userId: string, at: number): Promise<void>
-  /**
-   * Rewrite only the logo key — never name or slug. No dashboard
-   * route calls this yet: team self-service management (creating a team,
-   * renaming it) has no UI at all today, so wiring a logo-upload page ahead
-   * of it would have nowhere real to live. The method exists now, tested,
-   * so the next team-settings ticket is schema-and-port-complete already.
-   */
-  updateLogo(teamId: string, logoKey: string | null): Promise<void>
 }
 
 export interface CalendarConnectionRepository {

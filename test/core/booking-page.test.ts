@@ -128,6 +128,26 @@ describe('eventHeader host identity', () => {
     expect(hostBlockText(html, 'pu-host-name')).toBe('Grace Hopper')
     expect(html).not.toContain('Acme Inc')
   })
+
+  it('a team page is headed by the company logo — the brand beside a round one, nothing beside a wordmark, no row without one', () => {
+    const team = { id: 'team_1', name: 'Support Crew', slug: 'support', logoKey: null, createdAt: 0 }
+    const teamEvent = { ...eventType, ownerUserId: null, ownerTeamId: 'team_1', schedulingType: 'round_robin' as const }
+    const key = `${'ab'.repeat(32)}-thumb.webp`
+    const round = eventHeader(pageData({ eventType: teamEvent, team, companyLogo: { key, shape: 'circle' }, brandName: 'Acme' }))
+    expect(round).toContain(`/avatars/${key}`)
+    expect(hostBlockText(round, 'pu-host-name')).toBe('Acme')
+    expect(round).not.toContain('Support Crew')
+    const wordmark = eventHeader(pageData({ eventType: teamEvent, team, companyLogo: { key, shape: 'natural' }, brandName: 'Acme' }))
+    expect(wordmark).toContain(`/avatars/${'ab'.repeat(32)}-fit.webp`)
+    expect(wordmark).not.toContain('pu-host-name')
+    const bare = eventHeader(pageData({ eventType: teamEvent, team, companyLogo: null, brandName: 'Acme' }))
+    expect(bare).not.toContain('class="pu-host"')
+    expect(bare).toContain('<h1>Intro call</h1>')
+    // The event type's own logo wins over the company's.
+    const own = eventHeader(pageData({ eventType: { ...teamEvent, logoKey: `${'cd'.repeat(32)}-thumb.webp` }, team, companyLogo: { key, shape: 'circle' }, brandName: 'Acme' }))
+    expect(own).toContain(`/avatars/${'cd'.repeat(32)}-thumb.webp`)
+    expect(own).not.toContain(`/avatars/${key}`)
+  })
 })
 
 describe('shellFoot operator line', () => {
@@ -297,10 +317,11 @@ describe('team-owned page header and hosts row', () => {
     rrWeight: 1,
   })
 
-  it('heads a team page with the team name, not the representative member', () => {
+  it('never heads a team page with the representative member — nor with the team, which is a suffix after the hosts', () => {
     const html = eventHeader(pageData({ team, eventType: teamEvent }))
-    expect(html).toContain('<p class="pu-host-name">Support Crew</p>')
     expect(html).not.toContain('Grace Hopper')
+    expect(html).not.toContain('Support Crew')
+    expect(html).not.toContain('class="pu-host"')
   })
 
   it('collective: "You\'ll meet" the required hosts; optional ones "join when free"; round robin: "With one of"', () => {
@@ -318,6 +339,19 @@ describe('team-owned page header and hosts row', () => {
     const rr = hostsRow({ eventType: { ...teamEvent, schedulingType: 'round_robin' }, hosts: [person('a', 'Alice'), person('b', 'Bob', false)] })
     expect(rr).toContain('With one of <strong>Alice or Bob</strong>')
     expect(rr).not.toContain('when free')
+  })
+
+  it('names the team modestly after the people — and not at all when the team hides its name', () => {
+    const team = { id: 'team_1', name: 'Support Crew', slug: 'support', logoKey: null, createdAt: 0 }
+    const hosts = [person('a', 'Alice'), person('b', 'Bob', false)]
+    const shown = hostsRow({ eventType: teamEvent, hosts, team })
+    expect(shown).toContain("You'll meet <strong>Alice</strong> <span class=\"pu-hosts-team\">(Support Crew)</span>. <strong>Bob</strong> joins when free")
+    const hidden = hostsRow({ eventType: teamEvent, hosts, team: { ...team, showName: false } })
+    expect(hidden).not.toContain('Support Crew')
+    // Only optional hosts: the suffix still lands, at the end.
+    const optionalOnly = hostsRow({ eventType: teamEvent, hosts: [person('b', 'Bob', false)], team })
+    expect(optionalOnly).toContain('joins when free <span class="pu-hosts-team">(Support Crew)</span>')
+    expect(hostsRow({ eventType: teamEvent, hosts, team: { ...team, name: '<b>' } })).toContain('(&lt;b&gt;)')
   })
 
   it('more than four hosts collapse to three plus a CSS-only "and N more"', () => {

@@ -26,7 +26,7 @@
  */
 
 import { isManagingRole } from '../../core/domain/teams.js'
-import type {
+import type { CompanyLogo,
   ApiKey,
   Booking,
   CalendarConnection,
@@ -766,7 +766,7 @@ export function eventTypeForm(d: EventTypeFormData): string {
     (d.notice ? notice(d.notice) : '') +
     `<section class="pu-card" aria-label="${editing ? 'Edit event type' : 'New event type'}">
   <h1>${editing ? 'Edit event type' : 'New event type'}</h1>
-  ${editing ? logoPanel({ csrf: d.csrf, action: `/dashboard/event-types/${encodeURIComponent(et!.id)}/logo`, key: et!.logoKey ?? null, shape: et!.logoShape ?? null, name: et!.title, errorKey: 'logo', errors, hint: "Heads this event type's booking page and social card instead of your photo or the team's logo. Square works best." }) : ''}
+  ${editing ? logoPanel({ csrf: d.csrf, action: `/dashboard/event-types/${encodeURIComponent(et!.id)}/logo`, key: et!.logoKey ?? null, shape: et!.logoShape ?? null, name: et!.title, errorKey: 'logo', errors, hint: "Heads this event type's booking page and social card instead of your photo or the company logo. Square works best." }) : ''}
   <form method="post" action="${escapeHtml(action)}" class="pu-et-form">
     ${csrfField(d.csrf)}
     ${errorNotice}
@@ -1709,7 +1709,7 @@ export interface TeamsPageData extends DashboardChrome {
   /** Echo of a failed add-member submit, scoped to one team's form. */
   addValues?: { teamId: string; email: string; weight: string }
   /** Echo of a failed rename / re-slug submit, scoped to one team's settings form. */
-  editValues?: { teamId: string; name: string; slug: string }
+  editValues?: { teamId: string; name: string; slug: string; showName: boolean }
   errors?: Record<string, string>
   notice?: string
 }
@@ -1839,12 +1839,11 @@ function teamCard(d: TeamsPageData, view: TeamView): string {
 
   // The inline min-width duplicates .pu-dash-table on purpose: the table
   // must not squeeze even before the stylesheet applies.
-  const edit = d.editValues?.teamId === team.id ? d.editValues : { teamId: team.id, name: team.name, slug: team.slug }
+  const edit = d.editValues?.teamId === team.id ? d.editValues : { teamId: team.id, name: team.name, slug: team.slug, showName: team.showName !== false }
   const settings = view.canManage
-    ? `<details class="pu-team-settings"${d.editValues?.teamId === team.id || errors[`logo-${team.id}`] ? ' open' : ''}>
-    <summary>Team settings — name, address, logo</summary>
-    ${logoPanel({ csrf: d.csrf, action: `/dashboard/teams/${teamId}/logo`, key: team.logoKey, shape: team.logoShape ?? null, name: team.name, errorKey: `logo-${team.id}`, errors, hint: "Heads the team's booking pages and social cards." })}
-    <form method="post" action="/dashboard/teams/${teamId}" style="margin-top:1rem">
+    ? `<details class="pu-team-settings"${d.editValues?.teamId === team.id ? ' open' : ''}>
+    <summary>Team settings — name, address, visibility</summary>
+    <form method="post" action="/dashboard/teams/${teamId}" style="margin-top:.5rem">
       ${csrfField(d.csrf)}
       <div class="pu-grid" style="grid-template-columns:repeat(auto-fit,minmax(11rem,1fr));gap:0 1rem">
         <div>
@@ -1861,6 +1860,10 @@ function teamCard(d: TeamsPageData, view: TeamView): string {
           <p class="pu-muted" style="font-size:.8125rem;margin:.25rem 0 0">Changing it breaks every booking link already shared — there is no redirect from /${escapeHtml(team.slug)}.</p>
         </div>
       </div>
+      <label class="pu-team-showname" style="display:flex;gap:.5rem;align-items:flex-start;margin:.25rem 0 0;font-weight:400">
+        <input type="checkbox" name="show_name" value="1"${edit.showName ? ' checked' : ''} style="margin-top:.2rem">
+        <span>Show the team name to guests <span class="pu-muted">— in parentheses after the hosts' names, and in the page title. Off, the page carries only the company logo.</span></span>
+      </label>
       <div style="margin-top:.75rem"><button class="pu-btn pu-btn-ghost" type="submit">Save team</button></div>
     </form>
   </details>`
@@ -1868,7 +1871,6 @@ function teamCard(d: TeamsPageData, view: TeamView): string {
 
   return `<article class="pu-card">
   <div class="pu-card-title">
-    ${team.logoKey ? logoHtml({ key: team.logoKey, shape: team.logoShape, name: team.name, size: 32 }) : ''}
     <h2>${escapeHtml(team.name)}</h2>${view.viaInstanceAdmin ? '<span class="pu-badge pu-badge-neutral">Instance admin view</span>' : ''}
     <span class="pu-time pu-muted pu-card-title-action" style="margin-left:auto">/${escapeHtml(team.slug)}</span>
   </div>
@@ -3126,6 +3128,8 @@ export interface AdminPageData extends DashboardChrome {
    * believe they control the same setting.
    */
   signups: { value: string; pinnedByEnv: boolean }
+  /** The instance's company logo (an `instance_settings` pair), or null when none is set. */
+  companyLogo: CompanyLogo | null
   errors?: Record<string, string>
   notice?: string
 }
@@ -3199,6 +3203,11 @@ export function adminPage(d: AdminPageData): string {
   <h2>Sign-ups</h2>
   <p class="pu-muted">Who may create an account on this instance. Existing users always sign in.</p>
   ${signupsBody}
+</section>
+<section class="pu-card" aria-label="Company logo" style="margin-bottom:1.25rem">
+  <h2>Company logo</h2>
+  <p class="pu-muted">Heads every team booking page and its social card. An event type with a logo of its own keeps that; personal pages keep the host's photo.</p>
+  ${logoPanel({ csrf: d.csrf, action: '/dashboard/admin/logo', key: d.companyLogo?.key ?? null, shape: d.companyLogo?.shape ?? null, name: d.brandName, errorKey: 'company-logo', errors, hint: 'PNG, JPEG or WebP, up to 5 MB. A wordmark reads best in its own proportions.' })}
 </section>
 <section class="pu-card" aria-label="Users">
   <h2>Users</h2>

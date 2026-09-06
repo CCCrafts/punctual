@@ -17,7 +17,7 @@
 
 import type { ResolvedHost } from '../../core/domain/hosts.js'
 import { fitKeyFor, type LogoShape } from '../../core/domain/media.js'
-import type {
+import type { CompanyLogo,
   Team, EventType, Slot, User } from '../../core/domain/types.js'
 import { effectiveQuestions } from '../../core/domain/booking-service.js'
 import { slotStateClassName } from '../../core/slot-state.js'
@@ -166,8 +166,16 @@ export function slotsSkeleton(): string {
 
 export interface BookingPageData {
   host: User
-  /** The owning team, for a team-owned page: its name and logo head the page instead of `host`'s. */
+  /**
+   * The owning team, for a team-owned page. It no longer heads the page:
+   * the company logo does, and the team's name (if it chose to show it) is
+   * a modest suffix after the hosts' names in `hostsRow`.
+   */
   team?: Team | null
+  /** The instance's company logo, heading team pages. Absent on a personal page's render, or when none is set. */
+  companyLogo?: CompanyLogo | null
+  /** The instance's brand name, shown beside a round company logo. */
+  brandName?: string
   /**
    * The hosts the guest will meet — the resolved set (core/domain/hosts.ts),
    * in display order, with whether each is required. Rendered by
@@ -297,7 +305,7 @@ export function joinNames(names: string[], conjunction: 'and' | 'or' = 'and'): s
  * Hosts block ("Guests will see"): one function, so the preview and the
  * booking page cannot drift apart. Empty for a personal page or no hosts.
  */
-export function hostsSentence(d: Pick<BookingPageData, 'eventType' | 'hosts'>): string {
+export function hostsSentence(d: Pick<BookingPageData, 'eventType' | 'hosts' | 'team'>): string {
   const hosts = d.hosts ?? []
   if (d.eventType.ownerTeamId === null || hosts.length === 0) return ''
   const collective = d.eventType.schedulingType === 'collective'
@@ -315,10 +323,13 @@ export function hostsSentence(d: Pick<BookingPageData, 'eventType' | 'hosts'>): 
       ` <details class="pu-hosts-more"><summary>and ${rest.length} more</summary><span>${escapeHtml(joinNames(rest, conj))}</span></details>`
     )
   }
-  const lead = promised.length > 0 ? `${collective ? "You'll meet " : 'With one of '}${group(promised)}` : ''
+  // The team, modestly, in parentheses after the people — unless the team
+  // chose not to show its name to guests at all.
+  const team = d.team && d.team.showName !== false ? ` <span class="pu-hosts-team">(${escapeHtml(d.team.name)})</span>` : ''
+  const lead = promised.length > 0 ? `${collective ? "You'll meet " : 'With one of '}${group(promised)}${team}` : ''
   const joins =
     optional.length > 0
-      ? `${lead ? '. ' : ''}${group(optional)} ${optional.length === 1 ? 'joins' : 'join'} when free`
+      ? `${lead ? '. ' : ''}${group(optional)} ${optional.length === 1 ? 'joins' : 'join'} when free${lead ? '' : team}`
       : ''
   return `${lead}${joins}`
 }
@@ -327,7 +338,7 @@ export function hostsSentence(d: Pick<BookingPageData, 'eventType' | 'hosts'>): 
  * Who the guest will meet, for a team-owned page: the avatars and the
  * sentence from `hostsSentence`. Empty for a personal page.
  */
-export function hostsRow(d: Pick<BookingPageData, 'eventType' | 'hosts'>): string {
+export function hostsRow(d: Pick<BookingPageData, 'eventType' | 'hosts' | 'team'>): string {
   const hosts = d.hosts ?? []
   if (d.eventType.ownerTeamId === null || hosts.length === 0) return ''
   const collective = d.eventType.schedulingType === 'collective'
@@ -348,26 +359,43 @@ export function hostsRow(d: Pick<BookingPageData, 'eventType' | 'hosts'>): strin
   </div>`
 }
 
+/**
+ * The row above the title. A personal page is headed by the host — photo,
+ * name, company and title — or by the event type's own logo in place of
+ * the photo. A team page is headed by the COMPANY: the instance's logo
+ * (the event type's own logo wins), with the brand name beside a round
+ * one and nothing beside a wordmark, which already says the name. A team
+ * is not a brand, so its name is not up here — it is a suffix after the
+ * hosts' names in `hostsRow`, if the team shows it at all. A team page
+ * with no logo of either kind has no head row: just the title.
+ */
+function pageHead(d: BookingPageData): string {
+  if (!d.team) {
+    const name = d.host.name || d.host.slug
+    const identity = identityLineHtml(d)
+    return `<div class="pu-host">
+    ${logoHtml({ key: d.eventType.logoKey ?? d.host.avatarKey, shape: d.eventType.logoKey ? (d.eventType.logoShape ?? 'circle') : 'circle', name, size: 56 })}
+    <div>
+      <p class="pu-host-name">${escapeHtml(name)}</p>
+      ${identity ? `<p class="pu-host-org">${identity}</p>` : ''}
+    </div>
+  </div>`
+  }
+  const key = d.eventType.logoKey ?? d.companyLogo?.key ?? null
+  if (!key) return ''
+  const shape = d.eventType.logoKey ? (d.eventType.logoShape ?? 'circle') : (d.companyLogo?.shape ?? 'circle')
+  const name = d.brandName ?? ''
+  return `<div class="pu-host">
+    ${logoHtml({ key, shape, name: name || d.eventType.title, size: 56 })}
+    ${shape === 'circle' && name ? `<div><p class="pu-host-name">${escapeHtml(name)}</p></div>` : ''}
+  </div>`
+}
+
 export function eventHeader(d: BookingPageData): string {
   const durationLabel = `${d.eventType.durationMinutes} min`
   const location = locationLabel(d.eventType)
-  // A team-owned page is headed by the TEAM — its name and logo — not by
-  // the representative member `bookingPageContext` picked for the
-  // timezone default. Who the guest meets is `hostsRow`, below the header.
-  const identity = d.team ? null : identityLineHtml(d)
-  const headName = d.team ? d.team.name : d.host.name || d.host.slug
-  // The event type's own logo wins over the team's logo and the host's
-  // photo: it is the one image the host chose for exactly this page.
-  const headKey = d.eventType.logoKey ?? (d.team ? d.team.logoKey : d.host.avatarKey)
-  const headShape = d.eventType.logoKey ? (d.eventType.logoShape ?? 'circle') : d.team ? (d.team.logoShape ?? 'circle') : 'circle'
   return `<header class="pu-event-header">
-  <div class="pu-host">
-    ${logoHtml({ key: headKey, shape: headShape, name: headName, size: 56 })}
-    <div>
-      <p class="pu-host-name">${escapeHtml(headName)}</p>
-      ${identity ? `<p class="pu-host-org">${identity}</p>` : ''}
-    </div>
-  </div>
+  ${pageHead(d)}
   <h1>${escapeHtml(d.eventType.title)}</h1>
   ${d.eventType.description ? `<p class="pu-muted">${escapeHtml(d.eventType.description)}</p>` : ''}
   <ul class="pu-meta">

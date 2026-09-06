@@ -33,6 +33,7 @@ function page(signups = 'open'): string {
     emailDelivery: 'brevo',
     allUsers: [admin, bob],
     signups: { value: signups, pinnedByEnv: false },
+    companyLogo: null,
   })
 }
 

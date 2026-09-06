@@ -16,6 +16,7 @@
  * an implementation that closes over tenant_id.
  */
 
+import { companyLogoFrom } from '../../core/domain/media.js'
 import type {
   ApiKey,
   Booking,
@@ -240,7 +241,9 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
            COALESCE(u.job_title, ru.job_title) AS u_job_title,
            COALESCE(u.company_url, ru.company_url) AS u_company_url,
            COALESCE(u.created_at, ru.created_at) AS u_created_at,
-           t.id AS t_id, t.name AS t_name, t.slug AS t_slug, t.logo_key AS t_logo_key, t.logo_shape AS t_logo_shape, t.created_at AS t_created_at,
+           t.id AS t_id, t.name AS t_name, t.slug AS t_slug, t.logo_key AS t_logo_key, t.show_name AS t_show_name, t.created_at AS t_created_at,
+           NULLIF((SELECT value FROM instance_settings WHERE key = 'company_logo_key'), '') AS company_logo_key,
+           (SELECT value FROM instance_settings WHERE key = 'company_logo_shape') AS company_logo_shape,
            et.*
          FROM event_types et
          LEFT JOIN users u ON u.id = et.owner_user_id
@@ -281,10 +284,13 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
               name: row['t_name'],
               slug: row['t_slug'],
               logo_key: row['t_logo_key'],
-              logo_shape: row['t_logo_shape'],
+              show_name: row['t_show_name'],
               created_at: row['t_created_at'],
             })
-      return host && eventType ? { host, eventType, team } : null
+      // The company logo rides along in the same round trip (two scalar
+      // subqueries) rather than costing the page a second D1 call.
+      const companyLogo = companyLogoFrom(row['company_logo_key'], row['company_logo_shape'])
+      return host && eventType ? { host, eventType, team, companyLogo } : null
     },
 
     async listForUser(userId) {
@@ -1111,15 +1117,12 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
         throw err
       }
     },
-    async updateLogo(id, logoKey) {
-      await run('UPDATE teams SET logo_key = ? WHERE id = ?', logoKey, id)
-    },
     async update(id, patch) {
       const sets: string[] = []
       const binds: unknown[] = []
       if (patch.name !== undefined) (sets.push('name = ?'), binds.push(patch.name))
       if (patch.slug !== undefined) (sets.push('slug = ?'), binds.push(patch.slug))
-      if (patch.logoShape !== undefined) (sets.push('logo_shape = ?'), binds.push(patch.logoShape))
+      if (patch.showName !== undefined) (sets.push('show_name = ?'), binds.push(patch.showName ? 1 : 0))
       if (sets.length === 0) return true
       binds.push(id)
       try {
@@ -1571,8 +1574,8 @@ function mapTeam(row: Record<string, unknown> | null): Team | null {
     id: String(row['id']),
     name: String(row['name']),
     slug: String(row['slug']),
-    logoShape: row['logo_shape'] === 'natural' ? 'natural' : 'circle',
     logoKey: row['logo_key'] == null ? null : String(row['logo_key']),
+    showName: row['show_name'] == null ? true : Number(row['show_name']) === 1,
     createdAt: Number(row['created_at']),
   }
 }

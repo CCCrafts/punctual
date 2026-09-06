@@ -290,6 +290,7 @@ time,.pu-time{font-family:var(--pu-font-mono);font-variant-numeric:tabular-nums}
 .pu-hosts-count{width:32px;height:32px;display:flex;align-items:center;justify-content:center;background:var(--pu-paper-dim);color:var(--pu-ink-500);font-family:var(--pu-font-mono);font-size:.75rem}
 .pu-hosts-text{margin:0;font-size:.9375rem;line-height:1.4;color:var(--pu-text-secondary)}
 .pu-hosts-text strong{color:var(--pu-ink-950);font-weight:600}
+.pu-hosts-team{color:var(--pu-text-secondary);font-weight:400}
 .pu-hosts-more{display:inline}
 .pu-hosts-more summary{display:inline;cursor:pointer;color:var(--pu-green-700);list-style:none}
 .pu-hosts-more summary::-webkit-details-marker{display:none}
