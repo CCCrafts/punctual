@@ -720,8 +720,9 @@ form:has(#locationType option[value="google_meet"]:checked) .pu-loc-wrap{display
 .pu-callout-warn{background:var(--pu-status-warning-bg);border-color:var(--pu-warn)}
 
 /* logos and team settings */
-.pu-logo-panel{align-items:flex-start;gap:1rem;margin:0 0 1.25rem}
-.pu-logo-panel>div{flex:1 1 auto}
+.pu-logo-panel{display:flex;flex-direction:row;align-items:flex-start;gap:1rem;width:auto;max-width:none;margin:0 0 1.25rem;text-align:left}
+.pu-logo-panel>div{flex:1 1 auto;min-width:0}
+.pu-logo-panel .pu-file-btn{margin-top:0}
 .pu-team-settings{margin-top:1.25rem;border-top:1px solid var(--pu-line);padding-top:.75rem}
 .pu-team-settings>summary{cursor:pointer;font-weight:600;padding:.25rem 0}
 .pu-team-settings[open]>summary{margin-bottom:.75rem}
