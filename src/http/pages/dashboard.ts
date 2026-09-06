@@ -1268,10 +1268,10 @@ export function teamsPage(d: TeamsPageData): string {
     <label for="team-slug">URL slug</label>
     <input id="team-slug" name="slug" required aria-required="true" maxlength="40" pattern="[a-z0-9\-]+"
            value="${escapeHtml(d.slugValue ?? '')}"${describedBy('team-slug', errors)}>
+    ${fieldError('team-slug', errors)}
     <p class="pu-muted" style="font-size:.8125rem;margin:.25rem 0 0">
       Lowercase letters, numbers and hyphens, 2&ndash;40 characters. It becomes the first part of the
       team's booking links: /&lt;slug&gt;/&lt;event&gt;. You join as its first member and admin.</p>
-    ${fieldError('team-slug', errors)}
     <div style="margin-top:1.25rem"><button class="pu-btn" type="submit">Create team</button></div>
   </form>
 </section>` +

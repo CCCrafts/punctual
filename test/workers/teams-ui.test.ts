@@ -220,7 +220,7 @@ describe('teams page', () => {
 
     const res = await post('/dashboard/teams', { name: 'Shadow', slug: 'bob', csrf }, cookie)
     expect(res.status).toBe(400)
-    expect(await res.text()).toContain('already taken')
+    expect(await res.text()).toContain('That slug is already taken by Bob Host')
 
     const row = await db.prepare('SELECT id FROM teams WHERE slug = ?').bind('bob').first()
     expect(row).toBeNull()
@@ -232,13 +232,38 @@ describe('teams page', () => {
 
     const res = await post('/dashboard/teams', { name: 'Support Crew Again', slug: 'support-crew', csrf }, cookie)
     expect(res.status).toBe(400)
-    expect(await res.text()).toContain('already taken')
+    expect(await res.text()).toContain('That slug is already taken by Support Crew')
 
     const rows = await db
       .prepare('SELECT COUNT(*) AS n FROM teams WHERE slug = ?')
       .bind('support-crew')
       .first<{ n: number }>()
     expect(rows?.n).toBe(1)
+  })
+
+  // "support" is both reserved AND (here) a team's slug: the owner is the
+  // reason the host can act on, so it wins over the reservation.
+  it('names the owner of a slug that is also a reserved word, and says "reserved" only when no one has it', async () => {
+    await db
+      .prepare('INSERT INTO teams (id,name,slug,created_at) VALUES (?,?,?,?)')
+      .bind('team_on_reserved', 'Support Desk', 'support', NOW)
+      .run()
+    const cookie = await seedSession(ALICE_ID)
+    const csrf = await csrfFrom('/dashboard/teams', cookie)
+
+    const taken = await post('/dashboard/teams', { name: 'Shadow', slug: 'support', csrf }, cookie)
+    expect(taken.status).toBe(400)
+    const takenHtml = await taken.text()
+    expect(takenHtml).toContain('That slug is already taken by Support Desk')
+    expect(takenHtml).not.toContain('reserved')
+
+    const reserved = await post('/dashboard/teams', { name: 'Shadow', slug: 'dashboard', csrf }, cookie)
+    expect(reserved.status).toBe(400)
+    const reservedHtml = await reserved.text()
+    expect(reservedHtml).toContain('That slug is reserved by Punctual — pick another')
+    // Directly under the slug input, before the format hint — not after it.
+    expect(reservedHtml.indexOf('id="err-team-slug"')).toBeLessThan(reservedHtml.indexOf('Lowercase letters, numbers and hyphens, 2'))
+    expect(await db.prepare('SELECT id FROM teams WHERE slug = ?').bind('dashboard').first()).toBeNull()
   })
 })
 

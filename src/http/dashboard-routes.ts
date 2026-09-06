@@ -1413,18 +1413,26 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     // public page's owner slug against users OR teams, so a team slug
     // colliding with an existing user's slug makes /that-slug/<event>
     // ambiguous. Case is refused rather than folded, as in settings.
+    //
+    // The collision lookup runs BEFORE the reserved-word check: a slug that
+    // is both (a team on "support" from before the word was reserved) is
+    // refused for the reason the host can see and act on — who has it —
+    // rather than a reservation they have no way to verify. Format errors
+    // still come first; a malformed slug cannot be anyone's.
     if (raw !== raw.toLowerCase()) {
       errors['team-slug'] = 'Lowercase letters, numbers and hyphens only'
     } else {
       const validation = validateSlug(raw)
-      if (!validation.ok) {
+      if (!validation.ok && validation.reason !== 'reserved') {
         errors['team-slug'] = validation.message ?? 'Not a valid slug'
       } else {
         const [existingUser, existingTeam] = await Promise.all([
           repos.users.bySlug(raw),
           repos.teams.bySlug(raw),
         ])
-        if (existingUser || existingTeam) errors['team-slug'] = 'That slug is already taken'
+        const owner = existingUser ? existingUser.name || existingUser.slug : existingTeam?.name
+        if (owner !== undefined) errors['team-slug'] = `That slug is already taken by ${owner}`
+        else if (!validation.ok) errors['team-slug'] = validation.message ?? 'Not a valid slug'
       }
     }
 
