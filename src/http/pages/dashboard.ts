@@ -1556,11 +1556,32 @@ export interface ApiKeysPageData extends DashboardChrome {
    * anyone, including us.
    */
   newKey?: string
+  /** Echoed on a failed submit so the host does not retype the name. */
+  nameValue?: string
+  /** Scopes ticked on a failed submit; both by default. */
+  scopesValue?: readonly string[]
   errors?: Record<string, string>
 }
 
+/**
+ * The whole scope vocabulary the form offers, with the words a host needs
+ * to choose. Mirrors `API_SCOPE_READ`/`API_SCOPE_WRITE` in the REST layer;
+ * the route accepts nothing outside this list.
+ */
+export const API_KEY_SCOPES: ReadonlyArray<{ value: string; what: string }> = [
+  { value: 'read', what: 'list event types, availability, bookings' },
+  { value: 'write', what: 'create, reschedule, cancel bookings' },
+]
+
 export function apiKeysPage(d: ApiKeysPageData): string {
   const errors = d.errors ?? {}
+  const ticked = d.scopesValue ?? API_KEY_SCOPES.map((s) => s.value)
+  const scopeRows = API_KEY_SCOPES.map(
+    (s) => `<label class="pu-check" for="scope-${s.value}">
+      <input id="scope-${s.value}" name="scopes" type="checkbox" value="${s.value}"${ticked.includes(s.value) ? ' checked' : ''}>
+      <span><strong>${s.value}</strong> &mdash; ${s.what}</span>
+    </label>`,
+  ).join('\n    ')
 
   const list =
     d.keys.length === 0
@@ -1577,10 +1598,12 @@ export function apiKeysPage(d: ApiKeysPageData): string {
   <h2>Copy your key now</h2>
   <p><strong>This is the only time it will be shown.</strong> We store only a hash of it, so if you lose it
      you will have to create a new one.</p>
-  <label for="new-key">New API key</label>
-  <div class="pu-url">
-    <input id="new-key" class="pu-url-input" readonly value="${escapeHtml(d.newKey)}" onclick="this.select()">
-    ${copyButton(d.newKey)}
+  <h3 style="font-size:.875rem;margin:1rem 0 .35rem">New API key</h3>
+  <code id="new-key" class="pu-key">${escapeHtml(d.newKey)}</code>
+  <div class="pu-form-row" style="justify-content:flex-start">
+    ${revealCopyButton(d.newKey)}
+    <span class="pu-muted" style="font-size:.8125rem">Send it as <code>Authorization: Bearer &lt;key&gt;</code>
+      &mdash; see the <a href="/docs/api">API docs</a>.</span>
   </div>
 </section>`
       : '') +
@@ -1593,12 +1616,13 @@ export function apiKeysPage(d: ApiKeysPageData): string {
     <h2>Create a key</h2>
     <label for="name">Name</label>
     <input id="name" name="name" required aria-required="true" maxlength="80"
-           placeholder="Laptop CLI"${describedBy('name', errors)}>
+           placeholder="Laptop CLI" value="${escapeHtml(d.nameValue ?? '')}"${describedBy('name', errors)}>
     ${fieldError('name', errors)}
-    <label for="scopes">Scopes</label>
-    <input id="scopes" name="scopes" value="read write"
-           maxlength="200"${describedBy('scopes', errors)}>
-    <p class="pu-muted" style="font-size:.8125rem;margin:.25rem 0 0">Space-separated. Grant the fewest that work.</p>
+    <fieldset style="border:0;padding:0;margin:1rem 0 0"${describedBy('scopes', errors)}>
+      <legend style="font-size:.875rem;font-weight:600;padding:0">Scopes</legend>
+      ${scopeRows}
+      <p class="pu-muted" style="font-size:.8125rem;margin:.25rem 0 0">Grant the fewest that work.</p>
+    </fieldset>
     ${fieldError('scopes', errors)}
     <div style="margin-top:1.25rem"><button class="pu-btn" type="submit">Create key</button></div>
   </form>
@@ -1613,18 +1637,64 @@ function apiKeyRow(d: ApiKeysPageData, k: ApiKey): string {
     k.lastUsedAt === null
       ? 'never used'
       : `last used ${formatInZone(k.lastUsedAt, d.user.tz, { month: 'short', day: 'numeric' })}`
+  const keyId = encodeURIComponent(k.id)
   return `<li class="pu-card" style="display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap">
         <div>
           <strong>${escapeHtml(k.name || 'Unnamed key')}</strong><br>
           <span class="pu-time pu-muted">pk_${escapeHtml(k.prefix)}…</span>
           <span class="pu-muted">· created ${escapeHtml(created)} · ${escapeHtml(used)}</span>
         </div>
-        <form method="post" action="/dashboard/api-keys/${encodeURIComponent(k.id)}/delete" style="margin:0">
+        <form method="post" action="/dashboard/api-keys/${keyId}/delete" style="margin:0"
+              onsubmit="return confirm(${escapeHtml(JSON.stringify(revokePrompt(k)))})">
           ${csrfField(d.csrf)}
-          <button class="pu-btn pu-btn-danger" type="submit"
-                  style="padding:.4rem .8rem;font-size:.875rem">Revoke</button>
+          <a class="pu-btn pu-btn-danger" href="/dashboard/api-keys/${keyId}/revoke"
+             onclick="var f=this.closest('form');if(f&&f.requestSubmit){f.requestSubmit();return false}"
+             style="padding:.4rem .8rem;font-size:.875rem">Revoke</a>
         </form>
       </li>`
+}
+
+function revokePrompt(k: ApiKey): string {
+  return `Revoke ${k.name || 'this key'}? Anything using it stops working immediately.`
+}
+
+/**
+ * The one-time key's copy control. `copyButton` selects a sibling input as
+ * its no-clipboard fallback; the key is a block of text here, so the
+ * fallback selects that block instead — the host can still copy by hand.
+ */
+function revealCopyButton(value: string): string {
+  return `<button type="button" class="pu-btn pu-btn-ghost pu-copy" data-copy="${escapeHtml(value)}"
+    onclick="var b=this,f=function(){var e=document.getElementById('new-key'),s=window.getSelection(),r=document.createRange();r.selectNodeContents(e);s.removeAllRanges();s.addRange(r)};if(navigator.clipboard){navigator.clipboard.writeText(b.dataset.copy).then(function(){b.textContent='Copied';setTimeout(function(){b.textContent='Copy'},1500)}).catch(f)}else{f()}">Copy</button>`
+}
+
+export interface RevokeKeyPageData extends DashboardChrome {
+  apiKey: ApiKey
+}
+
+/**
+ * The no-script path of the revoke confirmation. With script, the row's
+ * `confirm()` asks before the POST; without it, the row's control is a
+ * plain link that lands here and the question is a page. Both end at the
+ * same POST.
+ */
+export function revokeKeyPage(d: RevokeKeyPageData): string {
+  const k = d.apiKey
+  return (
+    shellTop(d, 'Revoke API key', 'keys') +
+    `<section class="pu-card" aria-labelledby="revoke-title" style="max-width:36rem">
+  <h1 id="revoke-title" style="font-size:1.25rem">Revoke ${escapeHtml(k.name || 'this key')}?</h1>
+  <p>Anything using it stops working immediately. There is no undo &mdash; a key is only ever shown once, so a
+     revoked key can only be replaced by a new one.</p>
+  <p class="pu-muted"><span class="pu-time">pk_${escapeHtml(k.prefix)}&hellip;</span></p>
+  <form method="post" action="/dashboard/api-keys/${encodeURIComponent(k.id)}/delete" class="pu-form-row" style="justify-content:flex-start">
+    ${csrfField(d.csrf)}
+    <button class="pu-btn pu-btn-danger" type="submit">Revoke key</button>
+    <a class="pu-btn pu-btn-ghost" href="/dashboard/api-keys">Keep it</a>
+  </form>
+</section>` +
+    shellBottom(d.brandName)
+  )
 }
 
 // ---------------------------------------------------------------------------

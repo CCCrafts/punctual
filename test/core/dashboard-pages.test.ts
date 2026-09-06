@@ -7,8 +7,8 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import type { CalendarConnection, User } from '../../src/core/domain/types.js'
-import { apiKeysPage, connectionsPage, settingsPage } from '../../src/http/pages/dashboard.js'
+import type { ApiKey, CalendarConnection, User } from '../../src/core/domain/types.js'
+import { apiKeysPage, connectionsPage, revokeKeyPage, settingsPage } from '../../src/http/pages/dashboard.js'
 
 const user: User = {
   id: 'u_host',
@@ -143,5 +143,68 @@ describe('calendars page', () => {
     })
     expect(broken).toContain('<span class="pu-badge pu-badge-dot pu-badge-danger">Needs reconnect</span>')
     expect(broken).not.toContain('class="pu-badge" style=')
+  })
+})
+
+describe('API keys page', () => {
+  const key: ApiKey = {
+    id: 'key_1',
+    userId: user.id,
+    prefix: 'abc123',
+    hashSha256: 'h',
+    name: 'Zapier integration',
+    scopes: ['read'],
+    lastUsedAt: null,
+    createdAt: 0,
+  }
+
+  it('offers scopes as two ticked checkboxes, never a text field', () => {
+    const html = apiKeysPage({ ...chrome, keys: [] })
+    expect(html).toContain('id="scope-read" name="scopes" type="checkbox" value="read" checked')
+    expect(html).toContain('id="scope-write" name="scopes" type="checkbox" value="write" checked')
+    expect(html).toContain('list event types, availability, bookings')
+    expect(html).toContain('create, reschedule, cancel bookings')
+    expect(html).not.toContain('<input id="scopes"')
+  })
+
+  it('echoes a failed submit: the typed name and the scopes that were ticked', () => {
+    const html = apiKeysPage({
+      ...chrome,
+      keys: [],
+      nameValue: 'Laptop',
+      scopesValue: ['write'],
+      errors: { scopes: 'Pick at least one scope' },
+    })
+    expect(html).toContain('value="Laptop"')
+    expect(html).toContain('value="read">')
+    expect(html).toContain('value="write" checked')
+    expect(html).toContain('Pick at least one scope')
+  })
+
+  it('shows the one-time key whole, in a breakable block, with the header it goes in', () => {
+    const raw = 'pk_abc123_' + 'x'.repeat(48)
+    const html = apiKeysPage({ ...chrome, keys: [key], newKey: raw })
+    expect(html).toContain(`<code id="new-key" class="pu-key">${raw}</code>`)
+    expect(html).toContain('Authorization: Bearer &lt;key&gt;')
+    expect(html).toContain('href="/docs/api"')
+    expect(html).not.toContain(`value="${raw}"`)
+  })
+
+  it('asks before revoking with script, and links to a page that asks without it', () => {
+    const html = apiKeysPage({ ...chrome, keys: [key] })
+    expect(html).toContain(
+      'onsubmit="return confirm(&quot;Revoke Zapier integration? Anything using it stops working immediately.&quot;)"',
+    )
+    expect(html).toContain('href="/dashboard/api-keys/key_1/revoke"')
+    expect(html).toContain('action="/dashboard/api-keys/key_1/delete"')
+  })
+
+  it('the confirm page names the key and posts to the same revoke action', () => {
+    const html = revokeKeyPage({ ...chrome, apiKey: key })
+    expect(html).toContain('Revoke Zapier integration?')
+    expect(html).toContain('pk_abc123')
+    expect(html).toContain('<form method="post" action="/dashboard/api-keys/key_1/delete"')
+    expect(html).toContain('name="csrf" value="tok"')
+    expect(html).toContain('href="/dashboard/api-keys"')
   })
 })

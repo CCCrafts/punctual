@@ -584,6 +584,11 @@ input:has(+ .pu-err),select:has(+ .pu-err),textarea:has(+ .pu-err){border-color:
    heading above the group carries the emphasis, not every option. */
 .pu-check{display:flex;align-items:flex-start;gap:.5rem;font-weight:400;margin:.35rem 0;font-size:.9375rem}
 .pu-check input{margin-top:.25rem;flex:none}
+/* The one-time key, shown whole: a mono block that breaks anywhere rather
+   than a single-line input that clips the tail on a phone. */
+.pu-key{display:block;margin:0;padding:.75rem .9rem;background:var(--pu-url-bg);border:1px solid var(--pu-line);
+  border-radius:var(--pu-radius);font-family:var(--pu-font-mono);font-size:.8125rem;
+  word-break:break-all;white-space:pre-wrap;user-select:all;-webkit-user-select:all}
 `
 
 export function pageCss(): string {
