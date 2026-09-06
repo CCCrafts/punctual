@@ -197,7 +197,22 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
   // and guest manage links, whose URLs carry a token.
   app.get('/robots.txt', (c) =>
     c.body(
-      ['User-agent: *', 'Disallow: /dashboard', 'Disallow: /auth', 'Disallow: /api/', 'Disallow: /mcp', 'Disallow: /booking/', 'Allow: /', ''].join('\n'),
+      // Anchored, because robots rules are prefixes and the longest match
+      // wins: a bare `Disallow: /auth` would also hide a host whose slug is
+      // `author`, and `/mcp` one called `mcpherson` (caught by review).
+      [
+        'User-agent: *',
+        'Disallow: /dashboard/',
+        'Disallow: /dashboard$',
+        'Disallow: /login$',
+        'Disallow: /auth/',
+        'Disallow: /api/',
+        'Disallow: /mcp/',
+        'Disallow: /mcp$',
+        'Disallow: /booking/',
+        'Allow: /',
+        '',
+      ].join('\n'),
       200,
       { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'public, max-age=86400' },
     ),

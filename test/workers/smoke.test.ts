@@ -479,8 +479,14 @@ describe('only the bare booking page is indexable', () => {
   it('serves a robots.txt that keeps crawlers out of the private surfaces', async () => {
     const { status, body } = await fetchPage('/robots.txt')
     expect(status).toBe(200)
-    for (const line of ['Disallow: /dashboard', 'Disallow: /auth', 'Disallow: /api/', 'Disallow: /mcp', 'Disallow: /booking/']) {
-      expect(body).toContain(line)
+    for (const line of ['Disallow: /dashboard/', 'Disallow: /auth/', 'Disallow: /api/', 'Disallow: /mcp/', 'Disallow: /booking/']) {
+      expect(body).toContain(`${line}\n`)
+    }
+    // Rules are prefixes and the longest match wins, so every rule is
+    // anchored with a slash or `$` — a bare `/auth` would also hide a host
+    // whose slug happens to be `author` (caught by review).
+    for (const rule of body.split('\n').filter((l) => l.startsWith('Disallow: '))) {
+      expect(rule).toMatch(/[/$]$/)
     }
     // The confirm step and the embedded copy are deliberately NOT blocked:
     // a crawler has to be able to fetch a page to read its noindex.
