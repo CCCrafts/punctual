@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import type { Schedule, User, WeeklySchedule } from '../../src/core/domain/types.js'
+import type { EventType, Schedule, Team, User, WeeklySchedule } from '../../src/core/domain/types.js'
 import {
   MAX_RANGES_PER_DAY,
   parseWeeklyDraft,
   scheduleForm,
+  schedulesPage,
   type WeeklyDayDraft,
 } from '../../src/http/pages/dashboard.js'
 
@@ -46,6 +47,33 @@ const schedule: Schedule = {
 }
 
 const chrome = { brandName: 'Punctual', user, csrf: 'tok', emailDelivery: 'brevo' as const }
+
+const team: Team = { id: 'team_1', name: 'Support Crew', slug: 'support', logoKey: null, createdAt: 0 }
+const admin: User = { ...user, id: 'u_admin', name: 'Alice Ivanova', slug: 'alice', email: 'alice@example.com' }
+const scope = { subject: user, team, basePath: `/dashboard/teams/${team.id}/members/${user.id}/availability` }
+
+const teamEventType: EventType = {
+  id: 'et_support',
+  ownerUserId: null,
+  ownerTeamId: team.id,
+  schedulingType: 'collective',
+  slug: 'support-call',
+  title: 'Support call',
+  description: '',
+  durationMinutes: 30,
+  slotIntervalMinutes: null,
+  bufferBeforeMinutes: 0,
+  bufferAfterMinutes: 0,
+  minNoticeMinutes: 0,
+  maxHorizonDays: 60,
+  maxPerDay: null,
+  locationType: 'google_meet',
+  locationValue: null,
+  questions: [],
+  active: true,
+  createdAt: 0,
+  scheduleId: null,
+}
 
 describe('parseWeeklyDraft', () => {
   it('saves a single range on an enabled day', () => {
@@ -190,4 +218,33 @@ describe('scheduleForm weekly editor', () => {
     expect(html).toContain('placeholder="Start typing a city, e.g. Europe/Kyiv"')
   })
 
+  it('carries the on-behalf context strip when a team admin is editing', () => {
+    const html = scheduleForm({ ...chrome, user: admin, schedule, scope })
+    expect(html).toContain('<p class="pu-context-strip">Managing <b>Grace Hopper</b> · Support Crew · you are a team admin</p>')
+    expect(scheduleForm({ ...chrome, schedule })).not.toContain('<p class="pu-context-strip">')
+  })
+})
+
+describe('schedulesPage', () => {
+  const evenings: Schedule = { ...schedule, id: 'sch_2', name: 'Evenings', isDefault: false, createdBy: admin.id }
+
+  it('names the default schedule in the team-event "Default" option and lists the rest by plain name', () => {
+    const html = schedulesPage({
+      ...chrome,
+      schedules: [schedule, evenings],
+      teamEvents: [{ eventType: teamEventType, teamName: team.name, scheduleId: null }],
+    })
+    expect(html).toContain('<option value="" selected>Default (Working hours)</option>')
+    expect(html).toContain('<option value="sch_1">Working hours</option>')
+    expect(html).not.toContain('(default)')
+    // Team events sit below the new-schedule form: the list, then creating, then tuning.
+    expect(html.indexOf('<h2>New schedule</h2>')).toBeLessThan(html.indexOf('aria-label="Team events"'))
+  })
+
+  it('badges provenance neutrally and shows the context strip on a member\'s page', () => {
+    const html = schedulesPage({ ...chrome, user: admin, schedules: [schedule, evenings], scope, creatorNames: { [admin.id]: admin.name } })
+    expect(html).toContain('<p class="pu-context-strip">Managing <b>Grace Hopper</b> · Support Crew · you are a team admin</p>')
+    expect(html).toContain('<span class="pu-badge pu-badge-neutral" title="A team admin created this schedule on your behalf">set up by Alice Ivanova</span>')
+    expect(html).toContain('<div class="pu-card-title">')
+  })
 })

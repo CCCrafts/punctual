@@ -846,11 +846,25 @@ export interface SchedulesPageData extends DashboardChrome {
   notice?: string
 }
 
-/** "set up by Alice" — for a schedule someone other than its owner created. Empty for the owner's own rows. */
+/**
+ * "set up by Alice" — for a schedule someone other than its owner created.
+ * Empty for the owner's own rows. Neutral, not the green success badge:
+ * provenance is information, and green next to "Default" reads as a state.
+ */
 function setUpByBadge(s: Schedule, subjectId: string, creatorNames: Record<string, string> | undefined): string {
   if (!s.createdBy || s.createdBy === subjectId) return ''
   const name = creatorNames?.[s.createdBy]
-  return ` <span class="pu-badge" title="A team admin created this schedule on your behalf">set up by ${escapeHtml(name ?? 'a team admin')}</span>`
+  return `<span class="pu-badge pu-badge-neutral" title="A team admin created this schedule on your behalf">set up by ${escapeHtml(name ?? 'a team admin')}</span>`
+}
+
+/**
+ * The one line every on-behalf page carries, list and editor alike, so an
+ * admin who has three members' tabs open can tell them apart at a glance.
+ * Neutral colours on purpose: nothing is wrong, and the danger palette
+ * would make routine admin work look like an incident.
+ */
+function contextStrip(scope: ScheduleScope): string {
+  return `<p class="pu-context-strip">Managing <b>${escapeHtml(scope.subject.name || scope.subject.slug)}</b> · ${escapeHtml(scope.team.name)} · you are a team admin</p>`
 }
 
 export function schedulesPage(d: SchedulesPageData): string {
@@ -869,9 +883,9 @@ export function schedulesPage(d: SchedulesPageData): string {
       // what of theirs goes away.
       const canDelete = !d.scope && !s.isDefault && d.schedules.length > 1
       return `<article class="pu-card">
-  <div style="display:flex;align-items:baseline;justify-content:space-between;gap:1rem;flex-wrap:wrap">
-    <h2 style="margin:0">${escapeHtml(s.name)}${s.isDefault ? ' <span class="pu-badge">Default</span>' : ''}${setUpByBadge(s, subject.id, d.creatorNames)}</h2>
-    <a href="${base}/${id}" class="pu-btn pu-btn-ghost" style="padding:.3rem .6rem;font-size:.8125rem">Edit</a>
+  <div class="pu-card-title">
+    <h2>${escapeHtml(s.name)}</h2>${s.isDefault ? '<span class="pu-badge">Default</span>' : ''}${setUpByBadge(s, subject.id, d.creatorNames)}
+    <a href="${base}/${id}" class="pu-btn pu-btn-ghost pu-card-title-action" style="padding:.3rem .6rem;font-size:.8125rem;margin-left:auto">Edit</a>
   </div>
   <p class="pu-muted" style="font-size:.8125rem;margin:.5rem 0 0">${scheduleSummary(s)}</p>
   ${fieldError(`schedule-${s.id}`, errors)}
@@ -904,13 +918,18 @@ export function schedulesPage(d: SchedulesPageData): string {
   const heading = d.scope
     ? `<p><a href="/dashboard/teams" class="pu-muted">&larr; Teams</a></p>
   <h1>${escapeHtml(subject.name || subject.slug)}&rsquo;s availability</h1>
-  <p class="pu-muted">You are managing these as an admin of <strong>${escapeHtml(d.scope.team.name)}</strong>.
-    ${escapeHtml(subject.name || subject.slug)} sees every schedule here on their own Availability page, marked
-    with who set it up, and can change it at any time.</p>`
+  ${contextStrip(d.scope)}
+  <p class="pu-muted">${escapeHtml(subject.name || subject.slug)} sees every schedule here on their own Availability page,
+    marked with who set it up, and can change it at any time.</p>`
     : `<h1>Availability</h1>
   <p class="pu-muted">Each of your event types draws its hours from one of these schedules &mdash;
     assign a specific one from the event type's own edit page, or leave it on the default.</p>`
 
+  // The follow-the-default option says WHICH schedule that is right now, so
+  // a host with three schedules does not have to scroll up to check. The
+  // named options carry no "(default)" suffix: picking the default by name
+  // pins it, which is a different choice from following whatever is default.
+  const defaultName = d.schedules.find((s) => s.isDefault)?.name
   const teamEvents =
     !d.scope && d.teamEvents && d.teamEvents.length > 0
       ? `<section class="pu-card" aria-label="Team events" style="margin-top:1.5rem">
@@ -925,7 +944,7 @@ export function schedulesPage(d: SchedulesPageData): string {
           const options = d.schedules
             .map(
               (sch) =>
-                `<option value="${escapeHtml(sch.id)}"${te.scheduleId === sch.id ? ' selected' : ''}>${escapeHtml(sch.name)}${sch.isDefault ? ' (default)' : ''}</option>`,
+                `<option value="${escapeHtml(sch.id)}"${te.scheduleId === sch.id ? ' selected' : ''}>${escapeHtml(sch.name)}</option>`,
             )
             .join('')
           return `<form method="post" action="/dashboard/availability/team-events/${encodeURIComponent(te.eventType.id)}"
@@ -934,7 +953,7 @@ export function schedulesPage(d: SchedulesPageData): string {
         <label for="team-event-${id}" style="margin:0;flex:1 1 12rem">${escapeHtml(te.eventType.title)}
           <span class="pu-muted" style="font-size:.8125rem"> · ${escapeHtml(te.teamName)} · ${te.eventType.schedulingType === 'collective' ? 'collective' : 'round robin'}</span></label>
         <select id="team-event-${id}" name="scheduleId">
-          <option value=""${te.scheduleId ? '' : ' selected'}>Default</option>${options}
+          <option value=""${te.scheduleId ? '' : ' selected'}>Default${defaultName ? ` (${escapeHtml(defaultName)})` : ''}</option>${options}
         </select>
         <button class="pu-btn pu-btn-ghost" type="submit" style="padding:.3rem .6rem;font-size:.8125rem">Save</button>
         ${fieldError(`team-event-${te.eventType.id}`, errors)}
@@ -951,7 +970,6 @@ export function schedulesPage(d: SchedulesPageData): string {
     `<section aria-label="Availability schedules">
   ${heading}
   <div style="display:grid;gap:1rem">${cards}</div>
-  ${teamEvents}
   <form class="pu-card" method="post" action="${base}/new" style="margin-top:1.5rem">
     ${csrfField(d.csrf)}
     <h2>New schedule</h2>
@@ -963,6 +981,7 @@ export function schedulesPage(d: SchedulesPageData): string {
       Starts as a copy of ${whose} default schedule's hours &mdash; edit it after creating.</p>
     <div style="margin-top:1.25rem"><button class="pu-btn" type="submit">Create schedule</button></div>
   </form>
+  ${teamEvents}
 </section>` +
     shellBottom(d.brandName)
   )
@@ -999,10 +1018,7 @@ export function scheduleForm(d: ScheduleFormData): string {
   const id = encodeURIComponent(d.schedule.id)
   const base = d.scope?.basePath ?? '/dashboard/availability'
   const subjectName = d.scope ? d.scope.subject.name || d.scope.subject.slug : ''
-  const banner = d.scope
-    ? `<p class="pu-muted" style="margin:0 0 1rem">You are editing <strong>${escapeHtml(subjectName)}</strong>&rsquo;s schedule as an admin of
-    ${escapeHtml(d.scope.team.name)}. They can change it at any time.</p>`
-    : ''
+  const banner = d.scope ? contextStrip(d.scope) : ''
   const draft = d.weeklyDraft ?? weeklyDraftFromSchedule(d.schedule.weekly)
   const rows = DAY_NAMES.map((name, index) => dayRow(index, name, draft[index]!, errors)).join('\n    ')
 

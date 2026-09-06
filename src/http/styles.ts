@@ -554,9 +554,17 @@ input:has(+ .pu-err),select:has(+ .pu-err),textarea:has(+ .pu-err){border-color:
 .pu-card{min-width:0}
 .pu-docs-table-wrap{overflow-x:auto}
 .pu-dash-table{width:100%;min-width:34rem}
+.pu-badge{white-space:nowrap}
+/* Provenance, not success: a creator badge must not read like the green
+   "Default" state. */
+.pu-badge-neutral{background:var(--pu-paper-dim);color:var(--pu-ink-500)}
 .pu-card-title{display:flex;flex-wrap:wrap;gap:.4rem;align-items:baseline}
 .pu-card-title h2{margin:0}
 .pu-card-title .pu-card-title-action{margin-left:auto}
+/* "Managing Bob · Support Crew": persistent context, not a warning — the
+   danger palette would make every on-behalf page look like an error. */
+.pu-context-strip{display:block;margin:0 0 1rem;padding:.55rem .85rem;font-size:.875rem;
+  background:var(--pu-paper-dim);border:1px solid var(--pu-border-subtle);border-radius:var(--pu-radius)}
 .pu-members{border-collapse:collapse;font-size:.9375rem}
 .pu-members th,.pu-members td{text-align:left;padding:.55rem .6rem;vertical-align:middle;
   border-bottom:1px solid var(--pu-border-subtle)}

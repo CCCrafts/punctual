@@ -1150,7 +1150,7 @@ describe('team roles', () => {
     expect(page.status).toBe(200)
     const html = await page.text()
     expect(html).toContain('Bob Host&rsquo;s availability')
-    expect(html).toContain('as an admin of <strong>Roles Crew</strong>')
+    expect(html).toContain('<p class="pu-context-strip">Managing <b>Bob Host</b> · Roles Crew · you are a team admin</p>')
 
     const csrf = await csrfFrom(base, alice)
     const created = await post(`${base}/new`, { name: 'Support hours', csrf }, alice)
@@ -1169,7 +1169,9 @@ describe('team roles', () => {
     // lands on Bob's row with Alice as the last writer.
     const editor = await get(location, alice)
     expect(editor.status).toBe(200)
-    expect(await editor.text()).toContain('You are editing <strong>Bob Host</strong>')
+    // The same context strip as the list page: the editor is where the
+    // admin actually types, and where forgetting whose hours these are costs.
+    expect(await editor.text()).toContain('<p class="pu-context-strip">Managing <b>Bob Host</b> · Roles Crew · you are a team admin</p>')
     const saved = await post(
       location,
       {
@@ -1193,7 +1195,7 @@ describe('team roles', () => {
     const bob = await seedSession(BOB_ID)
     const bobPage = await (await get('/dashboard/availability', bob)).text()
     expect(bobPage).toContain('Support hours')
-    expect(bobPage).toContain('set up by Alice Host')
+    expect(bobPage).toContain('<span class="pu-badge pu-badge-neutral" title="A team admin created this schedule on your behalf">set up by Alice Host</span>')
     expect((await get(`/dashboard/availability/${row!.id}`, bob)).status).toBe(200)
     // And Alice's own page carries no such badge on her own rows.
     expect(await (await get('/dashboard/availability', alice)).text()).not.toContain('set up by')
