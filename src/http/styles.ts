@@ -584,6 +584,62 @@ input:has(+ .pu-err),select:has(+ .pu-err),textarea:has(+ .pu-err){border-color:
 .pu-tz-input{padding-right:2.25rem;background-repeat:no-repeat;background-position:right .8rem center;
   background-size:.7rem;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2 4l4 4 4-4' fill='none' stroke='%235C6660' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")}
 .pu-overrides{font-family:var(--pu-font-mono);font-size:.875rem}
+/* event-type form and cards */
+/* Home list: a card is scanned, not read, so it is three short rows —
+   title with badges and actions, the meta line, the link. The link row
+   is 13px in a tighter box than the booking page's .pu-url. */
+.pu-et-card{padding:.875rem 1.125rem}
+.pu-et-head{display:flex;align-items:center;justify-content:space-between;gap:.35rem 1rem;flex-wrap:wrap}
+.pu-et-head h2{margin:0;font-size:1.0625rem}
+.pu-et-actions{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap}
+.pu-et-actions .pu-btn{padding:.3rem .65rem;font-size:.8125rem}
+.pu-et-meta{margin:.15rem 0 0}
+.pu-et-url{margin-top:.5rem;padding:.1rem .1rem .1rem .65rem}
+.pu-et-url .pu-url-input{padding:.3rem 0;font-size:.8125rem}
+.pu-et-url .pu-copy{padding:.25rem .5rem;min-width:4rem}
+/* Form groups: a bold legend on a hairline, nothing else — the browser's
+   boxed fieldset would frame every group, and a border on the fieldset
+   itself runs THROUGH the legend rather than under it. min-width:0
+   matters: a fieldset defaults to min-content width, which stops the
+   numeric grid from shrinking to fit a phone. */
+.pu-fs{border:0;padding:0;margin:1.5rem 0 0;min-width:0}
+.pu-fs:first-of-type{margin-top:.5rem}
+.pu-fs>legend{width:100%;font-weight:600;padding:0 0 .35rem;margin:0;
+  border-bottom:1px solid var(--pu-border-subtle)}
+.pu-fs>legend+label{margin-top:.75rem}
+.pu-fs .pu-fs{margin-top:1.25rem}
+.pu-fs .pu-fs>legend{font-size:.875rem;border-bottom:0;padding-bottom:0}
+.pu-help{font-size:.8125rem;color:var(--pu-text-secondary);margin:.25rem 0 0}
+.pu-help code{font-family:var(--pu-font-mono);font-size:.8125rem}
+.pu-form-errors{margin:.25rem 0 .75rem}
+/* The seven numbers: two columns on a 390px phone (8rem each fits), and
+   never more than four, so the two rows the labels are written for hold.
+   Each cell is a subgrid of label / input / error / help rows shared
+   across the row, so a label that wraps in one cell does not push its
+   input out of line with its neighbours'. */
+.pu-num-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(max(8rem,calc(25% - .75rem)),1fr));gap:0 1rem}
+.pu-num-grid>div{display:grid;grid-template-rows:subgrid;grid-row:span 4;align-content:start}
+.pu-num-grid>div>label{align-self:end}
+/* Conditional fields without a script: the scheduling column only means
+   something for a team owner, and location details only for a location
+   that has some. Hidden here, ignored by the server either way
+   (readEventTypeForm), so an old browser that shows them loses nothing. */
+form:has(#owner option[value=""]:checked) .pu-sched-wrap{display:none}
+form:has(#locationType option[value="google_meet"]:checked) .pu-loc-wrap{display:none}
+/* Hosts: one grid row per host — name, attendance or weight, schedule —
+   stacking to a single column on a phone, where three table columns
+   squeeze each control to a few characters. */
+.pu-host-row{display:grid;grid-template-columns:minmax(10rem,1fr) 9rem 1fr;gap:.5rem 1rem;align-items:center;
+  padding:.4rem 0;border-top:1px solid var(--pu-border-subtle)}
+.pu-host-row:last-of-type{border-bottom:1px solid var(--pu-border-subtle)}
+.pu-host-head{font-size:.8125rem;font-weight:600;color:var(--pu-text-secondary);border-top:0;padding-top:0}
+.pu-host-name{display:flex;align-items:center;gap:.6rem;margin:0;font-weight:400;min-width:0}
+.pu-host-name input{width:auto;margin:0}
+.pu-host-name span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@media(max-width:640px){
+  .pu-host-row{grid-template-columns:1fr;gap:.4rem;padding:.6rem 0}
+  .pu-host-head{display:none}
+}
 `
 
 export function pageCss(): string {

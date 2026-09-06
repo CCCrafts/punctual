@@ -347,31 +347,32 @@ function eventTypeCard(d: DashboardHomeData, item: EventTypeListItem): string {
   const et = item.eventType
   const url = `${trimSlash(d.baseUrl)}/${encodeURIComponent(item.ownerSlug)}/${encodeURIComponent(et.slug)}`
   const inputId = `url-${escapeHtml(et.id)}`
-  return `<article class="pu-card">
-  <div style="display:flex;align-items:baseline;justify-content:space-between;gap:1rem;flex-wrap:wrap">
-    <h2 style="margin:0">${escapeHtml(et.title)}</h2>
-    <div style="display:flex;gap:.5rem">
+  // Edit and Preview sit in the header beside the badges, and the link row
+  // has no visible caption: a list of ten event types is scanned, not read,
+  // and a card three rows tall keeps the whole list on one screen.
+  const edit =
+    item.canEdit === false
+      ? '<span class="pu-muted" style="font-size:.8125rem">Managed by the team&rsquo;s admins</span>'
+      : `<a class="pu-btn pu-btn-ghost" href="/dashboard/event-types/${encodeURIComponent(et.id)}">Edit</a>`
+  return `<article class="pu-card pu-et-card">
+  <div class="pu-et-head">
+    <h2>${escapeHtml(et.title)}</h2>
+    <div class="pu-et-actions">
       ${item.teamName ? `<span class="pu-badge">${escapeHtml(item.teamName)}</span>` : ''}
       ${et.active ? '' : '<span class="pu-badge" style="background:var(--pu-paper-dim);color:var(--pu-ink-500)">Hidden</span>'}
+      ${edit}
+      <a class="pu-btn pu-btn-ghost" href="${escapeHtml(url)}">Preview</a>
     </div>
   </div>
-  <ul class="pu-meta">
-    <li><span class="pu-dot"></span> ${et.durationMinutes} min</li>
+  <ul class="pu-meta pu-et-meta">
+    <li>${et.durationMinutes} min</li>
     <li>${escapeHtml(schedulingLabel(et))}</li>
     <li>${escapeHtml(locationLabel(et))}</li>
   </ul>
-  <label for="${inputId}">Public link</label>
-  <div class="pu-url">
-    <input id="${inputId}" class="pu-url-input" readonly value="${escapeHtml(url)}" onclick="this.select()">
+  <div class="pu-url pu-et-url">
+    <input id="${inputId}" class="pu-url-input" readonly value="${escapeHtml(url)}" onclick="this.select()"
+           aria-label="Public link for ${escapeHtml(et.title)}">
     ${copyButton(url)}
-  </div>
-  <div style="margin-top:.75rem;display:flex;gap:.75rem;flex-wrap:wrap;align-items:center">
-    ${
-      item.canEdit === false
-        ? '<span class="pu-muted" style="font-size:.8125rem">Managed by the team&rsquo;s admins</span>'
-        : `<a class="pu-btn pu-btn-ghost" href="/dashboard/event-types/${encodeURIComponent(et.id)}">Edit</a>`
-    }
-    <a class="pu-btn pu-btn-ghost" href="${escapeHtml(url)}">Preview</a>
   </div>
 </article>`
 }
@@ -472,6 +473,40 @@ const LOCATION_OPTIONS: ReadonlyArray<{ value: EventType['locationType']; label:
   { value: 'in_person', label: 'In person' },
 ]
 
+/**
+ * Inputs in the order they appear on the page, so the first errored one can
+ * take `autofocus` — a host who submits from the bottom of a long form and
+ * lands back at the top otherwise has to hunt for what went wrong. `hosts`
+ * is absent on purpose: its error belongs to a block, not to one control.
+ */
+const EVENT_TYPE_FIELD_ORDER: readonly string[] = [
+  'title',
+  'slug',
+  'description',
+  'owner',
+  'schedulingType',
+  'scheduleId',
+  'durationMinutes',
+  'slotIntervalMinutes',
+  'bufferBeforeMinutes',
+  'bufferAfterMinutes',
+  'minNoticeMinutes',
+  'maxHorizonDays',
+  'maxPerDay',
+  'locationType',
+  'locationValue',
+  'questions',
+]
+
+function autofocusAttr(id: string, errors: Record<string, string>): string {
+  return EVENT_TYPE_FIELD_ORDER.find((f) => errors[f] !== undefined) === id ? ' autofocus' : ''
+}
+
+/** Everything the notice at the top of the form counts. The delete form has its own message. */
+function formErrorCount(errors: Record<string, string>): number {
+  return Object.keys(errors).filter((k) => k !== 'delete').length
+}
+
 export function eventTypeForm(d: EventTypeFormData): string {
   const et = d.eventType
   const errors = d.errors ?? {}
@@ -486,107 +521,167 @@ export function eventTypeForm(d: EventTypeFormData): string {
   const num = (v: number | null | undefined, fallback: string): string =>
     v === null || v === undefined ? fallback : String(v)
 
+  // The address a guest will actually use: the OWNER's slug first, and the
+  // owner is the team when there is one. The user's own slug there would
+  // print a link that 404s for every team-owned event type.
+  const ownerTeam = teams.find((t) => t.id === et?.ownerTeamId)
+  const prefix = ownerTeam ? ownerTeam.slug : d.user.slug
+  // A slug that failed validation is not previewed as an address: the error
+  // right above already quotes it, and "/support/Bad Slug!" reads as a claim.
+  const slugPreview = et?.slug && /^[a-z0-9-]+$/.test(et.slug) ? escapeHtml(et.slug) : '&lt;slug&gt;'
+
+  const errorCount = formErrorCount(errors)
+  const errorNotice =
+    errorCount === 0
+      ? ''
+      : `<div class="pu-callout pu-form-errors" role="alert">Fix the ${
+          errorCount === 1 ? 'field' : `${errorCount} fields`
+        } marked below.</div>`
+
+  const numberField = (
+    id: string,
+    label: string,
+    help: string,
+    attrs: string,
+    value: string,
+  ): string => `<div>
+        <label for="${id}">${label}</label>
+        <input id="${id}" name="${id}" type="number" ${attrs}
+               value="${escapeHtml(value)}"${describedBy(id, errors)}${autofocusAttr(id, errors)}>
+        ${fieldError(id, errors)}
+        <p class="pu-help">${help}</p>
+      </div>`
+
+  // Owner, scheduling, hosts and the personal schedule are each rendered only
+  // when there is something to choose; a host with no team and one default
+  // schedule gets no "Who hosts" group at all rather than an empty one.
+  const whoHosts = [ownershipFields(d, teams, errors), hostsFields(d, errors), scheduleField(d, errors)]
+    .join('\n    ')
+    .trim()
+
   return (
     shellTop(d, editing ? 'Edit event type' : 'New event type', 'events') +
     (d.notice ? notice(d.notice) : '') +
     `<section class="pu-card" aria-label="${editing ? 'Edit event type' : 'New event type'}">
   <h1>${editing ? 'Edit event type' : 'New event type'}</h1>
-  <form method="post" action="${escapeHtml(action)}">
+  <form method="post" action="${escapeHtml(action)}" class="pu-et-form">
     ${csrfField(d.csrf)}
+    ${errorNotice}
 
-    <label for="title">Title</label>
-    <input id="title" name="title" required aria-required="true" maxlength="120"
-           value="${escapeHtml(et?.title ?? '')}"${describedBy('title', errors)}>
-    ${fieldError('title', errors)}
+    <fieldset class="pu-fs">
+      <legend>Basics</legend>
+      <label for="title">Title</label>
+      <input id="title" name="title" required aria-required="true" maxlength="120" placeholder="30 min intro call"
+             value="${escapeHtml(et?.title ?? '')}"${describedBy('title', errors)}${autofocusAttr('title', errors)}>
+      ${fieldError('title', errors)}
 
-    <label for="slug">URL slug</label>
-    <input id="slug" name="slug" required aria-required="true" maxlength="60" pattern="[a-z0-9\-]+"
-           value="${escapeHtml(et?.slug ?? '')}"${describedBy('slug', errors)}>
-    <p class="pu-muted" style="font-size:.8125rem;margin:.25rem 0 0">
-      Lowercase letters, numbers and hyphens. It becomes /${escapeHtml(d.user.slug)}/&lt;slug&gt;.</p>
-    ${fieldError('slug', errors)}
+      <label for="slug">URL slug</label>
+      <input id="slug" name="slug" maxlength="60" pattern="[a-z0-9\-]+"
+             value="${escapeHtml(et?.slug ?? '')}"${describedBy('slug', errors)}${autofocusAttr('slug', errors)}>
+      ${fieldError('slug', errors)}
+      <p class="pu-help">Booked at <code>/${escapeHtml(prefix)}/${slugPreview}</code>.
+        Leave blank to use the title. Lowercase letters, numbers and hyphens.</p>
 
-    ${ownershipFields(d, teams, errors)}
-    ${hostsFields(d, errors)}
-
-    <label for="description">Description</label>
-    <textarea id="description" name="description" maxlength="2000"${describedBy('description', errors)}>${escapeHtml(et?.description ?? '')}</textarea>
-    ${fieldError('description', errors)}
-
-    <div class="pu-grid" style="grid-template-columns:repeat(auto-fit,minmax(11rem,1fr));gap:0 1rem">
-      <div>
-        <label for="durationMinutes">Duration (minutes)</label>
-        <input id="durationMinutes" name="durationMinutes" type="number" min="5" max="1440" step="5"
-               required aria-required="true" value="${escapeHtml(num(et?.durationMinutes, '30'))}"${describedBy('durationMinutes', errors)}>
-        <p class="pu-muted" style="font-size:.8125rem;margin:.25rem 0 0">A multiple of 5 — the booking grid is 5-minute buckets.</p>
-        ${fieldError('durationMinutes', errors)}
+      <label for="description">Description</label>
+      <textarea id="description" name="description" maxlength="2000"${describedBy('description', errors)}${autofocusAttr('description', errors)}>${escapeHtml(et?.description ?? '')}</textarea>
+      ${fieldError('description', errors)}
+    </fieldset>
+${
+  whoHosts === ''
+    ? ''
+    : `
+    <fieldset class="pu-fs">
+      <legend>Who hosts</legend>
+      ${whoHosts}
+    </fieldset>
+`
+}
+    <fieldset class="pu-fs">
+      <legend>When and how long</legend>
+      <div class="pu-num-grid">
+      ${numberField(
+        'durationMinutes',
+        'Duration (minutes)',
+        'A multiple of 5.',
+        'min="5" max="1440" step="5" required aria-required="true"',
+        num(et?.durationMinutes, '30'),
+      )}
+      ${numberField(
+        'slotIntervalMinutes',
+        'Slot interval (minutes)',
+        'Blank means one slot per duration.',
+        'min="5" max="1440" step="5"',
+        num(et?.slotIntervalMinutes, ''),
+      )}
+      ${numberField(
+        'bufferBeforeMinutes',
+        'Buffer before (minutes)',
+        'Kept free before each booking.',
+        'min="0" max="240" step="5"',
+        num(et?.bufferBeforeMinutes, '0'),
+      )}
+      ${numberField(
+        'bufferAfterMinutes',
+        'Buffer after (minutes)',
+        'Kept free after each booking.',
+        'min="0" max="240" step="5"',
+        num(et?.bufferAfterMinutes, '0'),
+      )}
+      ${numberField(
+        'minNoticeMinutes',
+        'Minimum notice (minutes, e.g. 1440 = 1 day)',
+        'The earliest a guest can book from now.',
+        'min="0" max="43200" step="5"',
+        num(et?.minNoticeMinutes, '60'),
+      )}
+      ${numberField(
+        'maxHorizonDays',
+        'Bookable up to (days ahead)',
+        'How far ahead a guest can book.',
+        'min="1" max="730"',
+        num(et?.maxHorizonDays, '60'),
+      )}
+      ${numberField(
+        'maxPerDay',
+        'Maximum per day',
+        'Blank means unlimited. Counted per host-local day.',
+        'min="1" max="100"',
+        num(et?.maxPerDay, ''),
+      )}
       </div>
-      <div>
-        <label for="slotIntervalMinutes">Slot interval (minutes)</label>
-        <input id="slotIntervalMinutes" name="slotIntervalMinutes" type="number" min="5" max="1440" step="5"
-               value="${escapeHtml(num(et?.slotIntervalMinutes, ''))}"${describedBy('slotIntervalMinutes', errors)}>
-        <p class="pu-muted" style="font-size:.8125rem;margin:.25rem 0 0">Blank means one slot per duration.</p>
-        ${fieldError('slotIntervalMinutes', errors)}
-      </div>
-      <div>
-        <label for="bufferBeforeMinutes">Buffer before (minutes)</label>
-        <input id="bufferBeforeMinutes" name="bufferBeforeMinutes" type="number" min="0" max="240" step="5"
-               value="${escapeHtml(num(et?.bufferBeforeMinutes, '0'))}"${describedBy('bufferBeforeMinutes', errors)}>
-        ${fieldError('bufferBeforeMinutes', errors)}
-      </div>
-      <div>
-        <label for="bufferAfterMinutes">Buffer after (minutes)</label>
-        <input id="bufferAfterMinutes" name="bufferAfterMinutes" type="number" min="0" max="240" step="5"
-               value="${escapeHtml(num(et?.bufferAfterMinutes, '0'))}"${describedBy('bufferAfterMinutes', errors)}>
-        ${fieldError('bufferAfterMinutes', errors)}
-      </div>
-      <div>
-        <label for="minNoticeMinutes">Minimum notice (minutes)</label>
-        <input id="minNoticeMinutes" name="minNoticeMinutes" type="number" min="0" max="43200" step="5"
-               value="${escapeHtml(num(et?.minNoticeMinutes, '60'))}"${describedBy('minNoticeMinutes', errors)}>
-        ${fieldError('minNoticeMinutes', errors)}
-      </div>
-      <div>
-        <label for="maxHorizonDays">Bookable up to (days ahead)</label>
-        <input id="maxHorizonDays" name="maxHorizonDays" type="number" min="1" max="730"
-               value="${escapeHtml(num(et?.maxHorizonDays, '60'))}"${describedBy('maxHorizonDays', errors)}>
-        ${fieldError('maxHorizonDays', errors)}
-      </div>
-      <div>
-        <label for="maxPerDay">Maximum per day</label>
-        <input id="maxPerDay" name="maxPerDay" type="number" min="1" max="100"
-               value="${escapeHtml(num(et?.maxPerDay, ''))}"${describedBy('maxPerDay', errors)}>
-        <p class="pu-muted" style="font-size:.8125rem;margin:.25rem 0 0">Blank means unlimited. Counted per host-local day.</p>
-        ${fieldError('maxPerDay', errors)}
-      </div>
-    </div>
+    </fieldset>
 
-    ${scheduleField(d, errors)}
+    <fieldset class="pu-fs">
+      <legend>Where</legend>
+      <label for="locationType">Location</label>
+      <select id="locationType" name="locationType"${describedBy('locationType', errors)}${autofocusAttr('locationType', errors)}>
+        ${LOCATION_OPTIONS.map(
+          (o) =>
+            `<option value="${o.value}"${(et?.locationType ?? 'google_meet') === o.value ? ' selected' : ''}>${escapeHtml(o.label)}</option>`,
+        ).join('\n        ')}
+      </select>
+      ${fieldError('locationType', errors)}
 
-    <label for="locationType">Location</label>
-    <select id="locationType" name="locationType"${describedBy('locationType', errors)}>
-      ${LOCATION_OPTIONS.map(
-        (o) =>
-          `<option value="${o.value}"${(et?.locationType ?? 'google_meet') === o.value ? ' selected' : ''}>${escapeHtml(o.label)}</option>`,
-      ).join('\n      ')}
-    </select>
-    ${fieldError('locationType', errors)}
+      <div class="pu-loc-wrap">
+        <label for="locationValue">Location details</label>
+        <input id="locationValue" name="locationValue" maxlength="500"
+               value="${escapeHtml(et?.locationValue ?? '')}"${describedBy('locationValue', errors)}${autofocusAttr('locationValue', errors)}>
+        ${fieldError('locationValue', errors)}
+        <p class="pu-help">The meeting URL, phone number or address. Google Meet mints its own link.</p>
+      </div>
+    </fieldset>
 
-    <label for="locationValue">Location details</label>
-    <input id="locationValue" name="locationValue" maxlength="500"
-           value="${escapeHtml(et?.locationValue ?? '')}"${describedBy('locationValue', errors)}>
-    <p class="pu-muted" style="font-size:.8125rem;margin:.25rem 0 0">
-      The meeting URL, phone number or address. Ignored for Google Meet, which mints its own link.</p>
-    ${fieldError('locationValue', errors)}
+    <fieldset class="pu-fs">
+      <legend>Questions</legend>
+      <label for="questions">Custom questions</label>
+      <textarea id="questions" name="questions" rows="5"${describedBy('questions', errors)}${autofocusAttr('questions', errors)}
+                placeholder="Company | text | required&#10;Topic | select | optional | Sales, Support">${escapeHtml(d.questionsText ?? formatQuestions(et?.questions ?? []))}</textarea>
+      ${fieldError('questions', errors)}
+      <p class="pu-help">One question per line &mdash; label, type, required?, options. Example above.
+        Name and email are always asked and are not listed here.</p>
+    </fieldset>
 
-    <label for="questions">Custom questions</label>
-    <textarea id="questions" name="questions" rows="5"${describedBy('questions', errors)}>${escapeHtml(d.questionsText ?? formatQuestions(et?.questions ?? []))}</textarea>
-    <p class="pu-muted" style="font-size:.8125rem;margin:.25rem 0 0">
-      One per line: <code>Label | text|textarea|select | required|optional | option, option</code>.
-      Name and email are always asked and are not listed here.</p>
-    ${fieldError('questions', errors)}
-
-    <label for="active" style="display:flex;align-items:center;gap:.5rem;margin-top:1rem">
+    <label for="active" style="display:flex;align-items:center;gap:.5rem;margin-top:1.25rem">
       <input id="active" name="active" type="checkbox" value="1" style="width:auto"
              ${et === undefined || et.active ? 'checked' : ''}>
       <span>Visible on the booking page</span>
@@ -618,11 +713,11 @@ ${
 
 /**
  * The owner and scheduling selects, rendered only when the host has a team to
- * offer. Both selects are always visible when rendered — no client JS shows
- * or hides anything — and the SERVER is the source of truth: with owner "me"
- * the scheduling value is ignored and forced to 'personal' (readEventTypeForm),
- * so a stale or crafted scheduling value cannot make a personal event
- * round-robin.
+ * offer. No client JS: the scheduling column is hidden by a stylesheet rule
+ * keyed on the owner select's checked option (`.pu-sched-wrap`), and the
+ * SERVER remains the source of truth — with owner "me" the scheduling value
+ * is ignored and forced to 'personal' (readEventTypeForm), so a stale or
+ * crafted scheduling value cannot make a personal event round-robin.
  */
 function ownershipFields(d: EventTypeFormData, teams: Team[], errors: Record<string, string>): string {
   // No teams, no selects — but a crafted POST naming a team the user is not
@@ -638,23 +733,20 @@ function ownershipFields(d: EventTypeFormData, teams: Team[], errors: Record<str
   return `<div class="pu-grid" style="grid-template-columns:repeat(auto-fit,minmax(11rem,1fr));gap:0 1rem">
       <div>
         <label for="owner">Owner</label>
-        <select id="owner" name="owner"${describedBy('owner', errors)}>
+        <select id="owner" name="owner"${describedBy('owner', errors)}${autofocusAttr('owner', errors)}>
       <option value=""${et?.ownerTeamId ? '' : ' selected'}>Me (personal)</option>
       ${teamOptions}
     </select>
-        <p class="pu-muted" style="font-size:.8125rem;margin:.25rem 0 0">
-          A team-owned event is booked at /&lt;team-slug&gt;/&lt;slug&gt;.</p>
         ${fieldError('owner', errors)}
       </div>
-      <div>
+      <div class="pu-sched-wrap">
         <label for="schedulingType">Scheduling</label>
-        <select id="schedulingType" name="schedulingType"${describedBy('schedulingType', errors)}>
-      <option value="round_robin"${et?.schedulingType === 'collective' ? '' : ' selected'}>Round robin — one member takes each booking</option>
-      <option value="collective"${et?.schedulingType === 'collective' ? ' selected' : ''}>Collective — every member attends</option>
+        <select id="schedulingType" name="schedulingType"${describedBy('schedulingType', errors)}${autofocusAttr('schedulingType', errors)}>
+      <option value="round_robin"${et?.schedulingType === 'collective' ? '' : ' selected'}>Round robin</option>
+      <option value="collective"${et?.schedulingType === 'collective' ? ' selected' : ''}>Collective</option>
     </select>
-        <p class="pu-muted" style="font-size:.8125rem;margin:.25rem 0 0">
-          Applies when a team owns the event. Ignored for a personal one.</p>
         ${fieldError('schedulingType', errors)}
+        <p class="pu-help">Round robin: one host takes each booking. Collective: every host attends.</p>
       </div>
     </div>`
 }
@@ -665,6 +757,11 @@ function ownershipFields(d: EventTypeFormData, teams: Team[], errors: Record<str
  * draws from. Server-rendered checkboxes and selects, no client JS; the
  * route reads the whole block back and replaces the set atomically.
  *
+ * One `.pu-host-row` grid per host rather than a table: a table's columns
+ * cannot stack, and on a phone three columns of controls squeeze each to a
+ * few characters. The stylesheet collapses the row to one column under
+ * 640px; the field names are the contract with `readHostsForm` and stay put.
+ *
  * Rendered only with `hostChoices` — an edit of a team-owned event type. A
  * create has no saved team to list yet, so it lands on the edit page.
  */
@@ -673,13 +770,11 @@ function hostsFields(d: EventTypeFormData, errors: Record<string, string>): stri
   if (!choices || choices.length === 0) return fieldError('hosts', errors)
   const collective = d.eventType?.schedulingType === 'collective'
   const explicit = choices.some((c) => c.row !== null)
-  const teamId = d.eventType?.ownerTeamId ?? ''
 
   const rows = choices
     .map((c) => {
       const uid = escapeHtml(c.user.id)
       const name = c.user.name || c.user.slug
-      const enc = encodeURIComponent(c.user.id)
       const scheduleOptions = c.schedules
         .map(
           (sch) =>
@@ -692,24 +787,26 @@ function hostsFields(d: EventTypeFormData, errors: Record<string, string>): stri
             <option value="optional"${c.row?.required === false ? ' selected' : ''}>Optional</option>
           </select>`
         : `<input name="host-${uid}-weight" type="number" min="1" max="100" aria-label="${escapeHtml(name)}: round-robin weight"
-                 value="${c.row?.rrWeight == null ? '' : c.row.rrWeight}" placeholder="${c.teamWeight}" style="width:5rem">`
-      return `<tr>
-        <td><label style="display:flex;align-items:center;gap:.6rem;margin:0;font-weight:400">
+                 value="${c.row?.rrWeight == null ? '' : c.row.rrWeight}" placeholder="${c.teamWeight}">`
+      return `<div class="pu-host-row">
+        <label class="pu-host-name">
           <input type="checkbox" name="host-${uid}" value="on"${c.selected ? ' checked' : ''}>
           ${avatarHtml({ key: c.user.avatarKey, name, size: 28 })}
-          <span style="white-space:nowrap">${escapeHtml(name)}</span></label></td>
-        <td>${mode}</td>
-        <td><select name="host-${uid}-schedule" aria-label="${escapeHtml(name)}: schedule for this event type">
+          <span>${escapeHtml(name)}</span></label>
+        <div>${mode}</div>
+        <div><select name="host-${uid}-schedule" aria-label="${escapeHtml(name)}: schedule for this event type">
             <option value=""${!c.row?.scheduleId ? ' selected' : ''}>Default</option>${scheduleOptions}
-          </select>
-          <a class="pu-muted" style="font-size:.8125rem;white-space:nowrap" href="/dashboard/teams/${encodeURIComponent(teamId)}/members/${enc}/availability">+ New schedule for ${escapeHtml(name.split(' ')[0] ?? name)}</a></td>
-      </tr>`
+          </select></div>
+      </div>`
     })
     .join('\n')
 
-  return `<fieldset style="border:0;padding:0;margin:1rem 0 0">
-      <legend style="font-weight:600">Hosts</legend>
-      <p class="pu-muted" style="font-size:.8125rem;margin:.25rem 0 .5rem">
+  // One link, in a new tab: navigating away mid-form would drop every
+  // unsaved edit above, and a per-host link four times over said nothing a
+  // single one does not.
+  return `<fieldset class="pu-fs">
+      <legend>Hosts</legend>
+      <p class="pu-help" style="margin:0 0 .5rem">
         ${
           collective
             ? 'Slots are when every <strong>required</strong> host is free. An optional host joins a booking when free and is left out when not.'
@@ -720,24 +817,22 @@ function hostsFields(d: EventTypeFormData, errors: Record<string, string>): stri
             ? 'This event type has its own host list; new team members are not added to it automatically.'
             : 'Every team member hosts this event type until you change the list below; new members join it automatically.'
         }</p>
-      <div class="pu-docs-table-wrap"><table style="width:100%">
-        <thead><tr><th scope="col" style="text-align:left">Host</th>
-          <th scope="col" style="text-align:left">${collective ? 'Attendance' : 'Weight'}</th>
-          <th scope="col" style="text-align:left">Schedule for this event type</th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table></div>
+      <div class="pu-host-row pu-host-head" aria-hidden="true">
+        <span>Host</span><span>${collective ? 'Attendance' : 'Weight'}</span><span>Schedule for this event type</span>
+      </div>
+      ${rows}
       ${fieldError('hosts', errors)}
+      <p class="pu-help"><a href="/dashboard/teams" target="_blank" rel="noopener">Manage member schedules (opens in a new tab)</a></p>
     </fieldset>`
 }
 
 /**
- * Same discipline as `ownershipFields`'s scheduling select: always visible
- * when rendered, no client JS involved, and the value is ignored server-side
- * (readEventTypeForm) for a team-owned draft — a team event type has
- * multiple hosts and no single schedule fits all of them (engine.ts).
- * Rendered only when the host has more than their one default schedule to
- * choose from, same "nothing meaningful to choose" precedent as `teams`
- * having none.
+ * Same discipline as `ownershipFields`'s scheduling select: no client JS
+ * involved, and the value is ignored server-side (readEventTypeForm) for a
+ * team-owned draft — a team event type has multiple hosts and no single
+ * schedule fits all of them (engine.ts). Rendered only when the host has
+ * more than their one default schedule to choose from, same "nothing
+ * meaningful to choose" precedent as `teams` having none.
  */
 function scheduleField(d: EventTypeFormData, errors: Record<string, string>): string {
   const schedules = d.schedules ?? []
@@ -750,13 +845,12 @@ function scheduleField(d: EventTypeFormData, errors: Record<string, string>): st
     )
     .join('\n      ')
   return `<label for="scheduleId">Availability schedule</label>
-    <select id="scheduleId" name="scheduleId"${describedBy('scheduleId', errors)}>
+    <select id="scheduleId" name="scheduleId"${describedBy('scheduleId', errors)}${autofocusAttr('scheduleId', errors)}>
       <option value=""${et?.scheduleId ? '' : ' selected'}>Default</option>
       ${options}
     </select>
-    <p class="pu-muted" style="font-size:.8125rem;margin:.25rem 0 0">
-      Which hours this event type draws from. A team-owned event type sets this per host, in the Hosts block above.</p>
-    ${fieldError('scheduleId', errors)}`
+    ${fieldError('scheduleId', errors)}
+    <p class="pu-help">Which hours this event type draws from. A team-owned event type sets this per host, in the Hosts block above.</p>`
 }
 
 // ---------------------------------------------------------------------------
@@ -2013,8 +2107,17 @@ export function formatQuestions(questions: EventTypeQuestion[]): string {
     .join('\n')
 }
 
+/** Which line of the questions box could not be read, and why. */
+export interface QuestionsParseError {
+  /** 1-based, counting blank lines too, so it matches what the host sees in the box. */
+  line: number
+  text: string
+  reason: string
+}
+
 /**
- * `Label | type | required | a, b` per line. Null on malformed input.
+ * `Label | type | required | a, b` per line. Null on malformed input; see
+ * `questionsParseError` for the message that names the line.
  *
  * The id is derived from the label rather than kept hidden in the form: this
  * editor has no client JS to carry ids around, and a stable derivation gives
@@ -2024,29 +2127,50 @@ export function formatQuestions(questions: EventTypeQuestion[]): string {
  * question.
  */
 export function parseQuestions(text: string): EventTypeQuestion[] | null {
+  const result = parseQuestionLines(text)
+  return Array.isArray(result) ? result : null
+}
+
+/**
+ * The form message for a questions box that did not parse — quoting the
+ * offending line, because "check the format" against ten lines of text sends
+ * the host back to re-read all ten. Null when the text parses.
+ */
+export function questionsParseError(text: string): string | null {
+  const result = parseQuestionLines(text)
+  if (Array.isArray(result)) return null
+  return `Line ${result.line} ("${result.text}"): ${result.reason}`
+}
+
+function parseQuestionLines(text: string): EventTypeQuestion[] | QuestionsParseError {
   const out: EventTypeQuestion[] = []
   const seen = new Set<string>()
-  for (const raw of text.split('\n')) {
-    const line = raw.trim()
+  const lines = text.split('\n')
+  for (let i = 0; i < lines.length; i++) {
+    const line = (lines[i] ?? '').trim()
     if (line === '') continue
+    const fail = (reason: string): QuestionsParseError => ({ line: i + 1, text: line, reason })
     const parts = line.split('|').map((p) => p.trim())
     const label = parts[0] ?? ''
-    if (label === '' || label.length > 200) return null
+    if (label === '') return fail('the label before the first | is missing')
+    if (label.length > 200) return fail('the label is over 200 characters')
 
     const type = (parts[1] ?? 'text') as EventTypeQuestion['type']
-    if (!QUESTION_TYPES.includes(type)) return null
+    if (!QUESTION_TYPES.includes(type)) return fail(`the type must be text, textarea or select, not "${type}"`)
 
     const requiredWord = (parts[2] ?? 'optional').toLowerCase()
-    if (requiredWord !== 'required' && requiredWord !== 'optional') return null
+    if (requiredWord !== 'required' && requiredWord !== 'optional') {
+      return fail(`the third part must be required or optional, not "${parts[2]}"`)
+    }
 
     const options = (parts[3] ?? '')
       .split(',')
       .map((o) => o.trim())
       .filter((o) => o !== '')
-    if (type === 'select' && options.length === 0) return null
+    if (type === 'select' && options.length === 0) return fail('a select needs its options after a fourth |, separated by commas')
 
     let id = slugify(label)
-    if (id === '') return null
+    if (id === '') return fail('the label needs at least one letter or number')
     // Two questions with the same label would otherwise share an id, and the
     // second answer would overwrite the first.
     let n = 2

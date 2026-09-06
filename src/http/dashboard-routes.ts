@@ -104,6 +104,7 @@ import {
   manageLinkErrorPage,
   parseOverrides,
   parseQuestions,
+  questionsParseError,
   parseWeeklyDraft,
   adminPage,
   settingsPage,
@@ -2863,10 +2864,8 @@ async function validateEventType(
   if (draft.maxPerDay !== null && (draft.maxPerDay < 1 || draft.maxPerDay > 100)) {
     errors['maxPerDay'] = 'Leave blank for unlimited, or use 1 to 100'
   }
-  if (parseQuestions(questionsText) === null) {
-    errors['questions'] =
-      'One per line: Label | text, textarea or select | required or optional | options for select'
-  }
+  const questionsError = questionsParseError(questionsText)
+  if (questionsError !== null) errors['questions'] = questionsError
 
   // `readEventTypeForm` already forces this null for a team-owned draft, but
   // a raw POST bypasses the reader — re-checked here rather than trusted, the
