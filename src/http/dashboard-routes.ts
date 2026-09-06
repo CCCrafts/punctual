@@ -739,6 +739,53 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     return touched ? rows : null
   }
 
+  /**
+   * The Hosts block in the order the page RENDERED it, recovered from the
+   * form: a browser serialises fields in tree order, and every row carries
+   * at least its schedule select whether or not it is ticked, so the first
+   * `host-<id>…` key per host is that host's place on the page. This is
+   * what makes a reorder stick — `readHostsForm` walks the choices in the
+   * order it is handed, and `replace` numbers positions from that. A host
+   * the form never mentioned (a member who joined since the page loaded)
+   * keeps their place after the rest.
+   */
+  function orderChoicesByForm(form: FormData, choices: HostChoice[]): HostChoice[] {
+    const rank = new Map<string, number>()
+    for (const key of form.keys()) {
+      for (const ch of choices) {
+        const id = ch.user.id
+        if (!rank.has(id) && (key === `host-${id}` || key.startsWith(`host-${id}-`))) rank.set(id, rank.size)
+      }
+    }
+    const place = (ch: HostChoice, i: number): number => rank.get(ch.user.id) ?? choices.length + i
+    return choices
+      .map((ch, i) => ({ ch, at: place(ch, i) }))
+      .sort((a, b) => a.at - b.at)
+      .map((x) => x.ch)
+  }
+
+  /**
+   * The block as submitted, attached to each choice as its unsaved draft
+   * for a re-render that does not save (move, select all/none): the
+   * attendance, schedule and weight the admin has typed survive the round
+   * trip instead of reverting to D1. The weight is echoed as text, not
+   * parsed — nothing is being saved, so nothing is validated yet.
+   */
+  function withHostDrafts(form: FormData, choices: HostChoice[], collective: boolean): HostChoice[] {
+    return choices.map((ch) => {
+      const uid = ch.user.id
+      return {
+        ...ch,
+        draft: {
+          selected: form.get(`host-${uid}`) !== null,
+          required: collective ? String(form.get(`host-${uid}-mode`) ?? 'required') !== 'optional' : true,
+          scheduleId: String(form.get(`host-${uid}-schedule`) ?? '').trim() || null,
+          weightText: String(form.get(`host-${uid}-weight`) ?? ''),
+        },
+      }
+    })
+  }
+
   /** See host-notifications.ts — shared with the API, which adds hosts too. */
   async function notifyNewHosts(
     c: Ctx,
@@ -808,7 +855,57 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     // under: a change of owner clears the set (every member of the new
     // team, until the admin narrows it), same as a fresh create.
     const sameTeam = draft.ownerTeamId !== null && draft.ownerTeamId === existing.ownerTeamId
-    const choices = sameTeam ? await hostChoicesFor(c, { ...existing, schedulingType: draft.schedulingType }) : []
+    const choices = sameTeam
+      ? orderChoicesByForm(form, await hostChoicesFor(c, { ...existing, schedulingType: draft.schedulingType }))
+      : []
+
+    // Move up/down and select all/none: no-JS-safe `formnovalidate` submits
+    // that change the Hosts block and re-render — never a save, and never a
+    // validation pass, since the admin is mid-edit (same reasoning as the
+    // schedule editor's "+ Add range"). Everything else typed on the form
+    // rides along in `draft`, `questionsText` and the per-host drafts.
+    const move = form.get('host-move')
+    const select = form.get('host-select')
+    if (sameTeam && (typeof move === 'string' || typeof select === 'string')) {
+      const collective = draft.schedulingType === 'collective'
+      let drafted = withHostDrafts(form, choices, collective)
+      let notice: string | undefined
+      if (typeof move === 'string') {
+        // "<id>:up" / "<id>:down" as `hostsFields` renders it. A crafted id,
+        // or the first row up / last row down, changes nothing and just
+        // re-renders; there is nothing to repair.
+        const at = move.lastIndexOf(':')
+        const id = move.slice(0, at)
+        const dir = move.slice(at + 1)
+        const from = drafted.findIndex((ch) => ch.user.id === id)
+        const to = dir === 'up' ? from - 1 : dir === 'down' ? from + 1 : -1
+        if (from >= 0 && to >= 0 && to < drafted.length) {
+          const next = [...drafted]
+          next.splice(from, 1)
+          next.splice(to, 0, drafted[from]!)
+          drafted = next
+          notice = 'Order changed — save to keep it'
+        }
+      } else if (select === 'all' || select === 'none') {
+        drafted = drafted.map((ch) => ({ ...ch, draft: { ...ch.draft!, selected: select === 'all' } }))
+        notice = select === 'all' ? 'Every host ticked — save to keep it' : 'Every host unticked — save to keep it'
+      }
+      return c.html(
+        eventTypeForm({
+          brandName,
+          user,
+          csrf: c.get('csrf'),
+          emailDelivery,
+          eventType: draft,
+          questionsText: read.questionsText,
+          teams: await managedTeams(c),
+          schedules: await repos.availability.listForUser(user.id),
+          hostChoices: drafted,
+          ...(notice ? { notice } : {}),
+        }),
+      )
+    }
+
     const hostRows = sameTeam ? readHostsForm(form, draft, choices, errors) : null
 
     if (Object.keys(errors).length > 0) {

@@ -1466,6 +1466,161 @@ describe('hosts editor', () => {
     sent().length = 0
   })
 
+  /** The host ids in the order the page renders the rows. */
+  const rowOrder = (html: string): string[] =>
+    [...html.matchAll(/<input type="checkbox" name="host-([^"]+)" value="on"/g)].map((m) => m[1]!)
+
+  it('move down re-renders the rows reordered without saving, and keeps every typed value', async () => {
+    const alice = await seedSession(ALICE_ID)
+    const csrf = await csrfFrom(`/dashboard/event-types/${crewEventTypeId}`, alice)
+    // A title mid-edit, Bob optional on his Support hours, Carol unticked —
+    // none of it saved yet — and Alice's "move down" button pressed.
+    const res = await post(
+      `/dashboard/event-types/${crewEventTypeId}`,
+      base({
+        csrf,
+        title: 'Crew call (draft)',
+        [`host-${ALICE_ID}`]: 'on',
+        [`host-${ALICE_ID}-mode`]: 'required',
+        [`host-${ALICE_ID}-schedule`]: '',
+        [`host-${BOB_ID}`]: 'on',
+        [`host-${BOB_ID}-mode`]: 'optional',
+        [`host-${BOB_ID}-schedule`]: 'sch_bob_support',
+        [`host-${CAROL_ID}-mode`]: 'required',
+        [`host-${CAROL_ID}-schedule`]: '',
+        'host-move': `${ALICE_ID}:down`,
+      }),
+      alice,
+    )
+    expect(res.status).toBe(200)
+    const html = await res.text()
+    expect(html).toContain('Order changed — save to keep it')
+    expect(rowOrder(html)).toEqual([BOB_ID, ALICE_ID, CAROL_ID])
+    expect(html).toContain('value="Crew call (draft)"')
+    expect(html).toContain(`name="host-${CAROL_ID}" value="on">`)
+    expect(html).toMatch(new RegExp(`name="host-${BOB_ID}-mode"[^>]*>\\s*<option value="required">Required</option>\\s*<option value="optional" selected>`))
+    expect(html).toContain('<option value="sch_bob_support" selected>Support hours</option>')
+    // The preview follows the submitted state: Carol is out, Bob is optional.
+    expect(html).toContain("Guests will see: You'll meet <strong>Alice Host</strong>. <strong>Bob Host</strong> joins when free")
+    // Nothing was written.
+    expect(await repos().eventTypeHosts.forEventType(crewEventTypeId)).toEqual([])
+    expect((await repos().eventTypes.byId(crewEventTypeId))!.title).toBe('Crew call')
+    expect(sent()).toHaveLength(0)
+
+    // The first row cannot move up; a crafted id changes nothing. Neither claims an order change.
+    const noop = await post(
+      `/dashboard/event-types/${crewEventTypeId}`,
+      base({ csrf, [`host-${ALICE_ID}`]: 'on', [`host-${BOB_ID}`]: 'on', 'host-move': `${ALICE_ID}:up` }),
+      alice,
+    )
+    expect(noop.status).toBe(200)
+    expect(await noop.text()).not.toContain('Order changed')
+    const crafted = await post(
+      `/dashboard/event-types/${crewEventTypeId}`,
+      base({ csrf, [`host-${ALICE_ID}`]: 'on', 'host-move': 'usr_nobody:down' }),
+      alice,
+    )
+    expect(rowOrder(await crafted.text())).toEqual([ALICE_ID, BOB_ID, CAROL_ID])
+    expect(await repos().eventTypeHosts.forEventType(crewEventTypeId)).toEqual([])
+  })
+
+  it('a save stores the rows in the order the form rendered them, and the form and booking page follow', async () => {
+    const alice = await seedSession(ALICE_ID)
+    const csrf = await csrfFrom(`/dashboard/event-types/${crewEventTypeId}`, alice)
+    // The fields as a browser would serialise the reordered form: Bob's row first.
+    const res = await post(
+      `/dashboard/event-types/${crewEventTypeId}`,
+      base({
+        csrf,
+        [`host-${BOB_ID}`]: 'on',
+        [`host-${BOB_ID}-mode`]: 'optional',
+        [`host-${BOB_ID}-schedule`]: 'sch_bob_support',
+        [`host-${ALICE_ID}`]: 'on',
+        [`host-${ALICE_ID}-mode`]: 'required',
+        [`host-${CAROL_ID}`]: 'on',
+        [`host-${CAROL_ID}-mode`]: 'required',
+      }),
+      alice,
+    )
+    expect(res.status).toBe(302)
+    const rows = await repos().eventTypeHosts.forEventType(crewEventTypeId)
+    expect(rows.map((r) => [r.userId, r.position])).toEqual([[BOB_ID, 0], [ALICE_ID, 1], [CAROL_ID, 2]])
+
+    const html = await (await get(`/dashboard/event-types/${crewEventTypeId}`, alice)).text()
+    expect(rowOrder(html)).toEqual([BOB_ID, ALICE_ID, CAROL_ID])
+    expect(html).toContain("Guests will see: You'll meet <strong>Alice Host and Carol Host</strong>. <strong>Bob Host</strong> joins when free")
+    expect(html).toContain('<a href="/roles-crew/crew-call" target="_blank" rel="noopener">Preview booking page (opens in a new tab)</a>')
+    const page = await (await publicApp.fetch(new Request(`${BASE}/roles-crew/crew-call`))).text()
+    expect(page).toContain("You'll meet <strong>Alice Host and Carol Host</strong>. <strong>Bob Host</strong> joins when free")
+
+    await repos().eventTypeHosts.replace(crewEventTypeId, [])
+    sent().length = 0
+  })
+
+  it('select none and select all re-render with every box unticked or ticked, saving nothing', async () => {
+    const alice = await seedSession(ALICE_ID)
+    const csrf = await csrfFrom(`/dashboard/event-types/${crewEventTypeId}`, alice)
+    const none = await post(
+      `/dashboard/event-types/${crewEventTypeId}`,
+      base({
+        csrf,
+        [`host-${ALICE_ID}`]: 'on',
+        [`host-${BOB_ID}`]: 'on',
+        [`host-${BOB_ID}-mode`]: 'optional',
+        [`host-${CAROL_ID}`]: 'on',
+        'host-select': 'none',
+      }),
+      alice,
+    )
+    expect(none.status).toBe(200)
+    const unticked = await none.text()
+    expect(unticked).toContain('Every host unticked — save to keep it')
+    expect(unticked).not.toContain('value="on" checked')
+    expect(unticked).toContain('Guests will see: <em>nobody yet &mdash; tick at least one host</em>')
+    // Bob's attendance survives the round trip even with his box unticked.
+    expect(unticked).toMatch(new RegExp(`name="host-${BOB_ID}-mode"[^>]*>\\s*<option value="required">Required</option>\\s*<option value="optional" selected>`))
+
+    const all = await post(
+      `/dashboard/event-types/${crewEventTypeId}`,
+      base({ csrf, [`host-${BOB_ID}-mode`]: 'optional', 'host-select': 'all' }),
+      alice,
+    )
+    expect(all.status).toBe(200)
+    const ticked = await all.text()
+    expect(ticked).toContain('Every host ticked — save to keep it')
+    for (const id of [ALICE_ID, BOB_ID, CAROL_ID]) expect(ticked).toContain(`name="host-${id}" value="on" checked`)
+    expect(ticked).toContain("Guests will see: You'll meet <strong>Alice Host and Carol Host</strong>. <strong>Bob Host</strong> joins when free")
+
+    expect(await repos().eventTypeHosts.forEventType(crewEventTypeId)).toEqual([])
+    expect(sent()).toHaveLength(0)
+  })
+
+  it('round robin: the round trip shows each ticked host\'s share of bookings from the effective weights', async () => {
+    const alice = await seedSession(ALICE_ID)
+    const csrf = await csrfFrom(`/dashboard/event-types/${crewEventTypeId}`, alice)
+    // Alice overrides to 3; Bob keeps his team weight of 1; Carol (team
+    // weight 2) is ticked by "select all". 3 + 1 + 2 = 6.
+    const res = await post(
+      `/dashboard/event-types/${crewEventTypeId}`,
+      base({
+        csrf,
+        schedulingType: 'round_robin',
+        [`host-${ALICE_ID}`]: 'on',
+        [`host-${ALICE_ID}-weight`]: '3',
+        [`host-${BOB_ID}-weight`]: '',
+        [`host-${CAROL_ID}-weight`]: '',
+        'host-select': 'all',
+      }),
+      alice,
+    )
+    expect(res.status).toBe(200)
+    const html = await res.text()
+    expect(html.match(/&asymp; \d+%/g)).toEqual(['&asymp; 50%', '&asymp; 17%', '&asymp; 33%'])
+    expect(html).toContain(`aria-label="Alice Host: round-robin weight"\n                 value="3"`)
+    expect(html).toContain('Guests will see: With one of <strong>Alice Host, Bob Host or Carol Host</strong>')
+    expect(await repos().eventTypeHosts.forEventType(crewEventTypeId)).toEqual([])
+  })
+
   it('leaving every host at its default keeps the implicit set — no rows, no emails', async () => {
     const alice = await seedSession(ALICE_ID)
     const csrf = await csrfFrom(`/dashboard/event-types/${crewEventTypeId}`, alice)
