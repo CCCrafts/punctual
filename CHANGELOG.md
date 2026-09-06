@@ -8,6 +8,18 @@ still change interfaces.
 
 ### Added
 
+- **A logo per event type**, uploaded from its edit form through the same
+  pipeline as the profile photo (5 MB, PNG/JPEG/WebP, square thumbnail).
+  It heads the booking page and is the single image on the social card,
+  ahead of the host's photo or the team's logo; the dashboard card shows a
+  thumb; the REST event-type JSON exposes it read-only as `logoUrl`.
+- **Team settings** for a team's admins on the Teams page: rename, change
+  the URL slug (same rules and shared namespace as a user's, claim moved
+  atomically), and upload or remove the team logo — the logo that heads
+  the team's booking pages and social cards.
+
+### Added
+
 - Webhook event `booking.hosts_changed`: fired when a co-host is added to
   or removed from a team booking from the dashboard, to every attending
   host's subscriptions and to the removed host's. The payload carries the

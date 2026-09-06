@@ -318,14 +318,14 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
          (id,owner_user_id,owner_team_id,scheduling_type,slug,title,description,duration_minutes,
           slot_interval_minutes,buffer_before_minutes,buffer_after_minutes,min_notice_minutes,
           max_horizon_days,max_per_day,location_type,location_value,questions_json,active,created_at,
-          schedule_id)
+          schedule_id,logo_key)
          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,
-           (SELECT id FROM schedules WHERE id = ?))`,
+           (SELECT id FROM schedules WHERE id = ?),?)`,
         row.id, row.ownerUserId, row.ownerTeamId, row.schedulingType, row.slug, row.title,
         row.description, row.durationMinutes, row.slotIntervalMinutes, row.bufferBeforeMinutes,
         row.bufferAfterMinutes, row.minNoticeMinutes, row.maxHorizonDays, row.maxPerDay,
         row.locationType, row.locationValue, JSON.stringify(row.questions), row.active ? 1 : 0,
-        row.createdAt, row.scheduleId,
+        row.createdAt, row.scheduleId, row.logoKey ?? null,
       )
       // Re-read schedule_id rather than echo the input (caught by review):
       // the subquery above can resolve to NULL when the caller's own
@@ -372,6 +372,7 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
       if (patch.locationValue !== undefined) put('location_value', patch.locationValue)
       if (patch.questions !== undefined) put('questions_json', JSON.stringify(patch.questions))
       if (patch.active !== undefined) put('active', patch.active ? 1 : 0)
+      if (patch.logoKey !== undefined) put('logo_key', patch.logoKey)
       // Same scalar-subquery guard as `create`: a concurrent
       // delete of this exact schedule between the caller's ownership check
       // and this write resolves to NULL — "use the default", which is what
@@ -1111,6 +1112,32 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
     async updateLogo(id, logoKey) {
       await run('UPDATE teams SET logo_key = ? WHERE id = ?', logoKey, id)
     },
+    async update(id, patch) {
+      const sets: string[] = []
+      const binds: unknown[] = []
+      if (patch.name !== undefined) (sets.push('name = ?'), binds.push(patch.name))
+      if (patch.slug !== undefined) (sets.push('slug = ?'), binds.push(patch.slug))
+      if (sets.length === 0) return true
+      binds.push(id)
+      try {
+        if (patch.slug !== undefined) {
+          // The claim moves with the slug, in one batch: `slug_claims`'
+          // primary key is what refuses a slug a user or another team
+          // holds, however the caller's own precheck raced.
+          await session.batch([
+            q(`UPDATE teams SET ${sets.join(', ')} WHERE id = ?`, ...binds),
+            q("DELETE FROM slug_claims WHERE kind = 'team' AND owner_id = ?", id),
+            q("INSERT INTO slug_claims (slug,kind,owner_id,created_at) VALUES (?,'team',?,?)", patch.slug, id, Date.now()),
+          ])
+        } else {
+          await run(`UPDATE teams SET ${sets.join(', ')} WHERE id = ?`, ...binds)
+        }
+        return true
+      } catch (err) {
+        if (isConstraintViolation(err)) return false
+        throw err
+      }
+    },
     async addMember(m) {
       // On conflict only the weight moves. Roles change through `setRole`
       // alone, which carries the last-admin guard: an upsert that also wrote
@@ -1588,6 +1615,7 @@ function mapEventType(row: Record<string, unknown> | null): EventType | null {
     questions: JSON.parse(String(row['questions_json'] ?? '[]')),
     active: Number(row['active']) === 1,
     createdAt: Number(row['created_at']),
+    logoKey: row['logo_key'] == null ? null : String(row['logo_key']),
     scheduleId: row['schedule_id'] == null ? null : String(row['schedule_id']),
   }
 }

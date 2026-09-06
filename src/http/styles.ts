@@ -719,6 +719,12 @@ form:has(#locationType option[value="google_meet"]:checked) .pu-loc-wrap{display
    teaches the host to scroll past both. */
 .pu-callout-warn{background:var(--pu-status-warning-bg);border-color:var(--pu-warn)}
 
+/* logos and team settings */
+.pu-logo-panel{align-items:flex-start;gap:1rem;margin:0 0 1.25rem}
+.pu-logo-panel>div{flex:1 1 auto}
+.pu-team-settings{margin-top:1.25rem;border-top:1px solid var(--pu-line);padding-top:.75rem}
+.pu-team-settings>summary{cursor:pointer;font-weight:600;padding:.25rem 0}
+.pu-team-settings[open]>summary{margin-bottom:.75rem}
 /* hosts editor */
 /* The Hosts block's second pass: a fourth column of move buttons, a share
    beside a round-robin weight, a note under each schedule select and the

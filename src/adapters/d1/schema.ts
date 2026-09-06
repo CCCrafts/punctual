@@ -100,6 +100,8 @@ export const eventTypes = sqliteTable(
     // Null = the owner's default schedule — only meaningful for a
     // personal event type; a team event type ignores it (see engine.ts).
     scheduleId: text('schedule_id'),
+    // The resized logo thumbnail's key, like users.avatar_key (migration 0013).
+    logoKey: text('logo_key'),
   },
   (t) => [
     index('event_types_owner_user_idx').on(t.ownerUserId),

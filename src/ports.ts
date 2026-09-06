@@ -403,6 +403,14 @@ export interface TeamRepository {
   /** Every team on the instance, oldest first — for the instance admin's view, which is not membership-scoped. */
   list(): Promise<Team[]>
   /**
+   * Rename and/or re-slug a team. A slug change moves the team's claim in
+   * `slug_claims` in the same batch as the row update, so the shared
+   * user/team slug namespace is arbitrated by that table's primary key —
+   * the same shape as `UserRepository.update` with a slug.
+   * @returns false when the new slug is already claimed (nothing changed).
+   */
+  update(teamId: string, patch: { name?: string; slug?: string }): Promise<boolean>
+  /**
    * Insert, or update the weight of, a membership. `member.role` applies to
    * the INSERT only — an existing row keeps its role, because role changes
    * go through `setRole` and its last-admin guard.

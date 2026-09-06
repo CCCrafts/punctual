@@ -65,7 +65,7 @@ export function buildOgRoutes(ports: EnginePorts): Hono<{ Bindings: Env }> {
     // Hashed, not concatenated: KV rejects keys over 512 bytes, and six
     // hosts with photos would pass that — silently, since the cache calls
     // below swallow errors, leaving every crawler hit to re-render.
-    const faceKeys = hosts.map((h) => `${h.user.id}:${h.user.avatarKey ?? '-'}`).join(',')
+    const faceKeys = `${eventType.logoKey ?? '-'}|` + hosts.map((h) => `${h.user.id}:${h.user.avatarKey ?? '-'}`).join(',')
     const cacheKey = `og:v2:${userSlug}:${eventSlug}:${await ports.crypto.hash(faceKeys)}`
 
     const cached = await safeGet(ports, cacheKey)
@@ -78,8 +78,13 @@ export function buildOgRoutes(ports: EnginePorts): Hono<{ Bindings: Env }> {
         minute: '2-digit',
         hour12: false,
       })} ${offsetLabel(now, host.tz)}`
-      const shown = hosts.slice(0, 3)
+      // An event type with its own logo shows that alone, as the single
+      // large image; otherwise the hosts' faces.
+      const shown = eventType.logoKey ? [] : hosts.slice(0, 3)
       const avatars: OgAvatar[] = []
+      if (eventType.logoKey) {
+        avatars.push({ ...(await avatarDataUri(ports, eventType.logoKey)), initial: eventType.title.trim().charAt(0).toUpperCase() || '?' })
+      }
       for (const h of shown) {
         avatars.push({
           ...(await avatarDataUri(ports, h.user.avatarKey)),
@@ -92,7 +97,7 @@ export function buildOgRoutes(ports: EnginePorts): Hono<{ Bindings: Env }> {
         durationMinutes: eventType.durationMinutes,
         timeLabel,
         avatars,
-        extraCount: Math.max(0, hosts.length - shown.length),
+        extraCount: eventType.logoKey ? 0 : Math.max(0, hosts.length - shown.length),
       })
     })
     if (!png) return c.redirect(DEFAULT_CARD_PATH, 302)

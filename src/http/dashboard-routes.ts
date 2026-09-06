@@ -130,6 +130,7 @@ import {
   type HostChoice,
   type TeamEventChoice,
   type TeamsPageData,
+  type EventTypeFormData,
   type UpcomingBooking,
   type WeeklyDayDraft,
 } from './pages/dashboard.js'
@@ -970,6 +971,42 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     return c.redirect('/dashboard', 302)
   })
 
+  /** The edit form with everything it needs, for the logo routes' re-render. */
+  async function editFormData(c: Ctx, eventType: EventType): Promise<EventTypeFormData> {
+    return {
+      brandName,
+      user: c.get('user'),
+      csrf: c.get('csrf'),
+      emailDelivery,
+      eventType,
+      teams: await managedTeams(c),
+      schedules: await c.get('repos').availability.listForUser(c.get('user').id),
+      hostChoices: await hostChoicesFor(c, eventType),
+    }
+  }
+
+  app.post('/dashboard/event-types/:id/logo', requireSession, async (c) => {
+    const form = await c.req.formData()
+    if (!(await csrfOk(c, form))) return csrfRejected(c)
+    const existing = await ownedEventType(c)
+    if (!existing) return notFound(c)
+    const stored = await storeUploadedImage(form.get('logo'))
+    if (!stored.ok) return c.html(eventTypeForm({ ...(await editFormData(c, existing)), errors: { logo: stored.message } }), 400)
+    await c.get('repos').eventTypes.update(existing.id, { logoKey: stored.key })
+    await advanceBookmark(c)
+    return c.html(eventTypeForm({ ...(await editFormData(c, { ...existing, logoKey: stored.key })), notice: 'Logo updated.' }))
+  })
+
+  app.post('/dashboard/event-types/:id/logo/delete', requireSession, async (c) => {
+    const form = await c.req.formData()
+    if (!(await csrfOk(c, form))) return csrfRejected(c)
+    const existing = await ownedEventType(c)
+    if (!existing) return notFound(c)
+    await c.get('repos').eventTypes.update(existing.id, { logoKey: null })
+    await advanceBookmark(c)
+    return c.html(eventTypeForm({ ...(await editFormData(c, { ...existing, logoKey: null })), notice: 'Logo removed.' }))
+  })
+
   app.post('/dashboard/event-types/:id/delete', requireSession, async (c) => {
     const form = await c.req.formData()
     if (!(await csrfOk(c, form))) return csrfRejected(c)
@@ -1706,6 +1743,75 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     return c.html(teamsPage({ ...(await teamsData(c)), notice: 'Member removed.' }))
   })
 
+  app.post('/dashboard/teams/:id/logo', requireSession, async (c) => {
+    const form = await c.req.formData()
+    if (!(await csrfOk(c, form))) return csrfRejected(c)
+    const team = await managedTeam(c)
+    if (!team) return notFound(c)
+    const stored = await storeUploadedImage(form.get('logo'))
+    if (!stored.ok) {
+      return c.html(teamsPage({ ...(await teamsData(c)), errors: { [`logo-${team.id}`]: stored.message } }), 400)
+    }
+    await c.get('repos').teams.updateLogo(team.id, stored.key)
+    await advanceBookmark(c)
+    return c.html(teamsPage({ ...(await teamsData(c)), notice: `${team.name}'s logo updated.` }))
+  })
+
+  app.post('/dashboard/teams/:id/logo/delete', requireSession, async (c) => {
+    const form = await c.req.formData()
+    if (!(await csrfOk(c, form))) return csrfRejected(c)
+    const team = await managedTeam(c)
+    if (!team) return notFound(c)
+    await c.get('repos').teams.updateLogo(team.id, null)
+    await advanceBookmark(c)
+    return c.html(teamsPage({ ...(await teamsData(c)), notice: `${team.name}'s logo removed.` }))
+  })
+
+  /**
+   * Rename or re-slug a team. The slug rules and the two-table collision
+   * check are the settings page's, for the same reason: a team's slug is
+   * the first segment of its booking links and shares one namespace with
+   * every user's. Changing it breaks every link already shared — the page
+   * says so next to the field.
+   */
+  app.post('/dashboard/teams/:id', requireSession, async (c) => {
+    const form = await c.req.formData()
+    if (!(await csrfOk(c, form))) return csrfRejected(c)
+    const team = await managedTeam(c)
+    if (!team) return notFound(c)
+
+    const repos = c.get('repos')
+    const name = String(form.get('name') ?? '').trim()
+    const raw = String(form.get('slug') ?? '').trim()
+    const errors: Record<string, string> = {}
+    if (name === '' || name.length > 120) errors[`team-name-${team.id}`] = 'Give the team a name (up to 120 characters)'
+    if (raw !== raw.toLowerCase()) {
+      errors[`team-slug-${team.id}`] = 'Lowercase letters, numbers and hyphens only'
+    } else if (raw !== team.slug) {
+      const [existingUser, existingTeam] = await Promise.all([repos.users.bySlug(raw), repos.teams.bySlug(raw)])
+      if (existingUser) errors[`team-slug-${team.id}`] = `That slug is already taken by ${existingUser.name || existingUser.slug}`
+      else if (existingTeam) errors[`team-slug-${team.id}`] = `That slug is already taken by ${existingTeam.name}`
+      else {
+        const validation = validateSlug(raw)
+        if (!validation.ok) errors[`team-slug-${team.id}`] = validation.message ?? 'Not a valid slug'
+      }
+    }
+    if (Object.keys(errors).length > 0) {
+      return c.html(teamsPage({ ...(await teamsData(c)), editValues: { teamId: team.id, name, slug: raw }, errors }), 400)
+    }
+    const patch = { ...(name !== team.name ? { name } : {}), ...(raw !== team.slug ? { slug: raw } : {}) }
+    if (Object.keys(patch).length === 0) return c.html(teamsPage({ ...(await teamsData(c)), notice: 'Nothing to change.' }))
+    const ok = await repos.teams.update(team.id, patch)
+    if (!ok) {
+      return c.html(
+        teamsPage({ ...(await teamsData(c)), editValues: { teamId: team.id, name, slug: raw }, errors: { [`team-slug-${team.id}`]: 'That slug is already taken' } }),
+        400,
+      )
+    }
+    await advanceBookmark(c)
+    return c.html(teamsPage({ ...(await teamsData(c)), notice: raw !== team.slug ? `Team updated. Its booking links now start with /${raw}.` : 'Team updated.' }))
+  })
+
   app.post('/dashboard/teams/:id/members/:userId/role', requireSession, async (c) => {
     const form = await c.req.formData()
     if (!(await csrfOk(c, form))) return csrfRejected(c)
@@ -2110,43 +2216,44 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
    * work. The resize happens here, at upload time — never on the booking-page
    * request path, which has its own <100 ms budget (ADR-0007 §3).
    */
+  /**
+   * Validate an uploaded image and store it with its square thumbnail —
+   * shared by the profile photo, an event type's logo and a team's logo,
+   * so the three cannot drift on limits or on what "too large" means.
+   * Returns the THUMBNAIL key, the only one a page ever references.
+   */
+  async function storeUploadedImage(file: string | File | null): Promise<{ ok: true; key: string } | { ok: false; message: string }> {
+    if (!(file instanceof File) || file.size === 0) return { ok: false, message: 'Choose an image to upload' }
+    if (file.size > MAX_UPLOAD_BYTES) return { ok: false, message: 'That file is larger than 5 MB' }
+    if (!isAllowedImageType(file.type)) return { ok: false, message: 'PNG, JPEG or WebP images only' }
+    const bytes = new Uint8Array(await file.arrayBuffer())
+    const dimensions = readImageDimensions(bytes, file.type)
+    if (!dimensions || dimensions.width * dimensions.height > MAX_DECODED_PIXELS) {
+      return { ok: false, message: 'That image is too large. Try a smaller one.' }
+    }
+    const originalKey = await deriveBlobKey(bytes, file.type)
+    const thumbKey = thumbKeyFor(originalKey)
+    if (!(await ports.blobStorage.get(thumbKey))) {
+      const thumb = resizeToSquareThumbnail(bytes)
+      if (!thumb) return { ok: false, message: 'Could not process that image. Try a different file.' }
+      await ports.blobStorage.put(originalKey, bytes, file.type)
+      await ports.blobStorage.put(thumbKey, thumb, THUMB_CONTENT_TYPE)
+    }
+    return { ok: true, key: thumbKey }
+  }
+
   app.post('/dashboard/settings/avatar', requireSession, async (c) => {
     const form = await c.req.formData()
     if (!(await csrfOk(c, form))) return csrfRejected(c)
 
     const user = c.get('user')
-    const file = form.get('avatar')
     const fail = (message: string) =>
       c.html(settingsPage({ brandName, baseUrl: ports.config.baseUrl, user, csrf: c.get('csrf'),
  emailDelivery, errors: { avatar: message } }), 400)
 
-    if (!(file instanceof File) || file.size === 0) return fail('Choose an image to upload')
-    if (file.size > MAX_UPLOAD_BYTES) return fail('That file is larger than 5 MB')
-    if (!isAllowedImageType(file.type)) return fail('PNG, JPEG or WebP images only')
-
-    const bytes = new Uint8Array(await file.arrayBuffer())
-
-    // Read from the header only, before anything decodes a pixel — a highly
-    // compressible image can be tiny on disk and still be a decompression
-    // bomb (see MAX_DECODED_PIXELS's doc comment). A header that doesn't
-    // parse is treated the same as "too large": it also won't decode.
-    const dimensions = readImageDimensions(bytes, file.type)
-    if (!dimensions || dimensions.width * dimensions.height > MAX_DECODED_PIXELS) {
-      return fail('That image is too large. Try a smaller photo.')
-    }
-
-    const originalKey = await deriveBlobKey(bytes, file.type)
-    const thumbKey = thumbKeyFor(originalKey)
-
-    // Content-addressed, so an identical re-upload (the common case: a host
-    // re-saving the same photo) is a cache hit here and skips both the R2
-    // write and the resize entirely.
-    if (!(await ports.blobStorage.get(thumbKey))) {
-      const thumb = resizeToSquareThumbnail(bytes)
-      if (!thumb) return fail('Could not process that image. Try a different file.')
-      await ports.blobStorage.put(originalKey, bytes, file.type)
-      await ports.blobStorage.put(thumbKey, thumb, THUMB_CONTENT_TYPE)
-    }
+    const stored = await storeUploadedImage(form.get('avatar'))
+    if (!stored.ok) return fail(stored.message)
+    const thumbKey = stored.key
 
     const repos = c.get('repos')
     await repos.users.update(user.id, { avatarKey: thumbKey })

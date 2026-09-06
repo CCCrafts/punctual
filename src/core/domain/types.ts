@@ -126,6 +126,14 @@ export interface EventType {
   locationType: LocationType
   locationValue: string | null
   questions: EventTypeQuestion[]
+  /**
+   * The event type's own logo (a thumbnail blob key, same convention as
+   * `User.avatarKey`). When set it heads the booking page and the social
+   * card instead of the host's photo or the team's logo. Optional in the
+   * type so the many fixtures that predate it stay valid; the repository
+   * always fills it.
+   */
+  logoKey?: string | null
   active: boolean
   createdAt: number
   /**

@@ -324,7 +324,9 @@ export function eventHeader(d: BookingPageData): string {
   // timezone default. Who the guest meets is `hostsRow`, below the header.
   const identity = d.team ? null : identityLineHtml(d)
   const headName = d.team ? d.team.name : d.host.name || d.host.slug
-  const headKey = d.team ? d.team.logoKey : d.host.avatarKey
+  // The event type's own logo wins over the team's logo and the host's
+  // photo: it is the one image the host chose for exactly this page.
+  const headKey = d.eventType.logoKey ?? (d.team ? d.team.logoKey : d.host.avatarKey)
   return `<header class="pu-event-header">
   <div class="pu-host">
     ${avatarHtml({ key: headKey, name: headName, size: 56 })}

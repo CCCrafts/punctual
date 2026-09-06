@@ -482,6 +482,7 @@ function copyButton(value: string): string {
 
 function eventTypeCard(d: DashboardHomeData, item: EventTypeListItem): string {
   const et = item.eventType
+  const logo = et.logoKey ? avatarHtml({ key: et.logoKey, name: et.title, size: 28 }) : ''
   const url = `${trimSlash(d.baseUrl)}/${encodeURIComponent(item.ownerSlug)}/${encodeURIComponent(et.slug)}`
   const inputId = `url-${escapeHtml(et.id)}`
   // Edit and Preview sit in the header beside the badges, and the link row
@@ -493,7 +494,7 @@ function eventTypeCard(d: DashboardHomeData, item: EventTypeListItem): string {
       : `<a class="pu-btn pu-btn-ghost" href="/dashboard/event-types/${encodeURIComponent(et.id)}">Edit</a>`
   return `<article class="pu-card pu-et-card">
   <div class="pu-et-head">
-    <h2>${escapeHtml(et.title)}</h2>
+    <h2 style="display:flex;align-items:center;gap:.5rem">${logo}${escapeHtml(et.title)}</h2>
     <div class="pu-et-actions">
       ${item.teamName ? `<span class="pu-badge">${escapeHtml(item.teamName)}</span>` : ''}
       ${et.active ? '' : '<span class="pu-badge" style="background:var(--pu-paper-dim);color:var(--pu-ink-500)">Hidden</span>'}
@@ -662,6 +663,38 @@ function formErrorCount(errors: Record<string, string>): number {
   return Object.keys(errors).filter((k) => k !== 'delete').length
 }
 
+/**
+ * An image with Upload and Remove, the profile photo's pattern reused for
+ * an event type's or a team's logo: one control that submits on change,
+ * a real button without scripts, Remove only when there is something to
+ * remove. Lives OUTSIDE any other form (nested forms are not HTML).
+ */
+function logoPanel(o: { csrf: string; action: string; key: string | null; name: string; errorKey: string; errors: Record<string, string>; hint: string }): string {
+  return `<div class="pu-profile-photo pu-logo-panel">
+      ${avatarHtml({ key: o.key, name: o.name, size: 72 })}
+      <div>
+        <form method="post" action="${escapeHtml(o.action)}" enctype="multipart/form-data" style="margin:0">
+          ${csrfField(o.csrf)}
+          <label class="pu-btn pu-btn-ghost pu-file-btn">${o.key ? 'Replace logo' : 'Upload logo'}
+            <input type="file" name="logo" accept="image/png,image/jpeg,image/webp" class="pu-sr"
+                   aria-label="Choose a logo" onchange="this.form.submit()"${describedBy(o.errorKey, o.errors)}>
+          </label>
+          <noscript><button class="pu-btn" type="submit" style="margin-top:.5rem">Upload</button></noscript>
+        </form>
+        ${
+          o.key
+            ? `<form method="post" action="${escapeHtml(o.action)}/delete" style="margin:.35rem 0 0">
+          ${csrfField(o.csrf)}
+          <button class="pu-btn-plain" type="submit">Remove</button>
+        </form>`
+            : ''
+        }
+        <p class="pu-muted" style="font-size:.8125rem;margin:.35rem 0 0">${o.hint} PNG, JPEG or WebP, up to 5 MB.</p>
+        ${fieldError(o.errorKey, o.errors)}
+      </div>
+    </div>`
+}
+
 export function eventTypeForm(d: EventTypeFormData): string {
   const et = d.eventType
   const errors = d.errors ?? {}
@@ -719,6 +752,7 @@ export function eventTypeForm(d: EventTypeFormData): string {
     (d.notice ? notice(d.notice) : '') +
     `<section class="pu-card" aria-label="${editing ? 'Edit event type' : 'New event type'}">
   <h1>${editing ? 'Edit event type' : 'New event type'}</h1>
+  ${editing ? logoPanel({ csrf: d.csrf, action: `/dashboard/event-types/${encodeURIComponent(et!.id)}/logo`, key: et!.logoKey ?? null, name: et!.title, errorKey: 'logo', errors, hint: "Heads this event type's booking page and social card instead of your photo or the team's logo. Square works best." }) : ''}
   <form method="post" action="${escapeHtml(action)}" class="pu-et-form">
     ${csrfField(d.csrf)}
     ${errorNotice}
@@ -1660,6 +1694,8 @@ export interface TeamsPageData extends DashboardChrome {
   slugValue?: string
   /** Echo of a failed add-member submit, scoped to one team's form. */
   addValues?: { teamId: string; email: string; weight: string }
+  /** Echo of a failed rename / re-slug submit, scoped to one team's settings form. */
+  editValues?: { teamId: string; name: string; slug: string }
   errors?: Record<string, string>
   notice?: string
 }
@@ -1789,8 +1825,36 @@ function teamCard(d: TeamsPageData, view: TeamView): string {
 
   // The inline min-width duplicates .pu-dash-table on purpose: the table
   // must not squeeze even before the stylesheet applies.
+  const edit = d.editValues?.teamId === team.id ? d.editValues : { teamId: team.id, name: team.name, slug: team.slug }
+  const settings = view.canManage
+    ? `<details class="pu-team-settings"${d.editValues?.teamId === team.id || errors[`logo-${team.id}`] ? ' open' : ''}>
+    <summary>Team settings — name, address, logo</summary>
+    ${logoPanel({ csrf: d.csrf, action: `/dashboard/teams/${teamId}/logo`, key: team.logoKey, name: team.name, errorKey: `logo-${team.id}`, errors, hint: "Heads the team's booking pages and social cards." })}
+    <form method="post" action="/dashboard/teams/${teamId}" style="margin-top:1rem">
+      ${csrfField(d.csrf)}
+      <div class="pu-grid" style="grid-template-columns:repeat(auto-fit,minmax(11rem,1fr));gap:0 1rem">
+        <div>
+          <label for="team-name-${escapeHtml(team.id)}">Name</label>
+          <input id="team-name-${escapeHtml(team.id)}" name="name" required aria-required="true" maxlength="120"
+                 value="${escapeHtml(edit.name)}"${describedBy(`team-name-${team.id}`, errors)}>
+          ${fieldError(`team-name-${team.id}`, errors)}
+        </div>
+        <div>
+          <label for="team-slug-${escapeHtml(team.id)}">URL slug</label>
+          <input id="team-slug-${escapeHtml(team.id)}" name="slug" required aria-required="true" maxlength="40" pattern="[a-z0-9\\-]+"
+                 value="${escapeHtml(edit.slug)}"${describedBy(`team-slug-${team.id}`, errors)}>
+          ${fieldError(`team-slug-${team.id}`, errors)}
+          <p class="pu-muted" style="font-size:.8125rem;margin:.25rem 0 0">Changing it breaks every booking link already shared — there is no redirect from /${escapeHtml(team.slug)}.</p>
+        </div>
+      </div>
+      <div style="margin-top:.75rem"><button class="pu-btn pu-btn-ghost" type="submit">Save team</button></div>
+    </form>
+  </details>`
+    : ''
+
   return `<article class="pu-card">
   <div class="pu-card-title">
+    ${team.logoKey ? avatarHtml({ key: team.logoKey, name: team.name, size: 32 }) : ''}
     <h2>${escapeHtml(team.name)}</h2>${view.viaInstanceAdmin ? '<span class="pu-badge pu-badge-neutral">Instance admin view</span>' : ''}
     <span class="pu-time pu-muted pu-card-title-action" style="margin-left:auto">/${escapeHtml(team.slug)}</span>
   </div>
@@ -1803,6 +1867,7 @@ function teamCard(d: TeamsPageData, view: TeamView): string {
   </table></div>
   ${view.canManage ? `<p class="pu-muted" style="font-size:.8125rem;margin:.5rem 0 0">A team's last admin can't be demoted or removed.</p>` : ''}
   ${addForm}
+  ${settings}
 </article>`
 }
 
