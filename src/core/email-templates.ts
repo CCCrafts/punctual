@@ -615,6 +615,78 @@ export function hostAddedEmail(input: HostAddedInput): EmailContent {
   return render(shellInput, `You're a host on ${input.eventTitle}`)
 }
 
+export interface BookingHostChangeInput {
+  brandName: string
+  /** The recipient — the host being put on or taken off the booking. */
+  hostName: string
+  /** The recipient's zone: the time is rendered for them, not for the editor. */
+  hostTz: string
+  eventTitle: string
+  guestName: string
+  guestEmail: string
+  startUtc: number
+  endUtc: number
+  /** The hosts as they stand AFTER the change, by name. */
+  hostNames: string[]
+  /** Who made the change — named, so it is not an anonymous system notice. */
+  editorName: string
+  bookingUrl: string
+  supportEmail?: string
+}
+
+function bookingHostChangeRows(input: BookingHostChangeInput): DetailRow[] {
+  return [
+    { label: 'When', value: formatWhen(input.startUtc, input.endUtc, input.hostTz) },
+    { label: 'Guest', value: `${input.guestName} (${input.guestEmail})` },
+    { label: 'Event', value: input.eventTitle },
+    { label: 'Hosts', value: input.hostNames.join(', ') },
+  ]
+}
+
+/**
+ * "You've been added to a booking" — to a host put on an EXISTING booking
+ * after the fact. Unlike `hostAddedEmail` this is one specific meeting at
+ * one specific time, so the time and the guest are the body of it; the
+ * dashboard link is where the host reads the rest.
+ */
+export function hostAddedToBookingEmail(input: BookingHostChangeInput): EmailContent {
+  const shellInput: ShellInput = {
+    brandName: input.brandName,
+    preheader: `${input.editorName} added you to ${input.eventTitle} with ${input.guestName}.`,
+    heading: `You've been added to a booking`,
+    intro: `${input.editorName} added you as a host on "${input.eventTitle}" with ${input.guestName}. The calendar invitation follows separately.`,
+    rows: bookingHostChangeRows(input),
+    ctas: [{ label: 'Open the booking', url: input.bookingUrl, primary: true }],
+    notes: [
+      tzNote(input.hostTz, input.startUtc),
+      ...(input.supportEmail ? [`Questions? Write to ${input.supportEmail}.`] : []),
+    ],
+  }
+  return render(shellInput, `You've been added: ${input.eventTitle} with ${input.guestName}, ${formatWhenShort(input.startUtc, input.hostTz)}`)
+}
+
+/**
+ * "You've been taken off a booking" — the mirror of the above. Says who
+ * still hosts, because the reader's first question is whether the meeting
+ * is covered without them.
+ */
+export function hostRemovedFromBookingEmail(input: BookingHostChangeInput): EmailContent {
+  const shellInput: ShellInput = {
+    brandName: input.brandName,
+    preheader: `${input.editorName} took you off ${input.eventTitle} with ${input.guestName}.`,
+    heading: `You've been taken off a booking`,
+    intro: `${input.editorName} took you off "${input.eventTitle}" with ${input.guestName}. The meeting goes ahead with the hosts below; nothing is expected of you.`,
+    rows: bookingHostChangeRows(input),
+    ctas: [{ label: 'Open the booking', url: input.bookingUrl }],
+    notes: [
+      'If the meeting is still on your calendar, you can decline or remove it — the booking itself no longer lists you.',
+      tzNote(input.hostTz, input.startUtc),
+      ...(input.supportEmail ? [`Questions? Write to ${input.supportEmail}.`] : []),
+    ],
+  }
+  return render(shellInput, `You've been taken off: ${input.eventTitle} with ${input.guestName}, ${formatWhenShort(input.startUtc, input.hostTz)}`)
+}
+
 export interface MagicLinkInput {
   url: string
   /** The IP that asked for the link. ADR-0005 §3 requires it in the body. */
