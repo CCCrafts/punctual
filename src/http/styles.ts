@@ -566,6 +566,24 @@ input:has(+ .pu-err),select:has(+ .pu-err),textarea:has(+ .pu-err){border-color:
   background:var(--pu-status-info-bg);border-left:3px solid var(--pu-status-info);
   color:var(--pu-text-primary);font-size:.875rem}
 .pu-notice a{font-weight:600}
+/* Badge states, in the brand's own vocabulary: a filled dot is "confirmed",
+   a ring is "open" — so Connected vs Needs reconnect reads without colour
+   as well as with it. The danger badge keeps a pill background in dark mode
+   because the tokens carry one; the old inline colour did not. */
+.pu-badge-dot::before{content:"";display:inline-block;width:.45rem;height:.45rem;margin:0 .35rem .1rem 0;
+  border-radius:99px;background:currentColor;vertical-align:middle}
+.pu-badge-danger{background:var(--pu-status-danger-bg);color:var(--pu-status-danger)}
+.pu-badge-danger::before{background:none;border:1.5px solid currentColor;box-sizing:border-box}
+/* A destructive action that is not the card's purpose: text in the danger
+   colour on a ghost frame, so Save stays the only solid button in the row. */
+.pu-btn-ghost-danger{background:none;color:var(--pu-status-danger);border-color:var(--pu-border-subtle)}
+.pu-btn-ghost-danger:hover{background:var(--pu-status-danger-bg);border-color:var(--pu-status-danger);
+  color:var(--pu-status-danger)}
+.pu-form-row{display:flex;align-items:center;justify-content:space-between;gap:.75rem;flex-wrap:wrap;margin-top:1rem}
+/* A checkbox with its label on one line, and the label at body weight: the
+   heading above the group carries the emphasis, not every option. */
+.pu-check{display:flex;align-items:flex-start;gap:.5rem;font-weight:400;margin:.35rem 0;font-size:.9375rem}
+.pu-check input{margin-top:.25rem;flex:none}
 `
 
 export function pageCss(): string {

@@ -1418,10 +1418,12 @@ export function connectionsPage(d: ConnectionsPageData): string {
       ? `<p class="pu-muted">No calendars connected. Bookings still work — nothing will be checked for conflicts.</p>`
       : d.connections.map((c) => connectionCard(d, c)).join('\n')
 
+  // The reader is the host, who usually cannot set a secret; only when they
+  // also run the deployment is the fix theirs to make.
   const connectButtons =
     d.availableProviders.length === 0
-      ? `<p class="pu-muted">No calendar provider is configured on this deployment. Set the provider's
-       client id and secret to enable connecting.</p>`
+      ? `<p class="pu-muted">This deployment has no Google or Microsoft credentials yet. If you run it, see
+       <a href="/docs/self-hosting">self-hosting &rarr; calendar providers</a>; otherwise ask your admin.</p>`
       : d.availableProviders
           .map(
             (p) =>
@@ -1437,7 +1439,7 @@ export function connectionsPage(d: ConnectionsPageData): string {
   <p class="pu-muted">Calendars you read are checked for conflicts. The calendar you write to receives the booking.</p>
   <div style="display:grid;gap:1rem">${cards}</div>
   <div class="pu-card" style="margin-top:1.5rem">
-    <h2>Connect another calendar</h2>
+    <h2>${d.connections.length === 0 ? 'Connect a calendar' : 'Connect another calendar'}</h2>
     <p class="pu-muted" style="font-size:.8125rem">
       Connecting asks for calendar permissions. Signing in never does — they are separate grants, so revoking
       one does not affect the other.</p>
@@ -1451,20 +1453,45 @@ export function connectionsPage(d: ConnectionsPageData): string {
 function connectionCard(d: ConnectionsPageData, view: ConnectionView): string {
   const c = view.connection
   const id = encodeURIComponent(c.id)
+
+  // Nothing here can be saved until the host reconnects — the provider will
+  // not even list calendars — so the form would only promise what Save
+  // cannot do. Two actions, the only two that work.
+  if (c.syncStatus === 'needs_reconnect') {
+    return `<article class="pu-card">
+  ${connectionHeading(c)}
+  <div role="alert">
+    <p class="pu-err" style="font-size:.9375rem;margin-top:.75rem">Access was revoked or expired. Conflicts from this calendar are not
+       being checked and new bookings are not written to it.</p>
+  </div>
+  <div class="pu-form-row">
+    <a class="pu-btn" href="/auth/${c.provider}/start?purpose=calendar">Reconnect ${escapeHtml(providerLabel(c.provider))}</a>
+    <form method="post" action="/dashboard/connections/${id}/disconnect" style="margin:0">
+      ${csrfField(d.csrf)}
+      <button class="pu-btn pu-btn-ghost pu-btn-ghost-danger" type="submit">Disconnect</button>
+    </form>
+  </div>
+</article>`
+  }
+
   // A provider list we could not fetch must not silently drop the host's
-  // selection, so fall back to the stored ids as their own labels.
-  const calendars =
-    view.calendars.length > 0
-      ? view.calendars
-      : c.calendarIdsRead.map((cid) => ({ id: cid, name: cid, primary: false }))
+  // selection, so fall back to the stored ids — labelled as ids we could
+  // not resolve, so the host knows the name is missing and not the calendar.
+  const listed = view.calendars.length > 0
+  const calendars = listed
+    ? view.calendars
+    : c.calendarIdsRead.map((cid) => ({ id: cid, name: cid, primary: false }))
 
   const readRows = calendars
     .map((cal) => {
       const inputId = `read-${escapeHtml(c.id)}-${escapeHtml(cal.id)}`
       const checked = c.calendarIdsRead.includes(cal.id) ? ' checked' : ''
-      return `<label for="${inputId}" style="display:flex;align-items:center;gap:.5rem;font-weight:400;margin:.35rem 0">
-        <input id="${inputId}" name="read" type="checkbox" value="${escapeHtml(cal.id)}"${checked} style="width:auto">
-        <span>${escapeHtml(cal.name)}${cal.primary ? ' <span class="pu-muted">(primary)</span>' : ''}</span>
+      const label = listed
+        ? `${escapeHtml(cal.name)}${cal.primary ? ' <span class="pu-muted">(primary)</span>' : ''}`
+        : `${escapeHtml(cal.id)} <span class="pu-muted">&mdash; could not list calendars</span>`
+      return `<label class="pu-check" for="${inputId}">
+        <input id="${inputId}" name="read" type="checkbox" value="${escapeHtml(cal.id)}"${checked}>
+        <span>${label}</span>
       </label>`
     })
     .join('\n      ')
@@ -1477,22 +1504,12 @@ function connectionCard(d: ConnectionsPageData, view: ConnectionView): string {
     ),
   ].join('\n        ')
 
+  // Disconnect sits on Save's row but must not post to Save's action, and
+  // forms cannot nest — the button's `form` attribute points it at its own
+  // form, rendered after, which plain HTML honours without any script.
   return `<article class="pu-card">
-  <div style="display:flex;align-items:baseline;justify-content:space-between;gap:1rem;flex-wrap:wrap">
-    <h2 style="margin:0">${escapeHtml(providerLabel(c.provider))}</h2>
-    ${syncBadge(c)}
-  </div>
-  <p class="pu-muted" style="margin:.25rem 0 0">${escapeHtml(c.providerAccountEmail || 'Unknown account')}</p>
-  ${
-    c.syncStatus === 'needs_reconnect'
-      ? `<div style="margin:.75rem 0" role="alert">
-    <p class="pu-err" style="font-size:.9375rem">Access was revoked or expired. Conflicts from this calendar are not
-       being checked and new bookings are not written to it.</p>
-    <a class="pu-btn" href="/auth/${c.provider}/start?purpose=calendar">Reconnect ${escapeHtml(providerLabel(c.provider))}</a>
-  </div>`
-      : ''
-  }
-  <form method="post" action="/dashboard/connections/${id}">
+  ${connectionHeading(c)}
+  <form id="save-${escapeHtml(c.id)}" method="post" action="/dashboard/connections/${id}">
     ${csrfField(d.csrf)}
     <fieldset style="border:0;padding:0;margin:1rem 0 0">
       <legend style="font-size:.875rem;font-weight:600;padding:0">Check these for conflicts</legend>
@@ -1502,19 +1519,29 @@ function connectionCard(d: ConnectionsPageData, view: ConnectionView): string {
     <select id="write-${escapeHtml(c.id)}" name="write">
         ${writeOptions}
     </select>
-    <div style="margin-top:1rem"><button class="pu-btn" type="submit">Save</button></div>
+    <div class="pu-form-row">
+      <button class="pu-btn" type="submit">Save</button>
+      <button class="pu-btn pu-btn-ghost pu-btn-ghost-danger" type="submit" form="disconnect-${escapeHtml(c.id)}">Disconnect</button>
+    </div>
   </form>
-  <form method="post" action="/dashboard/connections/${id}/disconnect" style="margin-top:.75rem">
+  <form id="disconnect-${escapeHtml(c.id)}" method="post" action="/dashboard/connections/${id}/disconnect" style="margin:0">
     ${csrfField(d.csrf)}
-    <button class="pu-btn pu-btn-danger" type="submit">Disconnect</button>
   </form>
 </article>`
 }
 
+function connectionHeading(c: CalendarConnection): string {
+  return `<div style="display:flex;align-items:baseline;justify-content:space-between;gap:1rem;flex-wrap:wrap">
+    <h2 style="margin:0">${escapeHtml(providerLabel(c.provider))}</h2>
+    ${syncBadge(c)}
+  </div>
+  <p class="pu-muted" style="margin:.25rem 0 0">${escapeHtml(c.providerAccountEmail || 'Unknown account')}</p>`
+}
+
 function syncBadge(c: CalendarConnection): string {
-  if (c.syncStatus === 'ok') return '<span class="pu-badge">Connected</span>'
+  if (c.syncStatus === 'ok') return '<span class="pu-badge pu-badge-dot">Connected</span>'
   const label = c.syncStatus === 'needs_reconnect' ? 'Needs reconnect' : 'Sync error'
-  return `<span class="pu-badge" style="background:var(--pu-paper-dim);color:var(--pu-danger)">${label}</span>`
+  return `<span class="pu-badge pu-badge-dot pu-badge-danger">${label}</span>`
 }
 
 // ---------------------------------------------------------------------------
