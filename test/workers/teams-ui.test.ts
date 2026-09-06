@@ -1504,7 +1504,7 @@ describe('hosts editor', () => {
     expect(html).toMatch(new RegExp(`name="host-${BOB_ID}-mode"[^>]*>\\s*<option value="required">Required</option>\\s*<option value="optional" selected>`))
     expect(html).toContain('<option value="sch_bob_support" selected>Support hours</option>')
     // The preview follows the submitted state: Carol is out, Bob is optional.
-    expect(html).toContain("Guests will see: You'll meet <strong>Alice Host</strong>. <strong>Bob Host</strong> joins when free")
+    expect(html).toContain("Guests will see: You'll meet <strong>Alice Host</strong> <span class=\"pu-hosts-team\">(Roles Crew)</span>. <strong>Bob Host</strong> joins when free")
     // Nothing was written.
     expect(await repos().eventTypeHosts.forEventType(crewEventTypeId)).toEqual([])
     expect((await repos().eventTypes.byId(crewEventTypeId))!.title).toBe('Crew call')
@@ -1551,7 +1551,7 @@ describe('hosts editor', () => {
 
     const html = await (await get(`/dashboard/event-types/${crewEventTypeId}`, alice)).text()
     expect(rowOrder(html)).toEqual([BOB_ID, ALICE_ID, CAROL_ID])
-    expect(html).toContain("Guests will see: You'll meet <strong>Alice Host and Carol Host</strong>. <strong>Bob Host</strong> joins when free")
+    expect(html).toContain("Guests will see: You'll meet <strong>Alice Host and Carol Host</strong> <span class=\"pu-hosts-team\">(Roles Crew)</span>. <strong>Bob Host</strong> joins when free")
     expect(html).toContain('<a href="/roles-crew/crew-call" target="_blank" rel="noopener">Preview booking page (opens in a new tab)</a>')
     const page = await (await publicApp.fetch(new Request(`${BASE}/roles-crew/crew-call`))).text()
     expect(page).toContain("You'll meet <strong>Alice Host and Carol Host</strong> <span class=\"pu-hosts-team\">(Roles Crew)</span>. <strong>Bob Host</strong> joins when free")
@@ -1592,7 +1592,7 @@ describe('hosts editor', () => {
     const ticked = await all.text()
     expect(ticked).toContain('Every host ticked — save to keep it')
     for (const id of [ALICE_ID, BOB_ID, CAROL_ID]) expect(ticked).toContain(`name="host-${id}" value="on" checked`)
-    expect(ticked).toContain("Guests will see: You'll meet <strong>Alice Host and Carol Host</strong>. <strong>Bob Host</strong> joins when free")
+    expect(ticked).toContain("Guests will see: You'll meet <strong>Alice Host and Carol Host</strong> <span class=\"pu-hosts-team\">(Roles Crew)</span>. <strong>Bob Host</strong> joins when free")
 
     expect(await repos().eventTypeHosts.forEventType(crewEventTypeId)).toEqual([])
     expect(sent()).toHaveLength(0)
@@ -1620,7 +1620,7 @@ describe('hosts editor', () => {
     const html = await res.text()
     expect(html.match(/&asymp; \d+%/g)).toEqual(['&asymp; 50%', '&asymp; 17%', '&asymp; 33%'])
     expect(html).toContain(`aria-label="Alice Host: round-robin weight"\n                 value="3"`)
-    expect(html).toContain('Guests will see: With one of <strong>Alice Host, Bob Host or Carol Host</strong>')
+    expect(html).toContain('Guests will see: With one of <strong>Alice Host, Bob Host or Carol Host</strong> <span class="pu-hosts-team">(Roles Crew)</span>')
     expect(await repos().eventTypeHosts.forEventType(crewEventTypeId)).toEqual([])
   })
 

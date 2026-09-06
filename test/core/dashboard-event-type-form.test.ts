@@ -242,11 +242,11 @@ describe('eventTypeForm — hosts editor', () => {
   const preview = (html: string): string => /<p class="pu-host-preview">Guests will see: ([\s\S]*?)<\/p>/.exec(html)?.[1] ?? ''
   /** What the booking page would print for the same hosts — the sentence inside its row. */
   const bookingSentence = (et: EventType, hosts: ResolvedHost[]): string =>
-    /<p class="pu-hosts-text">([\s\S]*?)<\/p>/.exec(hostsRow({ eventType: et, hosts }))?.[1] ?? ''
+    /<p class="pu-hosts-text">([\s\S]*?)<\/p>/.exec(hostsRow({ eventType: et, hosts, team: support }))?.[1] ?? ''
 
   it('previews the collective sentence with the booking page\'s own wording', () => {
     const html = render(teamEvent)
-    expect(preview(html)).toBe("You'll meet <strong>Grace Hopper</strong>. <strong>Bob Chen</strong> joins when free")
+    expect(preview(html)).toBe("You'll meet <strong>Grace Hopper</strong> <span class=\"pu-hosts-team\">(Support Crew)</span>. <strong>Bob Chen</strong> joins when free")
     expect(preview(html)).toBe(
       bookingSentence(teamEvent, [
         { user, required: true, scheduleId: null, rrWeight: 1 },
@@ -257,7 +257,7 @@ describe('eventTypeForm — hosts editor', () => {
 
   it('previews the round-robin pool with "or", never a specific person', () => {
     const html = render(roundRobin)
-    expect(preview(html)).toBe('With one of <strong>Grace Hopper or Bob Chen</strong>')
+    expect(preview(html)).toBe('With one of <strong>Grace Hopper or Bob Chen</strong> <span class="pu-hosts-team">(Support Crew)</span>')
     expect(preview(html)).toBe(
       bookingSentence(roundRobin, [
         { user, required: true, scheduleId: null, rrWeight: 1 },
@@ -271,7 +271,7 @@ describe('eventTypeForm — hosts editor', () => {
       ...c,
       draft: { selected: c.user.id === bob.id, required: true, scheduleId: null, weightText: '' },
     }))
-    expect(preview(render(teamEvent, drafted))).toBe("You'll meet <strong>Bob Chen</strong>")
+    expect(preview(render(teamEvent, drafted))).toBe("You'll meet <strong>Bob Chen</strong> <span class=\"pu-hosts-team\">(Support Crew)</span>")
     expect(render(teamEvent, drafted)).toContain(`name="host-${user.id}" value="on">`)
     expect(render(teamEvent, drafted)).toContain(`name="host-${bob.id}" value="on" checked`)
 
@@ -343,7 +343,7 @@ describe('eventTypeForm — hosts editor', () => {
     const reversed = render(teamEvent, [hostChoices[1]!, hostChoices[0]!])
     expect(reversed.indexOf(`name="host-${bob.id}"`)).toBeLessThan(reversed.indexOf(`name="host-${user.id}"`))
     expect(reversed).toContain(`aria-label="Move Bob Chen up" title="Move up" disabled>`)
-    expect(preview(reversed)).toBe("You'll meet <strong>Grace Hopper</strong>. <strong>Bob Chen</strong> joins when free")
+    expect(preview(reversed)).toBe("You'll meet <strong>Grace Hopper</strong> <span class=\"pu-hosts-team\">(Support Crew)</span>. <strong>Bob Chen</strong> joins when free")
   })
 
   it('keeps Enter as "save": a hidden default submit precedes the first move button', () => {

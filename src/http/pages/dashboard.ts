@@ -1040,7 +1040,9 @@ function hostsFields(d: EventTypeFormData, errors: Record<string, string>): stri
     scheduleId: v.scheduleId,
     rrWeight: v.weight,
   }))
-  const sentence = hostsSentence({ eventType: et, hosts: previewHosts })
+  // The same function as the booking page, with the same team, so the
+  // preview cannot drift from what guests see.
+  const sentence = hostsSentence({ eventType: et, hosts: previewHosts, team: d.teams?.find((t) => t.id === et.ownerTeamId) ?? null })
   const preview = `<p class="pu-host-preview">Guests will see: ${
     sentence === '' ? '<em>nobody yet &mdash; tick at least one host</em>' : sentence
   }</p>`
@@ -3207,7 +3209,7 @@ export function adminPage(d: AdminPageData): string {
 <section class="pu-card" aria-label="Company logo" style="margin-bottom:1.25rem">
   <h2>Company logo</h2>
   <p class="pu-muted">Heads every team booking page and its social card. An event type with a logo of its own keeps that; personal pages keep the host's photo.</p>
-  ${logoPanel({ csrf: d.csrf, action: '/dashboard/admin/logo', key: d.companyLogo?.key ?? null, shape: d.companyLogo?.shape ?? null, name: d.brandName, errorKey: 'company-logo', errors, hint: 'PNG, JPEG or WebP, up to 5 MB. A wordmark reads best in its own proportions.' })}
+  ${logoPanel({ csrf: d.csrf, action: '/dashboard/admin/logo', key: d.companyLogo?.key ?? null, shape: d.companyLogo?.shape ?? null, name: d.brandName, errorKey: 'company-logo', errors, hint: 'A wordmark reads best in its own proportions.' })}
 </section>
 <section class="pu-card" aria-label="Users">
   <h2>Users</h2>
