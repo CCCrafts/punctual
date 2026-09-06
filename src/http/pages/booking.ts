@@ -252,17 +252,20 @@ export function joinNames(names: string[], conjunction: 'and' | 'or' = 'and'): s
 }
 
 /**
- * Who the guest will meet, for a team-owned page. Collective promises only
- * the REQUIRED hosts — "You'll meet Alice and Bob" — and says the optional
- * ones "join when free", because that is exactly what an optional host
- * does: a slot is listed whether or not they are free for it, and the
+ * The sentence naming who the guest will meet, as HTML. Collective promises
+ * only the REQUIRED hosts — "You'll meet Alice and Bob" — and says the
+ * optional ones "join when free", because that is exactly what an optional
+ * host does: a slot is listed whether or not they are free for it, and the
  * confirmation names whoever actually joined. Round-robin names the pool
  * and never a specific person, because the host is picked at commit
  * (ADR-0004 §5: listings are advisory about who). More than four names in
  * a group collapse to three plus a CSS-only "and N more" — no script.
- * Empty for a personal page.
+ *
+ * Exported on its own because the event-type editor previews it under the
+ * Hosts block ("Guests will see"): one function, so the preview and the
+ * booking page cannot drift apart. Empty for a personal page or no hosts.
  */
-export function hostsRow(d: Pick<BookingPageData, 'eventType' | 'hosts'>): string {
+export function hostsSentence(d: Pick<BookingPageData, 'eventType' | 'hosts'>): string {
   const hosts = d.hosts ?? []
   if (d.eventType.ownerTeamId === null || hosts.length === 0) return ''
   const collective = d.eventType.schedulingType === 'collective'
@@ -270,13 +273,6 @@ export function hostsRow(d: Pick<BookingPageData, 'eventType' | 'hosts'>): strin
   const promised = collective ? hosts.filter((h) => h.required) : hosts
   const optional = collective ? hosts.filter((h) => !h.required) : []
   const name = (h: ResolvedHost) => h.user.name || h.user.slug
-
-  // Avatars: the promised hosts first, then optional ones; more than four
-  // in total collapses to three and a count.
-  const ordered = [...promised, ...optional]
-  const shown = ordered.length > 4 ? ordered.slice(0, 3) : ordered
-  const stack = shown.map((h) => avatarHtml({ key: h.user.avatarKey, name: name(h), size: 32 })).join('')
-  const count = ordered.length > 4 ? `<span class="pu-hosts-count" aria-hidden="true">+${ordered.length - 3}</span>` : ''
 
   const group = (list: ResolvedHost[]): string => {
     const names = list.map(name)
@@ -292,9 +288,31 @@ export function hostsRow(d: Pick<BookingPageData, 'eventType' | 'hosts'>): strin
     optional.length > 0
       ? `${lead ? '. ' : ''}${group(optional)} ${optional.length === 1 ? 'joins' : 'join'} when free`
       : ''
+  return `${lead}${joins}`
+}
+
+/**
+ * Who the guest will meet, for a team-owned page: the avatars and the
+ * sentence from `hostsSentence`. Empty for a personal page.
+ */
+export function hostsRow(d: Pick<BookingPageData, 'eventType' | 'hosts'>): string {
+  const hosts = d.hosts ?? []
+  if (d.eventType.ownerTeamId === null || hosts.length === 0) return ''
+  const collective = d.eventType.schedulingType === 'collective'
+  const promised = collective ? hosts.filter((h) => h.required) : hosts
+  const optional = collective ? hosts.filter((h) => !h.required) : []
+  const name = (h: ResolvedHost) => h.user.name || h.user.slug
+
+  // Avatars: the promised hosts first, then optional ones; more than four
+  // in total collapses to three and a count.
+  const ordered = [...promised, ...optional]
+  const shown = ordered.length > 4 ? ordered.slice(0, 3) : ordered
+  const stack = shown.map((h) => avatarHtml({ key: h.user.avatarKey, name: name(h), size: 32 })).join('')
+  const count = ordered.length > 4 ? `<span class="pu-hosts-count" aria-hidden="true">+${ordered.length - 3}</span>` : ''
+
   return `<div class="pu-hosts" aria-label="Hosts">
     <div class="pu-hosts-stack">${stack}${count}</div>
-    <p class="pu-hosts-text">${lead}${joins}</p>
+    <p class="pu-hosts-text">${hostsSentence(d)}</p>
   </div>`
 }
 
