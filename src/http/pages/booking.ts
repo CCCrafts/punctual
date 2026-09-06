@@ -58,6 +58,17 @@ export interface PageChrome {
    * caller already has it.
    */
   og?: { url: string; image: string }
+  /**
+   * The one URL a search engine should index this page under. Absent means
+   * NOT INDEXED: the head carries `noindex` instead. Indexing is opt-in for
+   * the same reason Open Graph is — a dashboard, a confirm step, a guest's
+   * manage link and an embedded copy of the booking page are all reachable
+   * by a crawler that follows links, and none of them is a page anyone
+   * should find by searching. The public booking page passes its own URL
+   * without the `?date=…&tz=…` a crawler found it with, so every variant
+   * folds back into one result.
+   */
+  canonical?: string
 }
 
 /**
@@ -74,6 +85,11 @@ ${chrome.description ? `<meta name="description" content="${escapeHtml(chrome.de
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="${chrome.themeColor ?? '#0E7C4C'}">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+${
+  chrome.canonical
+    ? `<link rel="canonical" href="${escapeHtml(chrome.canonical)}">`
+    : '<meta name="robots" content="noindex">'
+}
 ${
   chrome.og
     ? `<meta property="og:type" content="website">

@@ -6,6 +6,15 @@ still change interfaces.
 
 ## [Unreleased]
 
+### Fixed
+
+- Search engines indexed the booking page under every `?date=…&tz=…` day
+  link, the embedded copy and the confirm step, each as its own result.
+  The booking page now names its bare URL as canonical; the confirm step,
+  the embedded copy, guest manage links, sign-in and the dashboard say
+  `noindex`; and `/robots.txt` keeps crawlers out of the areas that hold
+  nothing for them.
+
 ### Added
 
 - **Logo shape.** An event type's or a team's logo can be shown as a

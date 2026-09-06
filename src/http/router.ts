@@ -167,16 +167,39 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
   })
   app.get('/privacy', (c) =>
     c.html(
-      shellHead({ title: `Privacy · ${ports.config.brandName}`, brandName: ports.config.brandName }) +
+      shellHead({
+        title: `Privacy · ${ports.config.brandName}`,
+        brandName: ports.config.brandName,
+        canonical: `${ports.config.baseUrl.replace(/\/$/, '')}/privacy`,
+      }) +
         privacyPage(legal()) +
         shellFoot(),
     ),
   )
   app.get('/terms', (c) =>
     c.html(
-      shellHead({ title: `Terms · ${ports.config.brandName}`, brandName: ports.config.brandName }) +
+      shellHead({
+        title: `Terms · ${ports.config.brandName}`,
+        brandName: ports.config.brandName,
+        canonical: `${ports.config.baseUrl.replace(/\/$/, '')}/terms`,
+      }) +
         termsPage(legal()) +
         shellFoot(),
+    ),
+  )
+
+  // What a crawler may fetch at all. Indexing itself is decided per page
+  // (`PageChrome.canonical`, pages/booking.ts): a page that must NOT appear
+  // in results says `noindex` in its head, and a crawler can only read that
+  // if it is allowed to fetch the page — which is why the confirm step and
+  // the embedded booking page are not listed here. Disallowed are the
+  // areas that hold nothing for a crawler: the dashboard, sign-in, the API,
+  // and guest manage links, whose URLs carry a token.
+  app.get('/robots.txt', (c) =>
+    c.body(
+      ['User-agent: *', 'Disallow: /dashboard', 'Disallow: /auth', 'Disallow: /api/', 'Disallow: /mcp', 'Disallow: /booking/', 'Allow: /', ''].join('\n'),
+      200,
+      { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'public, max-age=86400' },
     ),
   )
 
@@ -301,6 +324,11 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
           url: `${ports.config.baseUrl.replace(/\/$/, '')}/${userSlug}/${eventSlug}`,
           image: `${ports.config.baseUrl.replace(/\/$/, '')}/og/${userSlug}/${eventSlug}.png`,
         },
+        // Indexed under the bare URL only. A crawler that arrived through
+        // `?date=…&tz=…` (every day link on the calendar) folds back into
+        // this one result; the embedded copy (`?embed=1`, an iframe on the
+        // host's own site) is not a page in its own right and is left out.
+        ...(embed ? {} : { canonical: `${ports.config.baseUrl.replace(/\/$/, '')}/${userSlug}/${eventSlug}` }),
       }) + eventHeader(headerData)
 
     return streamPage(head, async () => {
