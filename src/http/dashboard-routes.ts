@@ -33,6 +33,7 @@ import { Hono, type Context, type MiddlewareHandler } from 'hono'
 import { notifyBookingCancelled } from '../adapters/notify.js'
 import { dispatchConfirmation } from '../adapters/queue/consumer.js'
 import type {
+  BookingListView,
   CalendarProviderName,
   EnginePorts,
   Repositories,
@@ -78,6 +79,7 @@ import { isValidTimeZone, localDateString } from '../core/time/zone.js'
 import { validateSlug } from '../core/domain/slugs.js'
 import { canManageTeam, isManagingRole } from '../core/domain/teams.js'
 import { hostUsers, resolveHosts as resolveEventTypeHosts } from '../core/domain/hosts.js'
+import { changeBookingHosts } from '../core/domain/booking-hosts.js'
 import { notifyNewHosts as notifyNewHostsShared } from './host-notifications.js'
 import {
   MAX_DECODED_PIXELS,
@@ -98,8 +100,12 @@ import {
   schedulesPage,
   scheduleForm,
   bookingDetailPage,
+  bookingsPage,
   connectionsPage,
   dashboardHome,
+  hostBookingPage,
+  hostChangeFailureMessage,
+  hostReschedulePage,
   eventTypeForm,
   loginPage,
   manageLinkErrorPage,
@@ -112,8 +118,11 @@ import {
   slugify,
   teamsPage,
   revokeKeyPage,
+  type BookingListRow,
+  type BookingParticipant,
   type ConnectionView,
   type EventTypeListItem,
+  type HostBookingPageData,
   type TeamView,
   type SchedulesPageData,
   type ScheduleFormData,
@@ -2181,6 +2190,515 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
   })
 
   // ===========================================================================
+  // Dashboard — bookings
+  // ===========================================================================
+
+  /** Rows per list view. One more is fetched, to know whether to say "showing the first N". */
+  const BOOKINGS_LIST_LIMIT = 100
+  /** How far ahead the host's reschedule picker looks. */
+  const RESCHEDULE_HORIZON_MS = 14 * 24 * 60 * 60 * 1000
+
+  app.get('/dashboard/bookings', requireSession, async (c) => {
+    const repos = c.get('repos')
+    const user = c.get('user')
+    const view = bookingView(c.req.query('view'))
+    const found = await repos.bookings.listForHostByStatus(user.id, {
+      view,
+      now: ports.clock.now(),
+      limit: BOOKINGS_LIST_LIMIT + 1,
+    })
+
+    // Titles and co-host names are looked up once per distinct id, not per
+    // row: a hundred bookings of one event type is one read, not a hundred.
+    const titles = new Map<string, string>()
+    const names = new Map<string, string>()
+    const rows: BookingListRow[] = []
+    for (const booking of found.slice(0, BOOKINGS_LIST_LIMIT)) {
+      let title = titles.get(booking.eventTypeId)
+      if (title === undefined) {
+        title = (await repos.eventTypes.byId(booking.eventTypeId))?.title ?? 'Meeting'
+        titles.set(booking.eventTypeId, title)
+      }
+      const coHostNames: string[] = []
+      for (const id of booking.hostUserIds) {
+        if (id === user.id) continue
+        let name = names.get(id)
+        if (name === undefined) {
+          const coHost = await repos.users.byId(id)
+          name = coHost ? coHost.name || coHost.slug : ''
+          names.set(id, name)
+        }
+        if (name !== '') coHostNames.push(name)
+      }
+      rows.push({ booking, eventTitle: title, coHostNames })
+    }
+
+    return c.html(
+      bookingsPage({
+        brandName,
+        user,
+        csrf: c.get('csrf'),
+        emailDelivery,
+        view,
+        rows,
+        truncated: found.length > BOOKINGS_LIST_LIMIT,
+      }),
+    )
+  })
+
+  interface HostBookingAccess {
+    booking: Booking
+    /** Null when the event type has since been deleted. */
+    eventType: EventType | null
+    /** The owning team of a team booking, when the event type still exists. */
+    team: Team | null
+    /** The signed-in user is one of the booking's hosts. */
+    attends: boolean
+    /** The signed-in user manages the owning team (core/domain/teams.ts). */
+    managesTeam: boolean
+  }
+
+  /**
+   * The booking behind `/dashboard/bookings/:id`, or null — a 404 — unless
+   * the signed-in user attends it or manages the team whose event type it
+   * was booked through. A stranger gets the same 404 as a wrong id: the
+   * page shows the guest's name, email and answers, which are not the
+   * instance's to show to every host on it.
+   */
+  async function hostBookingAccess(c: Ctx): Promise<HostBookingAccess | null> {
+    const repos = c.get('repos')
+    const user = c.get('user')
+    const booking = await repos.bookings.byId(c.req.param('id') ?? '')
+    if (!booking) return null
+    const eventType = await repos.eventTypes.byId(booking.eventTypeId)
+    const attends = booking.hostUserId === user.id || booking.hostUserIds.includes(user.id)
+    const team = eventType?.ownerTeamId ? await repos.teams.byId(eventType.ownerTeamId) : null
+    const manages = team ? await managesTeam(c, team.id) : false
+    if (!attends && !manages) return null
+    return { booking, eventType, team, attends, managesTeam: manages }
+  }
+
+  /** Everyone on the booking: its stored host list, or the primary host for rows written before the list existed. */
+  function attendingIds(booking: Booking): Set<string> {
+    return new Set(booking.hostUserIds.length > 0 ? booking.hostUserIds : [booking.hostUserId])
+  }
+
+  async function hostBookingPageData(
+    c: Ctx,
+    access: HostBookingAccess,
+    extra: { notice?: string; error?: string } = {},
+  ): Promise<HostBookingPageData> {
+    const repos = c.get('repos')
+    const user = c.get('user')
+    const { booking, eventType, team } = access
+    const attending = attendingIds(booking)
+
+    // The event type's CURRENT host set first, each marked with whether
+    // they are on this booking — then anyone on the booking the event type
+    // no longer names (removed from the team since, say), so the list never
+    // hides a person who will actually be in the meeting.
+    const participants: BookingParticipant[] = []
+    const seen = new Set<string>()
+    if (eventType) {
+      for (const h of await resolveEventTypeHosts(repos, eventType, user)) {
+        seen.add(h.user.id)
+        participants.push({
+          user: h.user,
+          required: eventType.ownerTeamId ? h.required : null,
+          attends: attending.has(h.user.id),
+        })
+      }
+    }
+    for (const id of attending) {
+      if (seen.has(id)) continue
+      const stray = await repos.users.byId(id)
+      if (stray) participants.push({ user: stray, required: null, attends: true })
+    }
+    participants.sort((a, b) => Number(b.attends) - Number(a.attends))
+
+    const canChangeHosts = team !== null && (access.attends || access.managesTeam)
+    const addable: User[] = []
+    if (canChangeHosts && team) {
+      for (const m of await repos.teams.members(team.id)) {
+        if (attending.has(m.userId)) continue
+        const member = await repos.users.byId(m.userId)
+        if (member) addable.push(member)
+      }
+    }
+
+    return {
+      brandName,
+      user,
+      csrf: c.get('csrf'),
+      emailDelivery,
+      booking,
+      eventType,
+      canEditEventType: eventType !== null && (eventType.ownerUserId === user.id || access.managesTeam),
+      teamName: team?.name ?? null,
+      participants,
+      canChangeHosts,
+      addable,
+      now: ports.clock.now(),
+      ...extra,
+    }
+  }
+
+  app.get('/dashboard/bookings/:id', requireSession, async (c) => {
+    const access = await hostBookingAccess(c)
+    if (!access) return notFound(c)
+    const notice = c.req.query('cancelled')
+      ? 'Booking cancelled. The guest has been emailed.'
+      : c.req.query('moved')
+        ? 'Booking moved. The guest has been emailed the new time.'
+        : c.req.query('hosts')
+          ? 'Participants updated.'
+          : undefined
+    return c.html(hostBookingPage(await hostBookingPageData(c, access, notice ? { notice } : {})))
+  })
+
+  app.post('/dashboard/bookings/:id/cancel', requireSession, async (c) => {
+    const form = await c.req.formData()
+    if (!(await csrfOk(c, form))) return csrfRejected(c)
+    const access = await hostBookingAccess(c)
+    if (!access) return notFound(c)
+
+    const blocked = rescheduleBlocker(access, ports.clock.now(), 'cancelled')
+    if (blocked) return c.html(hostBookingPage(await hostBookingPageData(c, access, { error: blocked })), 400)
+
+    // The textarea says 500; a raw POST is cut to the same, so the email
+    // stays an email and not a pasted document.
+    const note = String(form.get('note') ?? '').trim().slice(0, 500)
+    const cancelled = await cancelBooking(c.get('repos'), access.booking, {
+      cancelledBy: 'host',
+      actor: c.get('user'),
+      ...(note ? { reason: note } : {}),
+    })
+    if (!cancelled) {
+      return c.html(
+        hostBookingPage(
+          await hostBookingPageData(c, access, { error: 'This booking was already updated elsewhere. Reload to see its current state.' }),
+        ),
+        409,
+      )
+    }
+    await advanceBookmark(c)
+    return c.redirect(`/dashboard/bookings/${encodeURIComponent(access.booking.id)}?cancelled=1`, 302)
+  })
+
+  /**
+   * Why a booking cannot be moved (or cancelled), as the sentence the page
+   * shows — or null when it can. `verb` only changes the wording.
+   */
+  function rescheduleBlocker(access: HostBookingAccess, now: number, verb: 'moved' | 'cancelled'): string | null {
+    const { booking, eventType } = access
+    if (booking.status === 'cancelled') return `This booking is cancelled, so it cannot be ${verb}.`
+    if (booking.status === 'rescheduled') return `This booking was already moved, so it cannot be ${verb} again.`
+    if (booking.endUtc <= now) return `This meeting has already happened, so it cannot be ${verb}.`
+    if (!eventType && verb === 'moved') return 'This event type no longer exists, so the booking cannot be moved. Cancel it instead.'
+    return null
+  }
+
+  /**
+   * The host's picker data: the event type's slots for the next two weeks,
+   * grouped by day in the HOST's zone. Advisory, like every listing —
+   * the commit re-checks (ADR-0007 §2).
+   */
+  async function hostRescheduleDays(
+    c: Ctx,
+    access: HostBookingAccess & { eventType: EventType },
+  ): Promise<Array<{ date: string; slots: Awaited<ReturnType<SlotService['forEventType']>> }>> {
+    const repos = c.get('repos')
+    const user = c.get('user')
+    const now = ports.clock.now()
+    const primary = (await repos.users.byId(access.booking.hostUserId)) ?? user
+    const offered = await slots.forEventType({
+      eventType: access.eventType,
+      hostUsers: await resolveHosts(repos, access.eventType, primary),
+      range: { start: now, end: now + RESCHEDULE_HORIZON_MS },
+      scope: { consistency: 'unconstrained' },
+    })
+    const byDay = new Map<string, typeof offered>()
+    for (const slot of offered) {
+      const date = localDateString(slot.start, user.tz)
+      const day = byDay.get(date)
+      if (day) day.push(slot)
+      else byDay.set(date, [slot])
+    }
+    return [...byDay.entries()].map(([date, daySlots]) => ({ date, slots: daySlots }))
+  }
+
+  /** The `start` a picker link or form carried, or NaN — same range guard as the guest route. */
+  function chosenStart(raw: string | undefined | null): number {
+    const value = Number(raw)
+    return Number.isSafeInteger(value) && Math.abs(value) <= 8.64e15 ? value : NaN
+  }
+
+  app.get('/dashboard/bookings/:id/reschedule', requireSession, async (c) => {
+    const access = await hostBookingAccess(c)
+    if (!access) return notFound(c)
+    const chrome = { brandName, user: c.get('user'), csrf: c.get('csrf'), emailDelivery }
+    const base = { ...chrome, booking: access.booking, eventType: access.eventType }
+
+    const blocked = rescheduleBlocker(access, ports.clock.now(), 'moved')
+    if (blocked || !access.eventType) {
+      return c.html(hostReschedulePage({ ...base, blocked: blocked ?? 'This booking cannot be moved.' }))
+    }
+    const start = chosenStart(c.req.query('start'))
+    if (Number.isFinite(start)) return c.html(hostReschedulePage({ ...base, newStart: start }))
+    return c.html(
+      hostReschedulePage({ ...base, days: await hostRescheduleDays(c, { ...access, eventType: access.eventType }) }),
+    )
+  })
+
+  app.post('/dashboard/bookings/:id/reschedule', requireSession, async (c) => {
+    const form = await c.req.formData()
+    if (!(await csrfOk(c, form))) return csrfRejected(c)
+    const access = await hostBookingAccess(c)
+    if (!access) return notFound(c)
+    const repos = c.get('repos')
+    const user = c.get('user')
+    const base = { brandName, user, csrf: c.get('csrf'), emailDelivery, booking: access.booking, eventType: access.eventType }
+
+    const blocked = rescheduleBlocker(access, ports.clock.now(), 'moved')
+    const eventType = access.eventType
+    if (blocked || !eventType) {
+      return c.html(hostReschedulePage({ ...base, blocked: blocked ?? 'This booking cannot be moved.' }), 400)
+    }
+    const start = chosenStart(form.get('start') as string | null)
+    if (!Number.isFinite(start)) {
+      return c.html(
+        hostReschedulePage({ ...base, days: await hostRescheduleDays(c, { ...access, eventType }), error: 'No new time was chosen.' }),
+        400,
+      )
+    }
+
+    // The same host set the picker listed from, so what was shown and what
+    // is committed agree — the primary host is the fallback, exactly as on
+    // the guest's route, not the signed-in user (who may be a team admin
+    // who is not on the booking at all).
+    const primary = (await repos.users.byId(access.booking.hostUserId)) ?? user
+    const hosts = await resolveHosts(repos, eventType, primary)
+    const moved = await rescheduleBooking(repos, access.booking, eventType, primary, hosts, start)
+    if (!moved.ok) {
+      return c.html(
+        hostReschedulePage({
+          ...base,
+          days: await hostRescheduleDays(c, { ...access, eventType }),
+          error:
+            moved.reason === 'slot_taken'
+              ? 'That time was just taken. Pick another one.'
+              : 'This booking was already updated elsewhere. Reload and try again.',
+        }),
+        409,
+      )
+    }
+    await advanceBookmark(c)
+    return c.redirect(`/dashboard/bookings/${encodeURIComponent(moved.booking.id)}?moved=1`, 302)
+  })
+
+  /**
+   * Add or remove a co-host. The domain (core/domain/booking-hosts.ts)
+   * decides whether this user may, whether the person is a member, whether
+   * they are free — the route only carries the answer back to the page as
+   * a sentence. `hostBookingAccess` above is the one gate the route keeps:
+   * a stranger must not learn from the refusal wording that the booking
+   * exists.
+   */
+  async function applyHostChange(
+    c: Ctx,
+    access: HostBookingAccess,
+    input: { bookingId: string; add?: string[]; remove?: string[] },
+  ): Promise<Response> {
+    const result = await changeBookingHosts(ports, c.get('user'), input)
+    if (!result.ok) {
+      return c.html(
+        hostBookingPage(await hostBookingPageData(c, access, { error: hostChangeFailureMessage(result.reason) })),
+        400,
+      )
+    }
+    await advanceBookmark(c)
+    return c.redirect(`/dashboard/bookings/${encodeURIComponent(access.booking.id)}?hosts=1`, 302)
+  }
+
+  app.post('/dashboard/bookings/:id/hosts/add', requireSession, async (c) => {
+    const form = await c.req.formData()
+    if (!(await csrfOk(c, form))) return csrfRejected(c)
+    const access = await hostBookingAccess(c)
+    if (!access) return notFound(c)
+    const userId = String(form.get('userId') ?? '').trim()
+    if (userId === '') {
+      return c.html(hostBookingPage(await hostBookingPageData(c, access, { error: 'Choose a team member to add.' })), 400)
+    }
+    return applyHostChange(c, access, { bookingId: access.booking.id, add: [userId] })
+  })
+
+  app.post('/dashboard/bookings/:id/hosts/:userId/remove', requireSession, async (c) => {
+    const form = await c.req.formData()
+    if (!(await csrfOk(c, form))) return csrfRejected(c)
+    const access = await hostBookingAccess(c)
+    if (!access) return notFound(c)
+    return applyHostChange(c, access, { bookingId: access.booking.id, remove: [c.req.param('userId') ?? ''] })
+  })
+
+  // ===========================================================================
+  // Cancel and reschedule — shared by the guest's link and the host's dashboard
+  // ===========================================================================
+
+  /**
+   * Cancel a confirmed booking: the conditional status write with its lock
+   * release, the manage-link rotation, both parties' mail, the calendar
+   * delete. One function for both surfaces, so they cannot drift on which
+   * of those steps happen — they differ only in who is credited and
+   * whether there is a note.
+   *
+   * @returns false when the booking was no longer confirmed: a concurrent
+   *          cancel or reschedule won the race, and nothing here ran.
+   */
+  async function cancelBooking(
+    repos: Repositories,
+    booking: Booking,
+    by: { cancelledBy: 'host' | 'guest'; actor?: User; reason?: string },
+  ): Promise<boolean> {
+    // The caller's status check is read-then-write: a concurrent request (a
+    // second tab, a double-submitted reschedule) can change the booking
+    // between that read and this write. The conditional UPDATE is the real
+    // guard — if it reports no row changed, someone else already moved this
+    // booking, so treat it the same as the pre-check rather than sending a
+    // cancellation for a booking that is actually rescheduled.
+    const cancelledAt = ports.clock.now()
+    const cancelled = await repos.bookings.cancelWithLockRelease(booking.id, cancelledAt)
+    if (!cancelled) return false
+
+    // Rotate the hash so the link in the guest's inbox stops working. ADR-0005
+    // §4 names rotation-on-state-change as THE invalidation mechanism.
+    await repos.bookings.rotateManageToken(booking.id, await ports.crypto.hash(ports.crypto.randomToken(32)))
+
+    const eventType = await repos.eventTypes.byId(booking.eventTypeId)
+    const host = await repos.users.byId(booking.hostUserId)
+    if (eventType && host) {
+      const hosts = (await Promise.all([...attendingIds(booking)].map((id) => repos.users.byId(id)))).filter(
+        (u): u is User => u !== null,
+      )
+      await notifyBookingCancelled({
+        ports,
+        // Patched, not the pre-write booking: notifyWebhooks serializes
+        // `booking.status` straight into the payload, which would otherwise
+        // report "confirmed" on a `booking.cancelled` event.
+        booking: { ...booking, status: 'cancelled', cancelledAt },
+        eventType,
+        host,
+        ...(hosts.length > 0 ? { hosts } : {}),
+        cancelledBy: by.cancelledBy,
+        ...(by.actor ? { actor: by.actor } : {}),
+        ...(by.reason ? { reason: by.reason } : {}),
+      }).catch((err) => console.error('[punctual] cancellation emails failed', err))
+    }
+    // After the commit, deliberately: a calendar or mail failure must not
+    // leave a booking the guest believes is cancelled still holding the slot.
+    await ports.queue.send({ kind: 'calendar.sync', bookingId: booking.id, action: 'delete' }).catch(() => {})
+    return true
+  }
+
+  type RescheduleResult =
+    | { ok: true; booking: Booking; manageToken?: string }
+    | { ok: false; reason: 'slot_taken' | 'superseded' }
+
+  /**
+   * Move a confirmed booking to `start`: book the replacement through the
+   * coordinator, mark the original moved, kill its manage link, and enqueue
+   * the replacement's calendar sync — which is what dispatches the
+   * "Rescheduled" mail — plus the original's calendar delete. Shared by
+   * the guest's link and the host's dashboard. `hosts` is the event type's
+   * resolved host set, the same one the slot listing the caller showed
+   * was drawn from.
+   */
+  async function rescheduleBooking(
+    repos: Repositories,
+    old: Booking,
+    eventType: EventType,
+    host: User,
+    hosts: User[],
+    start: number,
+  ): Promise<RescheduleResult> {
+    const outcome = await ports.coordinator.book(host.id, {
+      eventTypeId: eventType.id,
+      hostUserIds: hosts.map((u) => u.id),
+      start,
+      end: start + eventType.durationMinutes * 60_000,
+      guestName: old.guestName,
+      guestEmail: old.guestEmail,
+      guestTimezone: old.guestTimezone,
+      answers: old.answers,
+      rescheduleOf: old.id,
+    })
+    if (!outcome.ok) return { ok: false, reason: 'slot_taken' }
+
+    // Only after the new booking exists: `markRescheduled` releases the old
+    // slot locks, and releasing them before the replacement is committed would
+    // open a window where neither time is held.
+    //
+    // The caller's `old.status !== 'confirmed'` check is read-then-write, so a
+    // second concurrent reschedule (or a cancel) of the same booking can land
+    // between that read and here. markRescheduled's UPDATE is conditional on
+    // the CURRENT status — if it reports no change, another request already
+    // moved or cancelled `old`, and the booking just created above is a real,
+    // confirmed, but orphaned duplicate. It must be released, not left live.
+    const moved = await repos.bookings.markRescheduled(old.id, outcome.booking.id)
+    if (!moved) {
+      await repos.bookings.cancelWithLockRelease(outcome.booking.id, ports.clock.now())
+      await ports.queue
+        .send({ kind: 'calendar.sync', bookingId: outcome.booking.id, action: 'delete' })
+        .catch(() => {})
+      return { ok: false, reason: 'superseded' }
+    }
+
+    // Kill the old link. The new booking carries its own freshly signed token,
+    // so the guest's superseded email stops working (ADR-0005 §4).
+    await repos.bookings.rotateManageToken(old.id, await ports.crypto.hash(ports.crypto.randomToken(32)))
+
+    // notifyBookingCreated deliberately skips a booking with rescheduleOf set,
+    // expecting the moving route to send the "Rescheduled" mail instead.
+    //
+    // The replacement's calendar sync is enqueued HERE, not by the
+    // coordinator, so it runs after `markRescheduled` has landed: dispatch
+    // requires `previous.rescheduledTo` to point back at this booking, which
+    // is only true once the line above has run. One message rather than two:
+    // Cloudflare Queues guarantees no ordering between independent messages,
+    // so a separate notify could claim and send before the calendar write
+    // recorded the new Meet link — permanently omitting it from the very
+    // email this work exists to put it in. Exactly one create-sync per
+    // replacement booking, so nothing races the read-then-act guard on
+    // `externalEventIds`.
+    await ports.queue
+      .send({
+        kind: 'calendar.sync',
+        bookingId: outcome.booking.id,
+        action: 'create',
+        ...(outcome.manageToken ? { manageToken: outcome.manageToken } : {}),
+      })
+      .catch(async (err) => {
+        // This is the ONLY message for a replacement booking, so losing it
+        // costs the guest both the calendar event and the "Rescheduled"
+        // email. Notify directly instead — without a conference link, since
+        // no calendar work will run, which is the honest outcome. The claim
+        // inside makes this and any later redelivery mutually exclusive.
+        console.error('[punctual] reschedule sync enqueue failed', err)
+        await dispatchConfirmation(outcome.booking.id, ports, outcome.manageToken).catch((e) =>
+          console.error('[punctual] reschedule fallback failed', e),
+        )
+      })
+
+    // The "Rescheduled" mail for the NEW leg is dispatched by the
+    // calendar-sync handler, not here: the new booking's Meet link does not
+    // exist until its calendar event does, and the email body is rendered
+    // at enqueue time. The handler branches on `rescheduleOf` to send the
+    // rescheduled copy rather than a fresh confirmation.
+    await ports.queue.send({ kind: 'calendar.sync', bookingId: old.id, action: 'delete' }).catch(() => {})
+
+    return { ok: true, booking: outcome.booking, ...(outcome.manageToken ? { manageToken: outcome.manageToken } : {}) }
+  }
+
+  // ===========================================================================
   // Guest manage page — authenticated by the manage token, never by a session
   // ===========================================================================
 
@@ -2266,46 +2784,8 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
       return manageError(c, 'This booking is no longer active.')
     }
 
-    // The status check above is read-then-write: a concurrent request (a
-    // second tab, a double-submitted reschedule) can change the booking
-    // between that read and this write. The conditional UPDATE is the real
-    // guard — if it reports no row changed, someone else already moved this
-    // booking, so treat it the same as the pre-check above rather than
-    // sending a cancellation for a booking that is actually rescheduled.
-    const cancelledAt = ports.clock.now()
-    const cancelled = await repos.bookings.cancelWithLockRelease(verified.booking.id, cancelledAt)
+    const cancelled = await cancelBooking(repos, verified.booking, { cancelledBy: 'guest' })
     if (!cancelled) return manageError(c, 'This booking is no longer active.')
-
-    // Rotate the hash so the link in the guest's inbox stops working. ADR-0005
-    // §4 names rotation-on-state-change as THE invalidation mechanism, and it
-    // had no production call site.
-    await repos.bookings.rotateManageToken(
-      verified.booking.id,
-      await ports.crypto.hash(ports.crypto.randomToken(32)),
-    )
-
-    // The confirmation page tells the guest "the host is notified". Nothing
-    // here was sending anything, so that sentence was untrue on the path real
-    // guests use.
-    const cancelEt = await repos.eventTypes.byId(verified.booking.eventTypeId)
-    const cancelHost = await repos.users.byId(verified.booking.hostUserId)
-    if (cancelEt && cancelHost) {
-      await notifyBookingCancelled({
-        ports,
-        // Patched, not the pre-write booking: notifyWebhooks serializes
-        // `booking.status` straight into the payload, which would otherwise
-        // report "confirmed" on a `booking.cancelled` event.
-        booking: { ...verified.booking, status: 'cancelled', cancelledAt },
-        eventType: cancelEt,
-        host: cancelHost,
-        cancelledBy: 'guest',
-      }).catch((err) => console.error('[punctual] cancellation emails failed', err))
-    }
-    // After the commit, deliberately: a calendar or mail failure must not
-    // leave a booking the guest believes is cancelled still holding the slot.
-    await ports.queue
-      .send({ kind: 'calendar.sync', bookingId: verified.booking.id, action: 'delete' })
-      .catch(() => {})
 
     return c.html(
       shellHead({ title: `Cancelled · ${brandName}`, brandName }) +
@@ -2346,19 +2826,8 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     if (!eventType || !host) return manageError(c, 'This booking can no longer be moved.')
 
     const hosts = await resolveHosts(repos, eventType, host)
-    const outcome = await ports.coordinator.book(host.id, {
-      eventTypeId: eventType.id,
-      hostUserIds: hosts.map((u) => u.id),
-      start,
-      end: start + eventType.durationMinutes * 60_000,
-      guestName: old.guestName,
-      guestEmail: old.guestEmail,
-      guestTimezone: old.guestTimezone,
-      answers: old.answers,
-      rescheduleOf: old.id,
-    })
-
-    if (!outcome.ok) {
+    const moved = await rescheduleBooking(repos, old, eventType, host, hosts, start)
+    if (!moved.ok) {
       return c.html(
         bookingDetailPage({
           brandName,
@@ -2367,102 +2836,20 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
           host,
           token,
           purpose: 'reschedule',
-          error: 'That time was just taken. Pick another one.',
+          error:
+            moved.reason === 'slot_taken'
+              ? 'That time was just taken. Pick another one.'
+              : 'This booking was already updated elsewhere. Refresh and try again.',
         }),
         409,
       )
     }
-
-    // Only after the new booking exists: `markRescheduled` releases the old
-    // slot locks, and releasing them before the replacement is committed would
-    // open a window where neither time is held.
-    //
-    // The `old.status !== 'confirmed'` check above is read-then-write, so a
-    // second concurrent reschedule (or a cancel) of the same link can land
-    // between that read and here. markRescheduled's UPDATE is conditional on
-    // the CURRENT status — if it reports no change, another request already
-    // moved or cancelled `old`, and the booking just created above is a real,
-    // confirmed, but orphaned duplicate. It must be released, not left live.
-    const moved = await repos.bookings.markRescheduled(old.id, outcome.booking.id)
-    if (!moved) {
-      await repos.bookings.cancelWithLockRelease(outcome.booking.id, ports.clock.now())
-      await ports.queue
-        .send({ kind: 'calendar.sync', bookingId: outcome.booking.id, action: 'delete' })
-        .catch(() => {})
-      return c.html(
-        bookingDetailPage({
-          brandName,
-          booking: old,
-          eventType,
-          host,
-          token,
-          purpose: 'reschedule',
-          error: 'This booking was already updated elsewhere. Refresh and try again.',
-        }),
-        409,
-      )
-    }
-
-    // Kill the old link. The new booking carries its own freshly signed token,
-    // so the guest's superseded email stops working (ADR-0005 §4).
-    await repos.bookings.rotateManageToken(
-      old.id,
-      await ports.crypto.hash(ports.crypto.randomToken(32)),
-    )
-
-    // notifyBookingCreated deliberately skips a booking with rescheduleOf set,
-    // expecting the moving route to send this instead — which the REST path
-    // did and this one did not.
-    //
-    // Resolve the host from the NEW booking, not from `old`. Round-robin
-    // re-picks a host at commit time, so reusing the old one mails whoever is
-    // no longer on the meeting, leaves the newly-assigned host uninformed, and
-    // prints the wrong name in the guest's copy.
-    // The replacement's calendar sync is enqueued HERE, not by the
-    // coordinator, so it runs after `markRescheduled` has landed.
-    // Dispatch requires `previous.rescheduledTo` to point back at this
-    // booking, which is only true once the line above has run. One message
-    // rather than two: Cloudflare Queues guarantees no ordering between
-    // independent messages, so a separate notify could claim and send before
-    // the calendar write recorded the new Meet link — permanently omitting
-    // it from the very email this work exists to put it in.
-    // Exactly one create-sync per replacement booking, so nothing races the
-    // read-then-act guard on `externalEventIds`.
-    await ports.queue
-      .send({
-        kind: 'calendar.sync',
-        bookingId: outcome.booking.id,
-        action: 'create',
-        ...(outcome.manageToken ? { manageToken: outcome.manageToken } : {}),
-      })
-      .catch(async (err) => {
-        // This is the ONLY message for a replacement booking, so losing it
-        // costs the guest both the calendar event and the "Rescheduled"
-        // email. Notify directly instead — without a conference link, since
-        // no calendar work will run, which is the honest outcome. The claim
-        // inside makes this and any later redelivery mutually exclusive.
-        console.error('[punctual] reschedule sync enqueue failed', err)
-        await dispatchConfirmation(
-          outcome.booking.id,
-          ports,
-          outcome.manageToken,
-        ).catch((e) => console.error('[punctual] reschedule fallback failed', e))
-      })
-
-    // The "Rescheduled" mail for the NEW leg is dispatched by the
-    // calendar-sync handler, not here: the new booking's Meet link
-    // does not exist until its calendar event does, and the email body is
-    // rendered at enqueue time. The handler branches on `rescheduleOf` to
-    // send the rescheduled copy rather than a fresh confirmation.
-    await ports.queue
-      .send({ kind: 'calendar.sync', bookingId: old.id, action: 'delete' })
-      .catch(() => {})
 
     // Carry the new booking's token: /booking/:id without one is a 400, so
     // a guest who successfully rescheduled landed on an error page.
-    const nextToken = outcome.manageToken
+    const nextToken = moved.manageToken
     return c.redirect(
-      `/booking/${encodeURIComponent(outcome.booking.id)}` +
+      `/booking/${encodeURIComponent(moved.booking.id)}` +
         (nextToken ? `?token=${encodeURIComponent(nextToken)}` : ''),
       302,
     )
@@ -2670,6 +3057,10 @@ function validProvider(value: string | undefined): CalendarProviderName | null {
 
 function validPurpose(value: string | undefined): OAuthPurpose | null {
   return value === 'identity' || value === 'calendar' ? value : null
+}
+
+function bookingView(value: string | undefined): BookingListView {
+  return value === 'past' || value === 'cancelled' ? value : 'upcoming'
 }
 
 function validDate(value: string | undefined): string | undefined {

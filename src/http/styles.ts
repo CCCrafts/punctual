@@ -718,6 +718,52 @@ form:has(#locationType option[value="google_meet"]:checked) .pu-loc-wrap{display
    "this is probably not what you meant" — a page that shouts at both
    teaches the host to scroll past both. */
 .pu-callout-warn{background:var(--pu-status-warning-bg);border-color:var(--pu-warn)}
+
+/* bookings */
+/* The list's tabs reuse the nav-link underline so "which view am I on"
+   reads the same way "which page am I on" does above it. */
+.pu-tabs{display:flex;gap:1.25rem;flex-wrap:wrap;border-bottom:1px solid var(--pu-line);margin:0 0 1rem}
+.pu-tab{text-decoration:none;color:var(--pu-text-secondary);font-weight:500;padding:.5rem 0;
+  border-bottom:2px solid transparent;margin-bottom:-1px}
+.pu-tab:hover{color:var(--pu-text-primary)}
+.pu-tab[aria-current="page"]{color:var(--pu-text-primary);font-weight:600;border-bottom-color:var(--pu-green-700)}
+/* Rows are cards, not a table: three facts and a badge fit a phone without
+   a scrolling wrapper, and the whole card is one tap target. */
+.pu-bookings{list-style:none;margin:0;padding:0;display:grid;gap:.75rem}
+.pu-booking-row{background:var(--pu-surface-raised);border:1px solid var(--pu-border-subtle);border-radius:var(--pu-radius)}
+.pu-booking-link{display:flex;flex-wrap:wrap;align-items:center;gap:.35rem 1rem;padding:.85rem 1rem;
+  color:inherit;text-decoration:none}
+.pu-booking-link:hover{color:inherit}
+.pu-booking-row:hover{border-color:var(--pu-green-700)}
+.pu-booking-link .pu-time{flex:0 0 auto;font-size:.9375rem}
+.pu-booking-main{flex:1 1 14rem;min-width:0}
+.pu-booking-link .pu-badge{margin-left:auto}
+.pu-bookings-empty{padding:1.5rem 0}
+/* The home's next-bookings rows: the same link, laid out as the list it sits in. */
+.pu-upcoming .pu-booking-link{display:block;padding:0}
+/* Facts on the booking page: a label column on wide screens, stacked on a
+   phone. The mono time gets its own line so the zone note under it wraps
+   without splitting the timestamp. */
+.pu-booking-facts{display:grid;grid-template-columns:max-content 1fr;gap:.5rem 1.25rem;margin:1rem 0 0;font-size:.9375rem}
+.pu-booking-facts dt{font-family:var(--pu-font-display);font-weight:600;font-size:.8125rem;color:var(--pu-text-secondary);padding-top:.1rem}
+.pu-booking-facts dd{margin:0;min-width:0;overflow-wrap:anywhere}
+.pu-booking-facts dd .pu-time{display:block}
+.pu-booking-facts dd .pu-muted{font-size:.8125rem}
+@media(max-width:519px){.pu-booking-facts{grid-template-columns:1fr;gap:.15rem 0}
+  .pu-booking-facts dd{margin-bottom:.6rem}}
+.pu-participants{list-style:none;margin:0;padding:0;display:grid;gap:.75rem}
+.pu-participant{display:flex;align-items:center;gap:.75rem;flex-wrap:wrap}
+.pu-participant-name{flex:1 1 10rem;min-width:0;overflow-wrap:anywhere}
+.pu-participant-badges{display:flex;gap:.35rem;flex-wrap:wrap;align-items:center}
+.pu-participant-action{margin:0;margin-left:auto}
+.pu-add-cohost{margin-top:1.25rem;padding-top:1rem;border-top:1px solid var(--pu-line)}
+.pu-add-cohost-row{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
+.pu-add-cohost-row select{flex:1 1 12rem;width:auto}
+.pu-cancel-form{margin-top:1.25rem;padding-top:1rem;border-top:1px solid var(--pu-line)}
+.pu-cancel-form textarea{min-height:4rem}
+.pu-cancel-form button{margin-top:.75rem}
+.pu-day-heading{font-size:.9375rem;margin:1.25rem 0 .5rem}
+.pu-day-heading:first-of-type{margin-top:.75rem}
 `
 
 export function pageCss(): string {

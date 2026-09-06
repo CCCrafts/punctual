@@ -42,11 +42,12 @@ import type {
   User,
   WeeklySchedule,
 } from '../../core/domain/types.js'
-import type { CalendarProviderName } from '../../ports.js'
+import type { BookingListView, CalendarProviderName } from '../../ports.js'
+import type { HostChangeFailure } from '../../core/domain/booking-hosts.js'
 import { slotStateClassName } from '../../core/slot-state.js'
 import { slugify } from '../../core/domain/booking-service.js'
 import { formatInZone, localDateString, offsetLabel } from '../../core/time/zone.js'
-import { avatarHtml, escapeHtml, shellFoot, shellHead } from './booking.js'
+import { avatarHtml, escapeHtml, joinNames, shellFoot, shellHead } from './booking.js'
 
 // ---------------------------------------------------------------------------
 // Chrome
@@ -55,10 +56,11 @@ import { avatarHtml, escapeHtml, shellFoot, shellHead } from './booking.js'
 /** Form field carrying the double-submit token. Routes read the same name. */
 export const CSRF_FIELD = 'csrf'
 
-export type NavKey = 'events' | 'availability' | 'teams' | 'connections' | 'keys' | 'settings' | 'admin'
+export type NavKey = 'events' | 'bookings' | 'availability' | 'teams' | 'connections' | 'keys' | 'settings' | 'admin'
 
 const NAV: ReadonlyArray<{ key: NavKey; href: string; label: string }> = [
   { key: 'events', href: '/dashboard', label: 'Event types' },
+  { key: 'bookings', href: '/dashboard/bookings', label: 'Bookings' },
   { key: 'availability', href: '/dashboard/availability', label: 'Availability' },
   { key: 'teams', href: '/dashboard/teams', label: 'Teams' },
   { key: 'connections', href: '/dashboard/connections', label: 'Calendars' },
@@ -347,7 +349,7 @@ export function dashboardHome(d: DashboardHomeData): string {
   const upcoming =
     d.upcomingBookings.length === 0
       ? `<p class="pu-muted">Nothing booked yet.</p>`
-      : `<ul style="list-style:none;padding:0;margin:0;display:grid;gap:.75rem">
+      : `<ul class="pu-upcoming" style="list-style:none;padding:0;margin:0;display:grid;gap:.75rem">
       ${d.upcomingBookings.map((u) => upcomingRow(u, d.user.tz)).join('\n      ')}
     </ul>`
 
@@ -363,7 +365,10 @@ export function dashboardHome(d: DashboardHomeData): string {
     <div style="display:grid;gap:1rem">${events}</div>
   </section>
   <section class="pu-card" aria-label="Upcoming bookings">
-    <h2>Upcoming</h2>
+    <div class="pu-card-title">
+      <h2>Upcoming</h2>
+      <a class="pu-card-title-action" href="/dashboard/bookings">See all</a>
+    </div>
     <p class="pu-muted" style="font-size:.8125rem">Times in ${escapeHtml(d.user.tz)} (${escapeHtml(offsetLabel(Date.now(), d.user.tz))})</p>
     ${upcoming}
   </section>
@@ -516,10 +521,13 @@ function upcomingRow(u: UpcomingBooking, tz: string): string {
     hour: 'numeric',
     minute: '2-digit',
   })
+  // The whole row is the link: a host scanning the list taps the row, not
+  // a word inside it. The booking page is where cancel/reschedule live.
   return `<li style="border-bottom:1px solid var(--pu-line);padding-bottom:.75rem">
+        <a class="pu-booking-link" href="/dashboard/bookings/${encodeURIComponent(u.booking.id)}">
         <strong class="pu-time">${escapeHtml(when)}</strong><br>
         ${escapeHtml(u.eventTitle)} — ${escapeHtml(u.booking.guestName)}
-        <span class="pu-muted">(${escapeHtml(u.booking.guestEmail)})</span>
+        <span class="pu-muted">(${escapeHtml(u.booking.guestEmail)})</span></a>
       </li>`
 }
 
@@ -2270,6 +2278,442 @@ export function manageLinkErrorPage(brandName: string, message: string): string 
      confirmation email always has a working link.</p>
 </section>` +
     shellFoot()
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Host bookings — the list, one booking, and the host's reschedule picker
+// ---------------------------------------------------------------------------
+
+export interface BookingListRow {
+  booking: Booking
+  /** Resolved by the route; a deleted event type leaves "Meeting". */
+  eventTitle: string
+  /** The other attending hosts, named — empty for a personal booking. */
+  coHostNames: string[]
+}
+
+export interface BookingsPageData extends DashboardChrome {
+  view: BookingListView
+  rows: BookingListRow[]
+  /** True when the list was cut at the cap, so the page can say so. */
+  truncated: boolean
+}
+
+const BOOKING_VIEWS: ReadonlyArray<{ key: BookingListView; label: string; empty: string }> = [
+  { key: 'upcoming', label: 'Upcoming', empty: 'Nothing booked yet. New bookings appear here as guests pick times.' },
+  { key: 'past', label: 'Past', empty: 'No meetings have happened yet.' },
+  { key: 'cancelled', label: 'Cancelled', empty: 'Nothing has been cancelled.' },
+]
+
+/**
+ * Every booking the signed-in host attends, one view at a time. Tabs are
+ * links (`?view=`), rows are cards rather than a table: a table wider than
+ * a phone would need to scroll inside the card, and the row has only four
+ * things to say.
+ */
+export function bookingsPage(d: BookingsPageData): string {
+  const tabs = BOOKING_VIEWS.map((v) => {
+    const current = v.key === d.view ? ' aria-current="page"' : ''
+    return `<a class="pu-tab" href="/dashboard/bookings?view=${v.key}"${current}>${v.label}</a>`
+  }).join('\n    ')
+  const active = BOOKING_VIEWS.find((v) => v.key === d.view) ?? BOOKING_VIEWS[0]!
+
+  const list =
+    d.rows.length === 0
+      ? `<p class="pu-muted pu-bookings-empty">${escapeHtml(active.empty)}</p>`
+      : `<ul class="pu-bookings">
+    ${d.rows.map((row) => bookingListRow(row, d.user.tz)).join('\n    ')}
+  </ul>` +
+        (d.truncated
+          ? `<p class="pu-muted" style="font-size:.8125rem;margin-top:.75rem">Showing the first ${d.rows.length}.</p>`
+          : '')
+
+  return (
+    shellTop(d, 'Bookings', 'bookings') +
+    `<h1>Bookings</h1>
+<p class="pu-muted" style="font-size:.8125rem;margin-top:-.5rem">Times in ${escapeHtml(d.user.tz)} (${escapeHtml(offsetLabel(Date.now(), d.user.tz))})</p>
+<nav class="pu-tabs" aria-label="Bookings">
+    ${tabs}
+</nav>
+<section aria-label="${escapeHtml(active.label)} bookings">
+  ${list}
+</section>` +
+    shellBottom(d.brandName)
+  )
+}
+
+function bookingListRow(row: BookingListRow, tz: string): string {
+  const b = row.booking
+  const when = formatInZone(b.startUtc, tz, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+  const coHosts =
+    row.coHostNames.length > 0
+      ? `<span class="pu-muted">with ${escapeHtml(joinNames(row.coHostNames))}</span>`
+      : ''
+  return `<li class="pu-booking-row">
+      <a class="pu-booking-link" href="/dashboard/bookings/${encodeURIComponent(b.id)}">
+        <span class="pu-time">${escapeHtml(when)}</span>
+        <span class="pu-booking-main"><strong>${escapeHtml(row.eventTitle)}</strong> — ${escapeHtml(b.guestName)} ${coHosts}</span>
+        ${statusBadge(b)}
+      </a>
+    </li>`
+}
+
+/** Confirmed is the green dot; cancelled the danger ring; moved is neutral — the replacement carries the green. */
+function statusBadge(b: Booking): string {
+  const cls =
+    b.status === 'confirmed'
+      ? 'pu-badge pu-badge-dot'
+      : b.status === 'cancelled'
+        ? 'pu-badge pu-badge-dot pu-badge-danger'
+        : 'pu-badge pu-badge-neutral'
+  return `<span class="${cls}">${escapeHtml(statusLabel(b))}</span>`
+}
+
+export interface BookingParticipant {
+  user: User
+  /**
+   * From the event type's current host settings (core/domain/hosts.ts).
+   * Null when this person is no longer in the event type's host set —
+   * they attend the booking, but the event type stopped naming them.
+   */
+  required: boolean | null
+  /** In the booking's `hostUserIds`. */
+  attends: boolean
+}
+
+export interface HostBookingPageData extends DashboardChrome {
+  booking: Booking
+  /** Null when the event type has since been deleted; the booking still stands. */
+  eventType: EventType | null
+  /** Link the title to the editor only when the route confirmed the user may edit it. */
+  canEditEventType: boolean
+  /** Set for a team-owned event type, so the page can say whose. */
+  teamName: string | null
+  participants: BookingParticipant[]
+  /**
+   * Whether this user may add or remove co-hosts: a team booking, and the
+   * user attends it or manages the team. The route decides; the page
+   * only draws the forms.
+   */
+  canChangeHosts: boolean
+  /** Team members not yet attending, for the "Add a co-host" select. */
+  addable: User[]
+  now: number
+  notice?: string
+  error?: string
+}
+
+/** One sentence per refusal from `changeBookingHosts`, for the page. */
+export function hostChangeFailureMessage(reason: HostChangeFailure): string {
+  switch (reason) {
+    case 'not_found':
+      return 'That booking no longer exists.'
+    case 'not_allowed':
+      return 'You cannot change who hosts this booking.'
+    case 'not_a_team_booking':
+      return 'Only a team booking can have co-hosts.'
+    case 'not_a_member':
+      return 'That person is not a member of the team.'
+    case 'already_host':
+      return 'That person is already attending.'
+    case 'not_host':
+      return 'That person is not attending this booking.'
+    case 'last_host':
+      return 'A booking needs at least one host. Add someone else before removing them.'
+    case 'slot_taken':
+      return 'That person is not free at this time.'
+    case 'past':
+      return 'This booking has already happened, so its hosts cannot change.'
+  }
+}
+
+const LONG_WHEN: Intl.DateTimeFormatOptions = {
+  weekday: 'long',
+  month: 'long',
+  day: 'numeric',
+  hour: 'numeric',
+  minute: '2-digit',
+}
+
+/** "Wednesday, September 9, 11:40 PM – 12:10 AM" in one zone. */
+function spanInZone(startUtc: number, endUtc: number, tz: string): string {
+  const start = formatInZone(startUtc, tz, LONG_WHEN)
+  const end = formatInZone(endUtc, tz, { hour: 'numeric', minute: '2-digit' })
+  return `${start} – ${end}`
+}
+
+export function hostBookingPage(d: HostBookingPageData): string {
+  const b = d.booking
+  const title = d.eventType?.title ?? 'Meeting'
+  const confirmed = b.status === 'confirmed'
+  const past = b.endUtc <= d.now
+  const minutes = Math.round((b.endUtc - b.startUtc) / 60000)
+  const path = `/dashboard/bookings/${encodeURIComponent(b.id)}`
+
+  const heading =
+    d.canEditEventType && d.eventType
+      ? `<a href="/dashboard/event-types/${encodeURIComponent(d.eventType.id)}">${escapeHtml(title)}</a>`
+      : escapeHtml(title)
+  const synced = Object.keys(b.externalEventIds).length
+  const syncState =
+    synced === 0
+      ? 'Not yet on a calendar'
+      : synced === 1
+        ? 'On 1 calendar'
+        : `On ${synced} calendars`
+
+  const location = d.eventType ? locationLabel(d.eventType) : null
+  const locationRow = b.conferenceUrl
+    ? `<dd><a href="${escapeHtml(b.conferenceUrl)}" target="_blank" rel="noopener">${escapeHtml(b.conferenceUrl)}</a></dd>`
+    : location
+      ? `<dd>${escapeHtml(location)}</dd>`
+      : ''
+
+  const answers = Object.entries(b.answers)
+  const questionLabels = new Map((d.eventType?.questions ?? []).map((q) => [q.id, q.label]))
+
+  return (
+    shellTop(d, title, 'bookings') +
+    `<p class="pu-muted" style="margin:0 0 .5rem;font-size:.875rem"><a href="/dashboard/bookings">&larr; Bookings</a></p>
+${d.notice ? notice(d.notice) : ''}
+${d.error ? `<p class="pu-err" role="alert">${escapeHtml(d.error)}</p>` : ''}
+<div class="pu-grid" style="grid-template-columns:1fr">
+  <section class="pu-card" aria-label="Booking">
+    <div class="pu-card-title">
+      <h1 style="margin:0">${heading}</h1>
+      ${d.teamName ? `<span class="pu-badge pu-badge-neutral">${escapeHtml(d.teamName)}</span>` : ''}
+      <span class="pu-card-title-action">${statusBadge(b)}</span>
+    </div>
+    <dl class="pu-booking-facts">
+      <dt>When</dt>
+      <dd><span class="pu-time">${escapeHtml(spanInZone(b.startUtc, b.endUtc, d.user.tz))}</span>
+        <span class="pu-muted">${escapeHtml(d.user.tz)} (${escapeHtml(offsetLabel(b.startUtc, d.user.tz))}) · ${minutes} min</span></dd>
+      ${
+        b.guestTimezone !== d.user.tz
+          ? `<dt>For the guest</dt>
+      <dd><span class="pu-time">${escapeHtml(spanInZone(b.startUtc, b.endUtc, b.guestTimezone))}</span>
+        <span class="pu-muted">${escapeHtml(b.guestTimezone)} (${escapeHtml(offsetLabel(b.startUtc, b.guestTimezone))})</span></dd>`
+          : ''
+      }
+      ${locationRow ? `<dt>Where</dt>\n      ${locationRow}` : ''}
+      <dt>Calendar</dt>
+      <dd>${escapeHtml(syncState)}</dd>
+    </dl>
+  </section>
+
+  <section class="pu-card" aria-label="Guest">
+    <h2>Guest</h2>
+    <p><strong>${escapeHtml(b.guestName)}</strong><br>
+      <a href="mailto:${escapeHtml(b.guestEmail)}">${escapeHtml(b.guestEmail)}</a></p>
+    ${
+      answers.length > 0
+        ? `<dl class="pu-booking-facts">
+      ${answers
+        .map(
+          ([id, value]) =>
+            `<dt>${escapeHtml(questionLabels.get(id) ?? id)}</dt>\n      <dd>${escapeHtml(value)}</dd>`,
+        )
+        .join('\n      ')}
+    </dl>`
+        : ''
+    }
+  </section>
+
+  ${participantsSection(d, path)}
+
+  ${actionsSection(d, path, confirmed, past)}
+</div>` +
+    shellBottom(d.brandName)
+  )
+}
+
+function participantsSection(d: HostBookingPageData, path: string): string {
+  const attending = d.participants.filter((p) => p.attends)
+  const rows = d.participants
+    .map((p) => {
+      const name = p.user.name || p.user.slug
+      const you = p.user.id === d.user.id ? ' <span class="pu-muted">(you)</span>' : ''
+      const mode =
+        p.required === null
+          ? ''
+          : `<span class="pu-badge pu-badge-neutral">${p.required ? 'Required' : 'Optional'}</span>`
+      const attends = p.attends
+        ? '<span class="pu-badge pu-badge-dot">Attending</span>'
+        : '<span class="pu-muted" style="font-size:.8125rem">Not on this one</span>'
+      // The last attending host cannot be removed — the booking would have
+      // nobody — so the button is not drawn for them. The domain refuses it
+      // too; hiding the control just spares the host a pointless error.
+      const remove =
+        d.canChangeHosts && p.attends && attending.length > 1
+          ? `<form method="post" action="${path}/hosts/${encodeURIComponent(p.user.id)}/remove" class="pu-participant-action">
+          ${csrfField(d.csrf)}
+          <button class="pu-btn pu-btn-ghost pu-btn-ghost-danger" type="submit">Remove</button>
+        </form>`
+          : ''
+      return `<li class="pu-participant">
+        ${avatarHtml({ key: p.user.avatarKey, name, size: 32 })}
+        <span class="pu-participant-name"><strong>${escapeHtml(name)}</strong>${you}<br>
+          <span class="pu-muted" style="font-size:.8125rem">${escapeHtml(p.user.email)}</span></span>
+        <span class="pu-participant-badges">${mode} ${attends}</span>
+        ${remove}
+      </li>`
+    })
+    .join('\n      ')
+
+  const add =
+    d.canChangeHosts && d.addable.length > 0
+      ? `<form method="post" action="${path}/hosts/add" class="pu-add-cohost">
+      ${csrfField(d.csrf)}
+      <label for="cohost">Add a co-host</label>
+      <div class="pu-add-cohost-row">
+        <select id="cohost" name="userId" required>
+          <option value="">Choose a team member</option>
+          ${d.addable
+            .map((u) => `<option value="${escapeHtml(u.id)}">${escapeHtml(u.name || u.slug)}</option>`)
+            .join('\n          ')}
+        </select>
+        <button class="pu-btn pu-btn-ghost" type="submit">Add</button>
+      </div>
+    </form>`
+      : ''
+
+  return `<section class="pu-card" aria-label="Participants">
+    <h2>Participants</h2>
+    <ul class="pu-participants">
+      ${rows}
+    </ul>
+    ${add}
+  </section>`
+}
+
+function actionsSection(d: HostBookingPageData, path: string, confirmed: boolean, past: boolean): string {
+  if (!confirmed) {
+    return `<section class="pu-card" aria-label="Actions">
+    <p class="pu-muted">This booking is ${d.booking.status === 'cancelled' ? 'cancelled' : 'moved'}, so there is nothing left to change.${
+      d.booking.rescheduledTo
+        ? ` <a href="/dashboard/bookings/${encodeURIComponent(d.booking.rescheduledTo)}">See the new time.</a>`
+        : ''
+    }</p>
+  </section>`
+  }
+  if (past) {
+    return `<section class="pu-card" aria-label="Actions">
+    <p class="pu-muted">This meeting has already happened, so it can no longer be moved or cancelled.</p>
+  </section>`
+  }
+  // Only the guest is mailed about a host's cancellation, so the prompt
+  // says so — and the note is addressed to them, not filed as a reason.
+  return `<section class="pu-card" aria-label="Actions">
+    <h2>Change this booking</h2>
+    <p><a class="pu-btn" href="${path}/reschedule">Reschedule</a></p>
+    <form method="post" action="${path}/cancel" class="pu-cancel-form"
+          onsubmit="return confirm('Cancel this booking? The guest will be emailed.')">
+      ${csrfField(d.csrf)}
+      <label for="note">Note to the guest <span class="pu-muted">(optional)</span></label>
+      <textarea id="note" name="note" rows="3" maxlength="500" placeholder="Something came up — sorry for the short notice."></textarea>
+      <p class="pu-help">Sent to ${escapeHtml(d.booking.guestName)} with the cancellation. The time is released.</p>
+      <button class="pu-btn pu-btn-ghost pu-btn-ghost-danger" type="submit">Cancel booking</button>
+    </form>
+  </section>`
+}
+
+export interface HostReschedulePageData extends DashboardChrome {
+  booking: Booking
+  eventType: EventType | null
+  /** Slots grouped by host-local day, in order. Absent when `blocked` is set. */
+  days?: Array<{ date: string; slots: Slot[] }>
+  /** Why the booking cannot be moved, when it cannot. */
+  blocked?: string
+  /** The time the host picked, awaiting confirmation. */
+  newStart?: number
+  error?: string
+}
+
+/**
+ * The host's picker: the next two weeks of the event type's slots, in the
+ * HOST's zone (the guest's is shown on the confirm step). Every slot is a
+ * link to `?start=`, and the confirm step is a form — the same two-step
+ * shape as the guest's picker, so a misclick on a slot moves nothing.
+ */
+export function hostReschedulePage(d: HostReschedulePageData): string {
+  const b = d.booking
+  const title = d.eventType?.title ?? 'Meeting'
+  const path = `/dashboard/bookings/${encodeURIComponent(b.id)}`
+  const tz = d.user.tz
+
+  let body: string
+  if (d.blocked) {
+    body = `<section class="pu-card"><p class="pu-muted">${escapeHtml(d.blocked)}</p>
+  <p><a class="pu-btn pu-btn-ghost" href="${path}">Back to the booking</a></p></section>`
+  } else if (d.newStart !== undefined) {
+    const end = d.newStart + (b.endUtc - b.startUtc)
+    body = `<section class="pu-card" aria-label="Confirm new time">
+  <h2>Move to this time?</h2>
+  <dl class="pu-booking-facts">
+    <dt>New time</dt>
+    <dd><span class="pu-time">${escapeHtml(spanInZone(d.newStart, end, tz))}</span>
+      <span class="pu-muted">${escapeHtml(tz)}</span></dd>
+    ${
+      b.guestTimezone !== tz
+        ? `<dt>For the guest</dt>
+    <dd><span class="pu-time">${escapeHtml(spanInZone(d.newStart, end, b.guestTimezone))}</span>
+      <span class="pu-muted">${escapeHtml(b.guestTimezone)}</span></dd>`
+        : ''
+    }
+    <dt>Was</dt>
+    <dd><span class="pu-time" style="text-decoration:line-through">${escapeHtml(spanInZone(b.startUtc, b.endUtc, tz))}</span></dd>
+  </dl>
+  <form method="post" action="${path}/reschedule">
+    ${csrfField(d.csrf)}
+    <input type="hidden" name="start" value="${d.newStart}">
+    <p class="pu-help">${escapeHtml(b.guestName)} is emailed the new time; their calendar invite is updated.</p>
+    <div style="display:flex;gap:.75rem;flex-wrap:wrap">
+      <button class="pu-btn" type="submit">Move booking</button>
+      <a class="pu-btn pu-btn-ghost" href="${path}/reschedule">Pick another</a>
+    </div>
+  </form>
+</section>`
+  } else {
+    const days = d.days ?? []
+    const groups =
+      days.length === 0
+        ? '<p class="pu-muted">No open times in the next two weeks. Check your availability, or free a slot first.</p>'
+        : days
+            .map((day) => {
+              const heading = formatInZone(day.slots[0]!.start, tz, { weekday: 'long', month: 'long', day: 'numeric' })
+              const slots = day.slots
+                .map((s) => {
+                  const label = formatInZone(s.start, tz, { hour: 'numeric', minute: '2-digit' })
+                  return `<a class="${slotStateClassName('available')}" href="${path}/reschedule?start=${s.start}">
+        <time datetime="${new Date(s.start).toISOString()}">${escapeHtml(label)}</time></a>`
+                })
+                .join('\n      ')
+              return `<h3 class="pu-day-heading">${escapeHtml(heading)}</h3>
+    <div class="pu-slots">
+      ${slots}
+    </div>`
+            })
+            .join('\n    ')
+    body = `<section class="pu-card" aria-label="Pick a new time">
+  <p class="pu-muted" style="font-size:.8125rem">Currently <span class="pu-time">${escapeHtml(spanInZone(b.startUtc, b.endUtc, tz))}</span> · times in ${escapeHtml(tz)} (${escapeHtml(offsetLabel(Date.now(), tz))})</p>
+  ${d.error ? `<p class="pu-err" role="alert">${escapeHtml(d.error)}</p>` : ''}
+    ${groups}
+</section>`
+  }
+
+  return (
+    shellTop(d, `Reschedule · ${title}`, 'bookings') +
+    `<p class="pu-muted" style="margin:0 0 .5rem;font-size:.875rem"><a href="${path}">&larr; ${escapeHtml(title)} with ${escapeHtml(b.guestName)}</a></p>
+<h1>Reschedule</h1>
+${body}` +
+    shellBottom(d.brandName)
   )
 }
 
