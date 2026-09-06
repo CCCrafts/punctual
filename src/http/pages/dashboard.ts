@@ -2233,13 +2233,13 @@ export function adminPage(d: AdminPageData): string {
         : `<form method="post" action="/dashboard/admin/users/${encodeURIComponent(u.id)}/role" style="margin:0">
             ${csrfField(d.csrf)}
             <input type="hidden" name="role" value="${u.role === 'admin' ? 'member' : 'admin'}">
-            <button class="pu-btn pu-btn-ghost" type="submit" style="padding:.3rem .6rem;font-size:.8125rem">
+            <button class="pu-btn pu-btn-ghost" type="submit" style="padding:.3rem .6rem;font-size:.8125rem;white-space:nowrap">
               ${u.role === 'admin' ? 'Remove admin' : 'Make admin'}</button>
           </form>`
       return `<tr>
         <td>${escapeHtml(u.name || u.slug)}${isSelf ? ' <span class="pu-muted">(you)</span>' : ''}<br>
           <span class="pu-muted" style="font-size:.8125rem">${escapeHtml(u.email)}</span></td>
-        <td class="pu-time">/${escapeHtml(u.slug)}</td>
+        <td class="pu-time" style="white-space:nowrap">/${escapeHtml(u.slug)}</td>
         <td>${u.role === 'admin' ? '<span class="pu-badge">Admin</span>' : '<span class="pu-muted">Member</span>'}</td>
         <td>${action}</td>
       </tr>`
@@ -2257,7 +2257,8 @@ export function adminPage(d: AdminPageData): string {
     </label>
     <label style="display:flex;align-items:baseline;gap:.5rem;font-weight:400;margin:.5rem 0 0">
       <input type="radio" name="mode" value="closed"${parsedMode === 'closed' ? ' checked' : ''} style="width:auto">
-      <span><strong>Closed</strong> — existing users only; nobody new can register</span>
+      <span><strong>Closed</strong> — existing users only; nobody new can register<br>
+        <span class="pu-muted" style="font-size:.8125rem">To add someone later, switch to Allowlist and enter their email.</span></span>
     </label>
     <label style="display:flex;align-items:baseline;gap:.5rem;font-weight:400;margin:.5rem 0 0">
       <input type="radio" name="mode" value="allowlist"${parsedMode === 'allowlist' ? ' checked' : ''} style="width:auto">
@@ -2272,8 +2273,15 @@ export function adminPage(d: AdminPageData): string {
   return (
     shellTop(d, 'Admin', 'admin') +
     (d.notice ? notice(d.notice) : '') +
-    `<section class="pu-card" aria-label="Sign-ups" style="margin-bottom:1.25rem">
+    // Title and lede above the cards, same shape as Settings, Calendars and
+    // API keys — an <h1> inside the sign-ups card made it read as that
+    // card's heading. The table keeps an inline width floor as a fallback
+    // for the shared .pu-dash-table rule: on a phone the wrapper scrolls
+    // rather than squeezing four columns into one-word-per-line cells.
+    `<section aria-label="Admin">
   <h1>Admin</h1>
+  <p class="pu-muted">Who may join this instance, and who runs it.</p>
+<section class="pu-card" aria-label="Sign-ups" style="margin-bottom:1.25rem">
   <h2>Sign-ups</h2>
   <p class="pu-muted">Who may create an account on this instance. Existing users always sign in.</p>
   ${signupsBody}
@@ -2281,11 +2289,12 @@ export function adminPage(d: AdminPageData): string {
 <section class="pu-card" aria-label="Users">
   <h2>Users</h2>
   ${fieldError('role', errors)}
-  <div class="pu-docs-table-wrap"><table style="width:100%">
+  <div class="pu-docs-table-wrap"><table class="pu-dash-table" style="width:100%;min-width:30rem">
     <thead><tr><th scope="col" style="text-align:left">User</th><th scope="col" style="text-align:left">Booking page</th>
-      <th scope="col" style="text-align:left">Role</th><th scope="col" style="text-align:left"></th></tr></thead>
+      <th scope="col" style="text-align:left">Role</th><th scope="col" style="text-align:left"><span class="pu-sr">Actions</span></th></tr></thead>
     <tbody>${rows}</tbody>
   </table></div>
+</section>
 </section>` +
     shellBottom(d.brandName)
   )
