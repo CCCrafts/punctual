@@ -319,7 +319,12 @@ export interface ApiKey {
 // Webhooks
 // ---------------------------------------------------------------------------
 
-export type WebhookEvent = 'booking.created' | 'booking.rescheduled' | 'booking.cancelled'
+/**
+ * `booking.hosts_changed` fires when a co-host is added to or removed from
+ * a team booking from the dashboard; its payload carries `hostsAdded` and
+ * `hostsRemoved` next to the usual booking fields.
+ */
+export type WebhookEvent = 'booking.created' | 'booking.rescheduled' | 'booking.cancelled' | 'booking.hosts_changed'
 
 export interface Webhook {
   id: string

@@ -451,7 +451,7 @@ const webhookCreateBody = z.object({
       }
     }, 'must be an absolute https URL'),
   events: z
-    .array(z.enum(['booking.created', 'booking.rescheduled', 'booking.cancelled']))
+    .array(z.enum(['booking.created', 'booking.rescheduled', 'booking.cancelled', 'booking.hosts_changed']))
     .min(1)
     .max(3),
 })

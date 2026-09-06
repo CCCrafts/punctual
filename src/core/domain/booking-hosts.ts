@@ -142,6 +142,7 @@ export async function changeBookingHosts(
     .send({ kind: 'calendar.sync', bookingId: booking.id, action: 'update' })
     .catch((err) => console.error('[punctual] host-change calendar sync failed to queue', err))
 
+
   // The guest is not emailed: their meeting has not moved and the link is
   // the same. The attendee list in the .ics they already hold goes stale —
   // accepted for now; the provider event is what their calendar actually

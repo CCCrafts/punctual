@@ -11,7 +11,7 @@
  * having a bad minute must never cost a booking we already confirmed on screen.
  */
 
-import type { Booking, EventType, User } from '../core/domain/types.js'
+import type { Booking, EventType, User, WebhookEvent } from '../core/domain/types.js'
 import type { EnginePorts } from '../ports.js'
 import {
   bookingCancelled,
@@ -157,9 +157,11 @@ export async function notifyBookingCreated(ctx: NotifyContext): Promise<void> {
  */
 export async function notifyWebhooks(
   ports: EnginePorts,
-  event: 'booking.created' | 'booking.rescheduled' | 'booking.cancelled',
+  event: WebhookEvent,
   booking: Booking,
   eventType: EventType,
+  /** Event-specific fields merged into the payload — `hostsAdded` / `hostsRemoved` for a host change. */
+  extra: Record<string, unknown> = {},
 ): Promise<void> {
   const repos = ports.repositories({ consistency: 'unconstrained' })
   // Every participating host's subscriptions, not just the primary's — a
@@ -190,6 +192,7 @@ export async function notifyWebhooks(
             status: booking.status,
             rescheduleOf: booking.rescheduleOf,
             answers: booking.answers,
+            ...extra,
           },
           attempt: 0,
         })

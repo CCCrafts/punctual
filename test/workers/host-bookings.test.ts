@@ -547,10 +547,18 @@ describe('co-hosts', () => {
   // new host's locks and lands on the booking page with a notice; a
   // team admin who is not attending may remove a co-host the same way.
   it('adds a co-host through changeBookingHosts and comes back to the booking page', async () => {
+    // Bob's integration subscribes to host changes; it must hear about the
+    // add now and, below, about his own removal.
+    await createD1Repositories(db, { consistency: 'bookmark' }).webhooks.create({
+      id: 'wh_hb_bob', userId: BOB_ID, url: 'https://hooks.example.test/bob', secret: 's', events: ['booking.hosts_changed'], active: true, createdAt: NOW,
+    })
     const cookie = await seedSession(ALICE_ID)
     const csrf = await csrfFrom(`/dashboard/bookings/${B_TEAM}`, cookie)
     const res = await post(`/dashboard/bookings/${B_TEAM}/hosts/add`, { csrf, userId: CAROL_ID }, cookie)
     expect(res.status).toBe(302)
+    const hook = sent.find((m) => m.kind === 'webhook' && m.event === 'booking.hosts_changed') as { webhookId: string; payload: Record<string, unknown> } | undefined
+    expect(hook?.webhookId).toBe('wh_hb_bob')
+    expect(hook?.payload).toMatchObject({ id: B_TEAM, hostsAdded: [CAROL_ID], hostsRemoved: [], hostUserIds: [ALICE_ID, BOB_ID, CAROL_ID] })
     expect(res.headers.get('location')).toBe(`/dashboard/bookings/${B_TEAM}?hosts=1`)
     const row = await db.prepare('SELECT host_user_ids_json FROM bookings WHERE id = ?').bind(B_TEAM).first<{ host_user_ids_json: string }>()
     expect(JSON.parse(row!.host_user_ids_json)).toEqual([ALICE_ID, BOB_ID, CAROL_ID])
@@ -565,8 +573,15 @@ describe('co-hosts', () => {
   it('removes a co-host through it too, for a team admin who is not on the booking', async () => {
     const cookie = await seedSession(CAROL_ID)
     const csrf = await csrfFrom(`/dashboard/bookings/${B_TEAM}`, cookie)
+    const before = sent.length
     const res = await post(`/dashboard/bookings/${B_TEAM}/hosts/${BOB_ID}/remove`, { csrf }, cookie)
     expect(res.status).toBe(302)
+    // The removed host's own subscription still hears about the exit.
+    const hook = sent.slice(before).find((m) => m.kind === 'webhook') as { webhookId: string; event: string; payload: Record<string, unknown> } | undefined
+    expect(hook?.webhookId).toBe('wh_hb_bob')
+    expect(hook?.event).toBe('booking.hosts_changed')
+    expect(hook?.payload).toMatchObject({ hostsRemoved: [BOB_ID], hostsAdded: [] })
+    expect((hook?.payload['hostUserIds'] as string[])).not.toContain(BOB_ID)
     const row = await db.prepare('SELECT host_user_ids_json FROM bookings WHERE id = ?').bind(B_TEAM).first<{ host_user_ids_json: string }>()
     expect(JSON.parse(row!.host_user_ids_json)).not.toContain(BOB_ID)
     const locks = await db.prepare('SELECT COUNT(*) AS n FROM slot_locks WHERE booking_id = ? AND host_user_id = ?').bind(B_TEAM, BOB_ID).first<{ n: number }>()

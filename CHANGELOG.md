@@ -8,6 +8,13 @@ still change interfaces.
 
 ### Added
 
+- Webhook event `booking.hosts_changed`: fired when a co-host is added to
+  or removed from a team booking from the dashboard, to every attending
+  host's subscriptions and to the removed host's. The payload carries the
+  booking as usual plus `hostsAdded` and `hostsRemoved`.
+
+### Added
+
 - **Hosts editor**: reorder hosts with ▲/▼ (no JavaScript), select all or
   none, a live "Guests will see" line built from the booking page's own
   wording, each host's schedule summarised beside the select, round-robin

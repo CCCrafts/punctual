@@ -30,7 +30,7 @@
  */
 
 import { Hono, type Context, type MiddlewareHandler } from 'hono'
-import { notifyBookingCancelled } from '../adapters/notify.js'
+import { notifyBookingCancelled, notifyWebhooks } from '../adapters/notify.js'
 import { dispatchConfirmation } from '../adapters/queue/consumer.js'
 import type {
   BookingListView,
@@ -2612,6 +2612,20 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
         hostBookingPage(await hostBookingPageData(c, access, { error: hostChangeFailureMessage(result.reason) })),
         400,
       )
+    }
+    // Integrations hear about it the way they hear about a create or a
+    // move: every attending host's subscriptions — the one just added and,
+    // still, the one just removed, whose systems need the exit as much as
+    // the others need the entry. Best-effort, after the write.
+    if (access.eventType) {
+      const removedIds = result.removed.map((u) => u.id)
+      await notifyWebhooks(
+        ports,
+        'booking.hosts_changed',
+        { ...result.booking, hostUserIds: [...new Set([...result.booking.hostUserIds, ...removedIds])] },
+        access.eventType,
+        { hostUserIds: result.booking.hostUserIds, hostsAdded: result.added.map((u) => u.id), hostsRemoved: removedIds },
+      ).catch((err) => console.error('[punctual] host-change webhook failed to queue', err))
     }
     await advanceBookmark(c)
     return c.redirect(`/dashboard/bookings/${encodeURIComponent(access.booking.id)}?hosts=1`, 302)
