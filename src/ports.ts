@@ -238,6 +238,16 @@ export interface BookingRepository {
   byManageToken(tokenHash: string): Promise<Booking | null>
   listForHost(hostUserId: string, range: Interval): Promise<Booking[]>
   /**
+   * The host's bookings for the dashboard list, one view at a time.
+   * `upcoming` is confirmed and not yet over, soonest first; `past` is
+   * confirmed and over, most recent first; `cancelled` is cancelled, most
+   * recently cancelled first. "Over" means `end_utc <= now` rather than
+   * `start_utc`, so a meeting in progress still counts as upcoming — it is
+   * the one the host most needs to find. Same primary-OR-co-host match as
+   * `listForHost`, for the same reason.
+   */
+  listForHostByStatus(hostUserId: string, opts: BookingListOptions): Promise<Booking[]>
+  /**
    * Confirmed bookings whose `start_utc` falls in `range` — the caller
    * resolves a host-local calendar day to a UTC range (`dayRange`) before
    * calling this, because only the caller knows which host's timezone that
@@ -306,6 +316,15 @@ export interface BookingRepository {
    * permanently missing confirmation that the record calls sent.
    */
   releaseConfirmationClaim(bookingId: string): Promise<void>
+}
+
+export type BookingListView = 'upcoming' | 'past' | 'cancelled'
+
+export interface BookingListOptions {
+  view: BookingListView
+  now: number
+  /** Cap on rows, so a busy host's history cannot become a full scan. */
+  limit: number
 }
 
 /** One 5-minute bucket claimed by a booking, for one host. */

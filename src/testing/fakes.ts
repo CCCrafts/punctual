@@ -25,6 +25,7 @@ import type {
   EventTypeHostRepository,
   TeamRepository,
   BlobStorage,
+  BookingListOptions,
   BookingRepository,
   CalendarConnectionRepository,
   EmailMessage,
@@ -237,6 +238,25 @@ export function createFakeRepositories(): FakeRepositories {
     async byManageToken(tokenHash: string) {
       for (const b of bookings.values()) if (b.manageTokenHash === tokenHash) return b
       return null
+    },
+    async listForHostByStatus(hostUserId: string, opts: BookingListOptions) {
+      const mine = [...bookings.values()].filter((b) => b.hostUserId === hostUserId || b.hostUserIds.includes(hostUserId))
+      if (opts.view === 'upcoming') {
+        return mine
+          .filter((b) => b.status === 'confirmed' && b.endUtc > opts.now)
+          .sort((a, b) => a.startUtc - b.startUtc)
+          .slice(0, opts.limit)
+      }
+      if (opts.view === 'past') {
+        return mine
+          .filter((b) => b.status === 'confirmed' && b.endUtc <= opts.now)
+          .sort((a, b) => b.startUtc - a.startUtc)
+          .slice(0, opts.limit)
+      }
+      return mine
+        .filter((b) => b.status === 'cancelled')
+        .sort((a, b) => (b.cancelledAt ?? b.startUtc) - (a.cancelledAt ?? a.startUtc))
+        .slice(0, opts.limit)
     },
     async setExternalEventIds(bookingId: string, ids: Record<string, string>) {
       const existing = bookings.get(bookingId)
