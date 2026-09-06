@@ -1030,7 +1030,8 @@ export function scheduleForm(d: ScheduleFormData): string {
     ${fieldError('schedule-name', errors)}
 
     <label for="timezone" style="margin-top:1rem">Timezone</label>
-    <input id="timezone" name="timezone" list="pu-zones" required aria-required="true"
+    <input id="timezone" name="timezone" list="pu-zones" required aria-required="true" class="pu-tz-input"
+           placeholder="Start typing a city, e.g. Europe/Kyiv" autocomplete="off"
            value="${escapeHtml(d.schedule.timezone)}"${describedBy('timezone', errors)}>
     <datalist id="pu-zones">
       ${zones.map((z) => `<option value="${escapeHtml(z)}"></option>`).join('\n      ')}
@@ -1041,15 +1042,15 @@ export function scheduleForm(d: ScheduleFormData): string {
 
     <h2 style="margin-top:1.5rem">Weekly hours</h2>
     <p class="pu-muted" style="font-size:.8125rem">
-      Turn a day on and set one or more ranges — add a second for a lunch break. To drop a range, clear both its times and save.</p>
+      Turn a day on and set one or more ranges — add a second for a lunch break.</p>
     <div class="pu-week-editor">${rows}</div>
 
-    <h2 style="margin-top:1.5rem">Date overrides</h2>
-    <label for="overrides">Specific dates</label>
-    <textarea id="overrides" name="overrides" rows="5" placeholder="2026-12-24"${describedBy('overrides', errors)}>${escapeHtml(d.overridesText ?? formatOverrides(d.schedule.overrides))}</textarea>
-    <p class="pu-muted" style="font-size:.8125rem;margin:.25rem 0 0">
-      One per line: <code>YYYY-MM-DD 10:00-14:00</code>. A date with no ranges is a day off, and an override
-      replaces that day's weekly hours entirely.</p>
+    <label for="overrides" style="margin-top:1.5rem;font-family:var(--pu-font-display);font-size:1.125rem">Date overrides — one per line</label>
+    <p class="pu-muted" style="font-size:.8125rem;margin:0 0 .4rem">
+      A date on its own is a day off. A date with a time range replaces that day's weekly hours
+      entirely: <code>2026-12-24</code> or <code>2026-12-31 10:00-14:00</code>.</p>
+    <textarea id="overrides" name="overrides" class="pu-overrides" rows="5"
+              placeholder="2026-12-24&#10;2026-12-31 10:00-14:00"${describedBy('overrides', errors)}>${escapeHtml(d.overridesText ?? formatOverrides(d.schedule.overrides))}</textarea>
     ${fieldError('overrides', errors)}
 
     <div style="margin-top:1.5rem">
@@ -1122,6 +1123,12 @@ function minutesToTimeInput(minutes: number): string {
  * in — an enabled day with a genuinely empty row is simply not yet finished,
  * the same state a fresh "day off" toggled on would start from.
  *
+ * "Remove" appears only once a day has two or more rows: with one, the
+ * switch already is the way to take a day off, and a Remove that leaves an
+ * empty row behind would be a slower spelling of "clear both times". Both
+ * buttons are `formnovalidate` submits the route answers with a re-render,
+ * never a save — see `saveSchedule` in dashboard-routes.ts.
+ *
  * The switch and the ranges are siblings inside `.pu-day-row`, not nested —
  * `:has()` in styles.ts is what shows/hides the ranges off the checkbox's
  * `:checked` state, and that needs no JavaScript at all to work.
@@ -1130,12 +1137,19 @@ function dayRow(index: number, name: string, day: WeeklyDayDraft, errors: Record
   const fid = `day-${index}`
   const ranges = day.ranges.length > 0 ? day.ranges : [{ start: '', end: '' }]
   const canAddMore = day.ranges.length < MAX_RANGES_PER_DAY
+  const removable = ranges.length > 1
   const rangeRows = ranges
     .map(
       (r, i) => `<div class="pu-range-row">
         <input type="time" name="${fid}-start-${i}" value="${escapeHtml(r.start)}" aria-label="${escapeHtml(name)} range ${i + 1} start">
         <span aria-hidden="true">&ndash;</span>
-        <input type="time" name="${fid}-end-${i}" value="${escapeHtml(r.end)}" aria-label="${escapeHtml(name)} range ${i + 1} end">
+        <input type="time" name="${fid}-end-${i}" value="${escapeHtml(r.end)}" aria-label="${escapeHtml(name)} range ${i + 1} end">${
+          removable
+            ? `
+        <button class="pu-btn pu-btn-ghost pu-remove-range" type="submit" name="remove-range" value="${index}-${i}" formnovalidate
+                aria-label="Remove ${escapeHtml(name)} range ${i + 1}">Remove</button>`
+            : ''
+        }
       </div>`,
     )
     .join('\n      ')
@@ -1150,7 +1164,7 @@ function dayRow(index: number, name: string, day: WeeklyDayDraft, errors: Record
       ${rangeRows}
       ${
         canAddMore
-          ? `<button class="pu-btn-plain pu-add-range" type="submit" name="add-range" value="${index}" formnovalidate>+ Add range</button>`
+          ? `<button class="pu-btn pu-btn-ghost pu-add-range" type="submit" name="add-range" value="${index}" formnovalidate>+ Add range</button>`
           : ''
       }
       ${fieldError(fid, errors)}

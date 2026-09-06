@@ -793,6 +793,82 @@ describe('availability — named schedules', () => {
     expect(await res.text()).toContain('2026-12-2 10:00-14:00')
   })
 
+  it('"Remove" drops exactly the named range and re-renders without saving', async () => {
+    const cookie = await seedSession(AVAIL_HOST_ID)
+    const csrf = await availCsrf(cookie)
+
+    const res = await post(
+      `/dashboard/availability/${DEFAULT_SCHEDULE_ID}`,
+      {
+        name: 'Working hours',
+        timezone: 'Europe/Kyiv',
+        'day-1-enabled': 'on',
+        'day-1-start-0': '09:00',
+        'day-1-end-0': '12:00',
+        'day-1-start-1': '13:00',
+        'day-1-end-1': '17:00',
+        'day-1-start-2': '18:00',
+        'day-1-end-2': '19:00',
+        overrides: '2026-12-24',
+        'remove-range': '1-1',
+        csrf,
+      },
+      cookie,
+    )
+    expect(res.status).toBe(200)
+    const text = await res.text()
+    // The third range moved up into the removed one's slot; nothing else shifted.
+    expect(text).toContain('name="day-1-start-0" value="09:00"')
+    expect(text).toContain('name="day-1-start-1" value="18:00"')
+    expect(text).toContain('name="day-1-end-1" value="19:00"')
+    expect(text).not.toContain('name="day-1-start-2"')
+    // Two rows remain, so each still offers its own Remove.
+    expect(text).toContain('name="remove-range" value="1-0"')
+    expect(text).toContain('name="remove-range" value="1-1"')
+    expect(text).toContain('value="Europe/Kyiv"')
+
+    // Nothing reached D1: the timezone, hours and overrides are as last saved.
+    const row = await db
+      .prepare('SELECT timezone, weekly_json, overrides_json FROM schedules WHERE id = ?')
+      .bind(DEFAULT_SCHEDULE_ID)
+      .first<{ timezone: string; weekly_json: string; overrides_json: string }>()
+    expect(row?.timezone).toBe('UTC')
+    expect(JSON.parse(row!.weekly_json)[1]).toEqual([{ startMinute: 540, endMinute: 1020 }])
+    expect(row?.overrides_json).toBe('[]')
+  })
+
+  it('a malformed "Remove" value changes nothing and still does not save', async () => {
+    const cookie = await seedSession(AVAIL_HOST_ID)
+    const csrf = await availCsrf(cookie)
+
+    const res = await post(
+      `/dashboard/availability/${DEFAULT_SCHEDULE_ID}`,
+      {
+        name: 'Working hours',
+        timezone: 'UTC',
+        'day-1-enabled': 'on',
+        'day-1-start-0': '08:00',
+        'day-1-end-0': '10:00',
+        'day-1-start-1': '11:00',
+        'day-1-end-1': '12:00',
+        overrides: '',
+        'remove-range': '1-7', // no such row on this submit
+        csrf,
+      },
+      cookie,
+    )
+    expect(res.status).toBe(200)
+    const text = await res.text()
+    expect(text).toContain('name="day-1-start-0" value="08:00"')
+    expect(text).toContain('name="day-1-start-1" value="11:00"')
+    expect(text).not.toContain('Schedule saved')
+    const row = await db
+      .prepare('SELECT weekly_json FROM schedules WHERE id = ?')
+      .bind(DEFAULT_SCHEDULE_ID)
+      .first<{ weekly_json: string }>()
+    expect(JSON.parse(row!.weekly_json)[1]).toEqual([{ startMinute: 540, endMinute: 1020 }])
+  })
+
   it('a rejected save echoes every typed override line, including the valid ones, not just the malformed one', async () => {
     const cookie = await seedSession(AVAIL_HOST_ID)
     const csrf = await availCsrf(cookie)

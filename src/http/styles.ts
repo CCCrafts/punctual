@@ -563,6 +563,19 @@ input:has(+ .pu-err),select:has(+ .pu-err),textarea:has(+ .pu-err){border-color:
 .pu-members th{font-family:var(--pu-font-display);font-size:.8125rem;font-weight:600}
 .pu-members td:first-child{padding-left:0}
 .pu-members th:first-child{padding-left:0}
+/* The two no-JS range controls are small ghost buttons, left-aligned under
+   their row — a stretched flex item centred its own label before. */
+.pu-add-range,.pu-remove-range{align-self:flex-start;padding:.25rem .6rem;font-size:.8125rem}
+.pu-add-range:hover{color:var(--pu-text-primary)}
+.pu-remove-range{flex:0 0 auto}
+@media(min-width:600px){
+  .pu-day-row{display:flex;align-items:flex-start;gap:1rem}
+  .pu-day-row .pu-switch{flex:0 0 11rem;min-height:2.75rem}
+  .pu-day-ranges{flex:1 1 auto;margin:0}
+}
+.pu-tz-input{padding-right:2.25rem;background-repeat:no-repeat;background-position:right .8rem center;
+  background-size:.7rem;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2 4l4 4 4-4' fill='none' stroke='%235C6660' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")}
+.pu-overrides{font-family:var(--pu-font-mono);font-size:.875rem}
 `
 
 export function pageCss(): string {

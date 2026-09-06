@@ -1133,8 +1133,8 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
       )
     }
 
-    // "+ Add range": a no-JS-safe `formnovalidate` submit that
-    // appends one empty range row to ONE day and re-renders — never a save.
+    // "+ Add range" and "Remove": no-JS-safe `formnovalidate` submits that
+    // add or drop one range row on ONE day and re-render — never a save.
     // The rest of the form's in-progress values round-trip through
     // `weeklyDraft` (every day, not just the one that changed), `nameValue`,
     // `timezoneValue` and `overridesText`, rather than reverting to whatever
@@ -1146,10 +1146,23 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     // half-finished line has no business being validated (let alone silently
     // dropped) yet.
     const addRangeDay = form.get('add-range')
-    if (typeof addRangeDay === 'string') {
-      const day = Number(addRangeDay)
-      if (Number.isInteger(day) && day >= 0 && day < 7 && weeklyDraft[day]!.ranges.length < MAX_RANGES_PER_DAY) {
-        weeklyDraft[day]!.ranges.push({ start: '', end: '' })
+    const removeRange = form.get('remove-range')
+    if (typeof addRangeDay === 'string' || typeof removeRange === 'string') {
+      if (typeof addRangeDay === 'string') {
+        const day = Number(addRangeDay)
+        if (Number.isInteger(day) && day >= 0 && day < 7 && weeklyDraft[day]!.ranges.length < MAX_RANGES_PER_DAY) {
+          weeklyDraft[day]!.ranges.push({ start: '', end: '' })
+        }
+      } else {
+        // "<day>-<index>" as `dayRow` renders it. Anything else — a crafted
+        // POST, or an index past the rows this submit actually carried —
+        // changes nothing and just re-renders; there is nothing to repair.
+        const match = /^([0-6])-(\d{1,2})$/.exec(String(removeRange))
+        if (match) {
+          const ranges = weeklyDraft[Number(match[1])]!.ranges
+          const index = Number(match[2])
+          if (index < ranges.length) ranges.splice(index, 1)
+        }
       }
       const nameValue = String(form.get('name') ?? '')
       const timezoneValue = String(form.get('timezone') ?? '').trim()

@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import type { Schedule, User, WeeklySchedule } from '../../src/core/domain/types.js'
-import { MAX_RANGES_PER_DAY, parseWeeklyDraft, scheduleForm, type WeeklyDayDraft } from '../../src/http/pages/dashboard.js'
+import {
+  MAX_RANGES_PER_DAY,
+  parseWeeklyDraft,
+  scheduleForm,
+  type WeeklyDayDraft,
+} from '../../src/http/pages/dashboard.js'
 
 const user: User = {
   id: 'u_host',
@@ -39,6 +44,8 @@ const schedule: Schedule = {
   weekly: emptyWeek(),
   overrides: [],
 }
+
+const chrome = { brandName: 'Punctual', user, csrf: 'tok', emailDelivery: 'brevo' as const }
 
 describe('parseWeeklyDraft', () => {
   it('saves a single range on an enabled day', () => {
@@ -155,4 +162,32 @@ describe('scheduleForm weekly editor', () => {
     const html = scheduleForm({ brandName: 'Punctual', user, csrf: 'tok', emailDelivery: 'brevo', schedule })
     expect(html).toContain('<button class="pu-btn" type="submit" formnovalidate>Save schedule</button>')
   })
+
+  it('offers a Remove per range only once a day has more than one', () => {
+    const one = scheduleForm({ ...chrome, schedule, weeklyDraft: draftWeek({ enabled: true, ranges: [{ start: '09:00', end: '17:00' }] }) })
+    expect(one).not.toContain('name="remove-range"')
+
+    const two = scheduleForm({
+      ...chrome,
+      schedule,
+      weeklyDraft: draftWeek({ enabled: true, ranges: [{ start: '09:00', end: '12:00' }, { start: '13:00', end: '17:00' }] }),
+    })
+    expect(two).toContain('name="remove-range" value="1-0" formnovalidate')
+    expect(two).toContain('name="remove-range" value="1-1" formnovalidate')
+    expect(two).toContain('aria-label="Remove Monday range 2"')
+    expect(two).not.toContain('clear both its times')
+  })
+
+  it('labels the overrides box with the format above it and both forms in the placeholder', () => {
+    const html = scheduleForm({ ...chrome, schedule })
+    const label = html.indexOf('Date overrides — one per line')
+    const hint = html.indexOf('<code>2026-12-31 10:00-14:00</code>')
+    const box = html.indexOf('<textarea id="overrides"')
+    expect(label).toBeGreaterThan(-1)
+    expect(hint).toBeGreaterThan(label)
+    expect(box).toBeGreaterThan(hint)
+    expect(html).toContain('placeholder="2026-12-24&#10;2026-12-31 10:00-14:00"')
+    expect(html).toContain('placeholder="Start typing a city, e.g. Europe/Kyiv"')
+  })
+
 })
