@@ -313,6 +313,7 @@ export const magicLinkTokens = sqliteTable(
     email: text('email').notNull(),
     expiresAt: integer('expires_at').notNull(),
     createdAt: integer('created_at').notNull(),
+    timezone: text('timezone'),
   },
   (t) => [index('magic_link_expiry_idx').on(t.expiresAt)],
 )

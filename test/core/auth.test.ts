@@ -927,6 +927,40 @@ describe('admin bootstrap', () => {
     })
     expect(await h.repos.availability.forUser('usr_cleared')).toEqual({ ...cleared, createdBy: 'usr_cleared' })
   })
+
+  it('reads a new account\'s hours in the zone the sign-in form reported, not the zone the link was opened from', async () => {
+    // The link is redeemed in a different request — often a mail client on
+    // another device, or a link-scanning proxy in another country — so the
+    // redeeming request's location is the weaker signal of the two.
+    const h = harness()
+    await requestMagicLink(h, { email: 'kyiv@example.com', ip: '1.1.1.1', userAgent: 'UA', now: NOW, timezone: 'Europe/Kyiv' })
+    const token = tokenFromEmail(h.email.sent[h.email.sent.length - 1]!.text)
+    const res = await consumeMagicLink(h, { token, now: NOW + 1000, timezone: 'America/New_York' })
+    expect(res.ok).toBe(true)
+    if (!res.ok) return
+    expect(res.user.tz).toBe('Europe/Kyiv')
+    expect((await h.repos.availability.forUser(res.user.id))?.timezone).toBe('Europe/Kyiv')
+  })
+
+  it('drops a form zone that is not a real IANA name and falls back to the redeeming request, then UTC', async () => {
+    const h = harness()
+    await requestMagicLink(h, { email: 'bogus@example.com', ip: '1.1.1.1', userAgent: 'UA', now: NOW, timezone: 'Mars/Olympus_Mons' })
+    const hinted = await consumeMagicLink(h, {
+      token: tokenFromEmail(h.email.sent[h.email.sent.length - 1]!.text),
+      now: NOW + 1000,
+      timezone: 'Asia/Tokyo',
+    })
+    expect(hinted.ok && hinted.user.tz).toBe('Asia/Tokyo')
+
+    // Script off: the field submits empty, nothing else knows the zone.
+    await requestMagicLink(h, { email: 'noscript@example.com', ip: '1.1.1.1', userAgent: 'UA', now: NOW, timezone: '' })
+    const bare = await consumeMagicLink(h, {
+      token: tokenFromEmail(h.email.sent[h.email.sent.length - 1]!.text),
+      now: NOW + 1000,
+    })
+    expect(bare.ok && bare.user.tz).toBe('UTC')
+    expect(bare.ok && (await h.repos.availability.forUser(bare.user.id))?.timezone).toBe('UTC')
+  })
 })
 
 describe('signup slug allocation shares the namespace with teams', () => {

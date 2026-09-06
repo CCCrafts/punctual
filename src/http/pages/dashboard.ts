@@ -212,6 +212,12 @@ export interface LoginPageData {
  *
  * The success state says nothing about whether the address has an account. Any
  * branch here is an enumeration oracle, so the copy carries no address at all.
+ *
+ * The one script on the page fills a hidden `tz` field from the browser's
+ * own zone, so a new account's default hours are 09:00–17:00 where the host
+ * actually is instead of UTC. It is an enhancement, not a dependency: with
+ * script off the field submits empty and the flow falls back exactly as
+ * before.
  */
 export function loginPage(d: LoginPageData): string {
   const buttons = d.providers
@@ -233,6 +239,8 @@ export function loginPage(d: LoginPageData): string {
     <input id="email" name="email" type="email" required aria-required="true" autocomplete="email"
            inputmode="email" value="${escapeHtml(d.email ?? '')}"${describedBy('email', d.error ? { email: d.error } : {})}>
     ${d.error ? `<p class="pu-err" id="err-email">${escapeHtml(d.error)}</p>` : ''}
+    <input type="hidden" name="tz" id="login-tz" value="">
+    <script>try{document.getElementById('login-tz').value=Intl.DateTimeFormat().resolvedOptions().timeZone||''}catch(e){}</script>
     <div style="margin-top:1.25rem"><button class="pu-btn" type="submit">Email me a link</button></div>
   </form>
   ${
@@ -1065,6 +1073,7 @@ export function schedulesPage(d: SchedulesPageData): string {
     (d.notice ? notice(d.notice) : '') +
     `<section aria-label="Availability schedules">
   ${heading}
+  ${d.scope ? '' : utcDefaultCallout(d.schedules, base)}
   <div style="display:grid;gap:1rem">${cards}</div>
   <form class="pu-card" method="post" action="${base}/new" style="margin-top:1.5rem">
     ${csrfField(d.csrf)}
@@ -1081,6 +1090,23 @@ export function schedulesPage(d: SchedulesPageData): string {
 </section>` +
     shellBottom(d.brandName)
   )
+}
+
+/**
+ * A default schedule still in UTC is almost never a choice — it is the
+ * backfill's fallback when nothing told it where the host is — and a host
+ * who reads "09:00–17:00" on this page has no way to see that those numbers
+ * mean something else where they live. Rendered only on the host's own
+ * page: a team admin managing a member's hours cannot know the member's
+ * zone either.
+ */
+function utcDefaultCallout(schedules: Schedule[], basePath: string): string {
+  const fallback = schedules.find((s) => s.isDefault && s.timezone === 'UTC')
+  if (!fallback) return ''
+  return `<div class="pu-callout pu-callout-warn" role="note" style="margin:0 0 1rem">
+    <p style="margin:0">Your hours are read in UTC. Set your timezone so 09:00 means 09:00 where you are
+      &mdash; edit <a href="${basePath}/${encodeURIComponent(fallback.id)}">${escapeHtml(fallback.name)}</a>.</p>
+  </div>`
 }
 
 export interface ScheduleFormData extends DashboardChrome {

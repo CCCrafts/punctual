@@ -15,6 +15,7 @@
  */
 
 import { suggestSlug, validateSlug } from './slugs.js'
+import { isValidTimeZone } from '../time/zone.js'
 import type { ApiKey, Availability, Booking, MagicLinkToken, Schedule, Session, User, WeeklySchedule } from './types.js'
 import type {
   Crypto,
@@ -91,6 +92,12 @@ export interface MagicLinkRequest {
   ip: string
   userAgent: string
   now: number
+  /**
+   * What the sign-in form's browser reported as its zone, if anything.
+   * Unvalidated here — anything that is not a real IANA zone is dropped,
+   * never rejected, because a bad hint must not cost anyone a login.
+   */
+  timezone?: string
 }
 
 /**
@@ -142,6 +149,7 @@ export async function requestMagicLink(
     email,
     expiresAt: req.now + MAGIC_LINK_TTL_MS,
     createdAt: req.now,
+    timezone: validTimeZoneOrNull(req.timezone),
   }
   await deps.repos.sessions.createMagicLink(record)
 
@@ -192,6 +200,12 @@ export async function consumeMagicLink(
 
   const email = normaliseEmail(record.email)
   const existing = await deps.repos.users.byEmail(email)
+  // The zone the sign-in form's browser reported outranks the redeeming
+  // request's network location: the form is where the host actually sits,
+  // while the link is often opened from a mail client on another device or
+  // through a link-scanning proxy. Both are only hints; an invalid one
+  // falls through rather than failing the login.
+  const timezone = validTimeZoneOrNull(record.timezone) ?? validTimeZoneOrNull(input.timezone) ?? 'UTC'
   let user = existing
   if (!user) {
     // The single authoritative signup gate: every account-creating flow
@@ -220,7 +234,7 @@ export async function consumeMagicLink(
         id: `usr_${deps.crypto.randomToken(12)}`,
         email,
         name: defaultNameFrom(email),
-        tz: input.timezone && input.timezone.length > 0 ? input.timezone : 'UTC',
+        tz: timezone,
         slug: await uniqueSlug(deps, email),
         avatarKey: null,
         company: null,
@@ -531,6 +545,10 @@ function rateLimited(resetAt: number, now: number): MagicLinkResult {
 
 function trimTrailingSlash(url: string): string {
   return url.endsWith('/') ? url.slice(0, -1) : url
+}
+
+function validTimeZoneOrNull(value: string | null | undefined): string | null {
+  return value && isValidTimeZone(value) ? value : null
 }
 
 function defaultNameFrom(email: string): string {

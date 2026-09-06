@@ -277,6 +277,9 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
         ip: c.req.header('cf-connecting-ip') ?? 'unknown',
         userAgent: c.req.header('user-agent') ?? '',
         now: ports.clock.now(),
+        // Empty without script — the flow then falls back to the redeeming
+        // request's network location, and after that to UTC.
+        timezone: String(form.get('tz') ?? '').trim(),
       },
     )
 

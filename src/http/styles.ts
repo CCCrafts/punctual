@@ -598,6 +598,11 @@ input:has(+ .pu-err),select:has(+ .pu-err),textarea:has(+ .pu-err){border-color:
   border:2px solid var(--pu-border-strong);background:transparent}
 .pu-setup-done .pu-setup-mark{background:var(--pu-green-700);border-color:var(--pu-green-700)}
 .pu-setup-done a{color:var(--pu-text-secondary);font-weight:500}
+/* A standing caution that is not an error: the base .pu-callout is the
+   danger tint, which is right for "this will break links" and wrong for
+   "this is probably not what you meant" — a page that shouts at both
+   teaches the host to scroll past both. */
+.pu-callout-warn{background:var(--pu-status-warning-bg);border-color:var(--pu-warn)}
 `
 
 export function pageCss(): string {
