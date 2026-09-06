@@ -11,6 +11,17 @@ Dashboard usability pass — every screen reviewed on desktop, dark and a
 
 ### Added
 
+- **Bookings in the dashboard.** A Bookings page — upcoming, past,
+  cancelled — listing every meeting the signed-in host attends, and a page
+  per booking: the time in the host's and the guest's zones, the location
+  or meeting link, the guest's answers, every participant (required or
+  optional, attending or not) and whether the meeting is on a calendar yet.
+  Hosts reschedule from a two-week picker or cancel with an optional note
+  to the guest, with the same effects as the guest's own link; a team
+  booking also offers add-a-co-host and remove forms. The home page's
+  Upcoming rows link to these pages.
+- **Cancellation emails quote a host's note** — "Alice cancelled … and
+  wrote: …" — attributed to the host who cancelled, not to every host.
 - **A first-run checklist** on an empty dashboard: add your name, connect
   a calendar, check your hours (naming the zone they are read in), create
   an event type — with done marks, until the first event type exists.
