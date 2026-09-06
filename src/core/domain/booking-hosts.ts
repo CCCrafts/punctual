@@ -14,7 +14,7 @@
  * never the change.
  */
 
-import type { EnginePorts, BucketClaim } from '../../ports.js'
+import type { EnginePorts, Repositories, BucketClaim } from '../../ports.js'
 import type { Booking, User } from './types.js'
 import { canManageTeam } from './teams.js'
 import { bookingFootprint } from '../slots/engine.js'
@@ -30,6 +30,8 @@ export type HostChangeFailure =
   | 'not_host'
   | 'last_host'
   | 'slot_taken'
+  /** The host list changed under the caller's feet (another edit landed first); reload and retry. */
+  | 'stale'
   | 'past'
 
 export type HostChangeResult =
@@ -51,8 +53,10 @@ export async function changeBookingHosts(
   ports: EnginePorts,
   actor: User,
   input: { bookingId: string; add?: string[]; remove?: string[] },
+  /** The request's own repositories, so the write lands on its session bookmark and the redirect reads it back; a fresh session otherwise. */
+  repositories?: Repositories,
 ): Promise<HostChangeResult> {
-  const repos = ports.repositories({ consistency: 'bookmark' })
+  const repos = repositories ?? ports.repositories({ consistency: 'bookmark' })
 
   const booking = await repos.bookings.byId(input.bookingId)
   if (!booking || booking.status !== 'confirmed') return { ok: false, reason: 'not_found' }
@@ -114,12 +118,15 @@ export async function changeBookingHosts(
 
   if (add.length === 0 && remove.length === 0) return { ok: true, booking, added, removed }
 
-  const updated = await repos.bookings.replaceHosts(booking.id, remaining, primary, claim, release)
+  const updated = await repos.bookings.replaceHosts(booking.id, booking.hostUserIds, remaining, primary, claim, release)
   if (!updated) {
     // Nothing changed either way; which reason depends on whether the
-    // booking is still there to change.
+    // booking is still there to change, and whether someone else changed
+    // it first (the compare-and-swap lost) — that is a stale page, not a
+    // taken slot.
     const again = await repos.bookings.byId(booking.id)
     if (!again || again.status !== 'confirmed') return { ok: false, reason: 'not_found' }
+    if (JSON.stringify(again.hostUserIds) !== JSON.stringify(booking.hostUserIds)) return { ok: false, reason: 'stale' }
     return { ok: false, reason: 'slot_taken' }
   }
 

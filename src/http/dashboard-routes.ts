@@ -2574,7 +2574,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     // the guest's route, not the signed-in user (who may be a team admin
     // who is not on the booking at all).
     const primary = (await repos.users.byId(access.booking.hostUserId)) ?? user
-    const hosts = await resolveHosts(repos, eventType, primary)
+    const hosts = await hostsForBooking(repos, eventType, access.booking, primary)
     const moved = await rescheduleBooking(repos, access.booking, eventType, primary, hosts, start)
     if (!moved.ok) {
       return c.html(
@@ -2606,7 +2606,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     access: HostBookingAccess,
     input: { bookingId: string; add?: string[]; remove?: string[] },
   ): Promise<Response> {
-    const result = await changeBookingHosts(ports, c.get('user'), input)
+    const result = await changeBookingHosts(ports, c.get('user'), input, c.get('repos'))
     if (!result.ok) {
       return c.html(
         hostBookingPage(await hostBookingPageData(c, access, { error: hostChangeFailureMessage(result.reason) })),
@@ -2709,6 +2709,27 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
    * resolved host set, the same one the slot listing the caller showed
    * was drawn from.
    */
+  /**
+   * The hosts a booking's replacement should carry: the booking's CURRENT
+   * hosts, not the event type's. A booking whose co-hosts were changed
+   * (A handed off to C) must not snap back to the event type's list on a
+   * reschedule, sending A the moved-meeting mail and dropping C. When
+   * nothing was changed the two lists agree and this is the resolver's
+   * answer.
+   */
+  async function hostsForBooking(repos: Repositories, eventType: EventType, booking: Booking, fallback: User): Promise<User[]> {
+    const resolved = await resolveHosts(repos, eventType, fallback)
+    const same =
+      resolved.length === booking.hostUserIds.length && resolved.every((u) => booking.hostUserIds.includes(u.id))
+    if (same) return resolved
+    const users: User[] = []
+    for (const id of booking.hostUserIds) {
+      const u = await repos.users.byId(id)
+      if (u) users.push(u)
+    }
+    return users.length > 0 ? users : resolved
+  }
+
   async function rescheduleBooking(
     repos: Repositories,
     old: Booking,
@@ -2841,7 +2862,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
       const hostDayRange = dayRange(selectedDate, host.tz)
       const daySlots = await slots.forEventType({
         eventType,
-        hostUsers: await resolveHosts(repos, eventType, host),
+        hostUsers: await hostsForBooking(repos, eventType, booking, host),
         range: { start: hostDayRange.start - DAY_MS, end: hostDayRange.end + DAY_MS },
         scope: { consistency: 'unconstrained' },
       })
@@ -2922,7 +2943,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     const host = await repos.users.byId(old.hostUserId)
     if (!eventType || !host) return manageError(c, 'This booking can no longer be moved.')
 
-    const hosts = await resolveHosts(repos, eventType, host)
+    const hosts = await hostsForBooking(repos, eventType, old, host)
     const moved = await rescheduleBooking(repos, old, eventType, host, hosts, start)
     if (!moved.ok) {
       return c.html(

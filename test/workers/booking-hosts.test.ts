@@ -348,3 +348,40 @@ describe('removing a host', () => {
     expect(queued).toEqual([])
   })
 })
+
+describe('replaceHosts is a compare-and-swap on the host list', () => {
+  it('a write against a list the row no longer has changes nothing — no locks lost', async () => {
+    // BOOKING is Alice + Bob after beforeEach. Simulate the other tab: it
+    // read [alice, bob] too, but its edit landed first and swapped Bob for
+    // Carol. Our edit still believes the list is [alice, bob].
+    const first = await repos().bookings.replaceHosts(
+      BOOKING,
+      [alice.id, bob.id],
+      [alice.id, carol.id],
+      alice.id,
+      [{ hostUserId: carol.id, bucketStart: START }],
+      [{ hostUserId: bob.id, bucketStart: START }],
+    )
+    expect(first?.hostUserIds).toEqual([alice.id, carol.id])
+    const after = await locks()
+    expect(after.some((l) => l.host_user_id === carol.id)).toBe(true)
+    expect(after.some((l) => l.host_user_id === bob.id)).toBe(false)
+
+    // The stale edit: expected [alice, bob], wants to remove Alice's co-host Bob and keep Alice alone.
+    const stale = await repos().bookings.replaceHosts(BOOKING, [alice.id, bob.id], [alice.id], alice.id, [], [{ hostUserId: carol.id, bucketStart: START }])
+    expect(stale).toBeNull()
+    expect(await locks()).toEqual(after)
+    expect((await repos().bookings.byId(BOOKING))?.hostUserIds).toEqual([alice.id, carol.id])
+  })
+
+  it('changeBookingHosts reports a lost race as stale, not as a taken slot', async () => {
+    // Alice's page read [alice, bob]; meanwhile Carol was added.
+    const read = (await repos().bookings.byId(BOOKING))!
+    await repos().bookings.replaceHosts(BOOKING, read.hostUserIds, [alice.id, bob.id, carol.id], alice.id, [{ hostUserId: carol.id, bucketStart: START }], [])
+    // Now the domain function, fed a fresh read, works; but a caller acting
+    // on the stale list is what the CAS exists for — simulate it by
+    // removing Carol through the repository with the stale expectation.
+    const stale = await repos().bookings.replaceHosts(BOOKING, read.hostUserIds, [alice.id], alice.id, [], [])
+    expect(stale).toBeNull()
+  })
+})

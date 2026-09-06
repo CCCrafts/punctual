@@ -290,6 +290,8 @@ export interface BookingRepository {
    */
   replaceHosts(
     bookingId: string,
+    /** The host list the caller read; the write applies only if the row still has it (compare-and-swap). */
+    expectedHostUserIds: string[],
     hostUserIds: string[],
     primaryHostId: string,
     claim: BucketClaim[],

@@ -270,7 +270,7 @@ export function createFakeRepositories(): FakeRepositories {
     // arguments are ignored and a conflict is never reported here — that
     // invariant is exercised against the real D1 adapter in the Workers
     // project, where a fake that faked the constraint would prove nothing.
-    async replaceHosts(bookingId: string, hostUserIds: string[], primaryHostId: string) {
+    async replaceHosts(bookingId: string, _expected: string[], hostUserIds: string[], primaryHostId: string) {
       const existing = bookings.get(bookingId)
       if (!existing || existing.status !== 'confirmed') return null
       const updated: Booking = { ...existing, hostUserIds, hostUserId: primaryHostId }

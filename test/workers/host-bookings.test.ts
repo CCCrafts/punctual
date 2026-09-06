@@ -581,6 +581,20 @@ describe('co-hosts', () => {
     expect(await res.text()).toContain('Choose a team member to add.')
   })
 
+  it('a reschedule carries the booking\'s CURRENT hosts, not the event type\'s list', async () => {
+    // After the add and remove above the team booking is Alice + Carol,
+    // while the event type still resolves to Alice + Bob. Moving it must
+    // not hand the meeting back to Bob or drop Carol.
+    const cookie = await seedSession(ALICE_ID)
+    const csrf = await csrfFrom(`/dashboard/bookings/${B_TEAM}`, cookie)
+    const before = booked.length
+    const start = Math.ceil(Date.now() / 3_600_000) * 3_600_000 + 2 * DAY
+    const res = await post(`/dashboard/bookings/${B_TEAM}/reschedule`, { csrf, start: String(start) }, cookie)
+    expect(res.status).toBe(302)
+    expect(booked).toHaveLength(before + 1)
+    expect([...booked[before]!.hostUserIds].sort()).toEqual([ALICE_ID, CAROL_ID].sort())
+  })
+
   it('a stranger cannot reach the forms at all', async () => {
     const stranger = await seedSession(OUTSIDER_ID)
     const csrf = await csrfFrom('/dashboard/bookings', stranger)

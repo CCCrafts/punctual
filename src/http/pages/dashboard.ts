@@ -2567,6 +2567,8 @@ export function hostChangeFailureMessage(reason: HostChangeFailure): string {
       return 'That person is already attending.'
     case 'not_host':
       return 'That person is not attending this booking.'
+    case 'stale':
+      return 'The participants changed while you were looking — this page is reloaded; check it and try again.'
     case 'last_host':
       return 'A booking needs at least one host. Add someone else before removing them.'
     case 'slot_taken':

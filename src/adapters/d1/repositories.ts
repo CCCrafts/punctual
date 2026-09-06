@@ -707,20 +707,29 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
      * footprint as computed today could leave a stray bucket that keeps
      * the host busy for a meeting they are no longer on.
      */
-    async replaceHosts(bookingId, hostUserIds, primaryHostId, claim, release) {
+    async replaceHosts(bookingId, expectedHostUserIds, hostUserIds, primaryHostId, claim, release) {
+      // Compare-and-swap on the host list the caller read: two edits from
+      // stale pages (one removing B, one removing C) could otherwise both
+      // commit, leaving the row naming a host whose locks the other edit
+      // deleted — and that host double-bookable. The UPDATE applies only
+      // while the row still carries the expected list, and every lock
+      // statement is conditioned on the row now carrying the NEW list, so
+      // a lost race touches nothing.
+      const nextJson = JSON.stringify(hostUserIds)
       const statements: D1PreparedStatement[] = [
         session
           .prepare(
             `UPDATE bookings SET host_user_ids_json = ?, host_user_id = ?
-             WHERE id = ? AND status = 'confirmed'`,
+             WHERE id = ? AND status = 'confirmed' AND host_user_ids_json = ?`,
           )
-          .bind(JSON.stringify(hostUserIds), primaryHostId, bookingId),
+          .bind(nextJson, primaryHostId, bookingId, JSON.stringify(expectedHostUserIds)),
       ]
+      const applied = `EXISTS (SELECT 1 FROM bookings WHERE id = ? AND status = 'confirmed' AND host_user_ids_json = ?)`
       for (const hostUserId of new Set(release.map((b) => b.hostUserId))) {
         statements.push(
           session
-            .prepare('DELETE FROM slot_locks WHERE booking_id = ? AND host_user_id = ?')
-            .bind(bookingId, hostUserId),
+            .prepare(`DELETE FROM slot_locks WHERE booking_id = ? AND host_user_id = ? AND ${applied}`)
+            .bind(bookingId, hostUserId, bookingId, nextJson),
         )
       }
       for (const b of claim) {
@@ -728,9 +737,9 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
           session
             .prepare(
               `INSERT INTO slot_locks (host_user_id,bucket_start,booking_id)
-               SELECT ?, ?, ? WHERE EXISTS (SELECT 1 FROM bookings WHERE id = ? AND status = 'confirmed')`,
+               SELECT ?, ?, ? WHERE ${applied}`,
             )
-            .bind(b.hostUserId, b.bucketStart, bookingId, bookingId),
+            .bind(b.hostUserId, b.bucketStart, bookingId, bookingId, nextJson),
         )
       }
 
