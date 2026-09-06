@@ -347,31 +347,32 @@ function eventTypeCard(d: DashboardHomeData, item: EventTypeListItem): string {
   const et = item.eventType
   const url = `${trimSlash(d.baseUrl)}/${encodeURIComponent(item.ownerSlug)}/${encodeURIComponent(et.slug)}`
   const inputId = `url-${escapeHtml(et.id)}`
-  return `<article class="pu-card">
-  <div style="display:flex;align-items:baseline;justify-content:space-between;gap:1rem;flex-wrap:wrap">
-    <h2 style="margin:0">${escapeHtml(et.title)}</h2>
-    <div style="display:flex;gap:.5rem">
+  // Edit and Preview sit in the header beside the badges, and the link row
+  // has no visible caption: a list of ten event types is scanned, not read,
+  // and a card three rows tall keeps the whole list on one screen.
+  const edit =
+    item.canEdit === false
+      ? '<span class="pu-muted" style="font-size:.8125rem">Managed by the team&rsquo;s admins</span>'
+      : `<a class="pu-btn pu-btn-ghost" href="/dashboard/event-types/${encodeURIComponent(et.id)}">Edit</a>`
+  return `<article class="pu-card pu-et-card">
+  <div class="pu-et-head">
+    <h2>${escapeHtml(et.title)}</h2>
+    <div class="pu-et-actions">
       ${item.teamName ? `<span class="pu-badge">${escapeHtml(item.teamName)}</span>` : ''}
       ${et.active ? '' : '<span class="pu-badge" style="background:var(--pu-paper-dim);color:var(--pu-ink-500)">Hidden</span>'}
+      ${edit}
+      <a class="pu-btn pu-btn-ghost" href="${escapeHtml(url)}">Preview</a>
     </div>
   </div>
-  <ul class="pu-meta">
-    <li><span class="pu-dot"></span> ${et.durationMinutes} min</li>
+  <ul class="pu-meta pu-et-meta">
+    <li>${et.durationMinutes} min</li>
     <li>${escapeHtml(schedulingLabel(et))}</li>
     <li>${escapeHtml(locationLabel(et))}</li>
   </ul>
-  <label for="${inputId}">Public link</label>
-  <div class="pu-url">
-    <input id="${inputId}" class="pu-url-input" readonly value="${escapeHtml(url)}" onclick="this.select()">
+  <div class="pu-url pu-et-url">
+    <input id="${inputId}" class="pu-url-input" readonly value="${escapeHtml(url)}" onclick="this.select()"
+           aria-label="Public link for ${escapeHtml(et.title)}">
     ${copyButton(url)}
-  </div>
-  <div style="margin-top:.75rem;display:flex;gap:.75rem;flex-wrap:wrap;align-items:center">
-    ${
-      item.canEdit === false
-        ? '<span class="pu-muted" style="font-size:.8125rem">Managed by the team&rsquo;s admins</span>'
-        : `<a class="pu-btn pu-btn-ghost" href="/dashboard/event-types/${encodeURIComponent(et.id)}">Edit</a>`
-    }
-    <a class="pu-btn pu-btn-ghost" href="${escapeHtml(url)}">Preview</a>
   </div>
 </article>`
 }

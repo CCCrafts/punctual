@@ -546,6 +546,20 @@ input:has(+ .pu-err),select:has(+ .pu-err),textarea:has(+ .pu-err){border-color:
     transition-duration:.01ms!important;scroll-behavior:auto!important}
   .pu-day:hover[data-has-slots="1"],.pu-slot-available:hover,.pu-slot-available:active{transform:none}
 }
+
+/* event-type form and cards */
+/* Home list: a card is scanned, not read, so it is three short rows —
+   title with badges and actions, the meta line, the link. The link row
+   is 13px in a tighter box than the booking page's .pu-url. */
+.pu-et-card{padding:.875rem 1.125rem}
+.pu-et-head{display:flex;align-items:center;justify-content:space-between;gap:.35rem 1rem;flex-wrap:wrap}
+.pu-et-head h2{margin:0;font-size:1.0625rem}
+.pu-et-actions{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap}
+.pu-et-actions .pu-btn{padding:.3rem .65rem;font-size:.8125rem}
+.pu-et-meta{margin:.15rem 0 0}
+.pu-et-url{margin-top:.5rem;padding:.1rem .1rem .1rem .65rem}
+.pu-et-url .pu-url-input{padding:.3rem 0;font-size:.8125rem}
+.pu-et-url .pu-copy{padding:.25rem .5rem;min-width:4rem}
 `
 
 export function pageCss(): string {
