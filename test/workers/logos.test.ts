@@ -341,5 +341,16 @@ describe('logo shape', () => {
     expect((await db.prepare('SELECT logo_shape FROM teams WHERE id = ?').bind(L_TEAM).first<{ logo_shape: string }>())?.logo_shape).toBe('natural')
     const bob = await seedSession(L_BOB)
     expect((await postForm(`/dashboard/teams/${L_TEAM}/logo-shape`, bob, { csrf: await csrfFor(bob), shape: 'circle' })).status).toBe(404)
+
+    // With the event type's own logo gone, the team's logo heads the
+    // booking page in the team's shape, and the social card takes the same
+    // precedence (it used to consult only the event type's logo).
+    expect((await postForm(`/dashboard/event-types/${L_ET}/logo/delete`, cookie, { csrf })).status).toBe(200)
+    const teamKey = (await db.prepare('SELECT logo_key FROM teams WHERE id = ?').bind(L_TEAM).first<{ logo_key: string }>())!.logo_key
+    const page = await (await app.fetch(new Request(`${BASE}/logo-crew-ltd/crew-call`))).text()
+    expect(page).toContain(`/avatars/${fitKeyFor(teamKey)}`)
+    const card = await app.fetch(new Request(`${BASE}/og/logo-crew-ltd/crew-call.png`))
+    expect(card.status).toBe(200)
+    expect(card.headers.get('content-type')).toContain('image/png')
   })
 })

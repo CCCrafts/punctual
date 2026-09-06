@@ -66,7 +66,13 @@ export function buildOgRoutes(ports: EnginePorts): Hono<{ Bindings: Env }> {
     // Hashed, not concatenated: KV rejects keys over 512 bytes, and six
     // hosts with photos would pass that — silently, since the cache calls
     // below swallow errors, leaving every crawler hit to re-render.
-    const faceKeys = `${eventType.logoKey ?? '-'}:${eventType.logoShape ?? 'circle'}|` + hosts.map((h) => `${h.user.id}:${h.user.avatarKey ?? '-'}`).join(',')
+    // The same precedence as the booking page header (pages/booking.ts,
+    // `eventHeader`): the event type's own logo, else the team's. A team
+    // that set a logo and shape expects every card of its event types to
+    // carry it, not only the ones that uploaded their own.
+    const logoKey = eventType.logoKey ?? team?.logoKey ?? null
+    const logoShape = (eventType.logoKey ? eventType.logoShape : team?.logoShape) ?? 'circle'
+    const faceKeys = `${logoKey ?? '-'}:${logoShape}|` + hosts.map((h) => `${h.user.id}:${h.user.avatarKey ?? '-'}`).join(',')
     const cacheKey = `og:v2:${userSlug}:${eventSlug}:${await ports.crypto.hash(faceKeys)}`
 
     const cached = await safeGet(ports, cacheKey)
@@ -81,11 +87,10 @@ export function buildOgRoutes(ports: EnginePorts): Hono<{ Bindings: Env }> {
       })} ${offsetLabel(now, host.tz)}`
       // An event type with its own logo shows that alone, as the single
       // large image; otherwise the hosts' faces.
-      const shown = eventType.logoKey ? [] : hosts.slice(0, 3)
+      const shown = logoKey ? [] : hosts.slice(0, 3)
       const avatars: OgAvatar[] = []
-      if (eventType.logoKey) {
-        const natural = eventType.logoShape === 'natural'
-        const logo = natural ? await fitDataUri(ports, eventType.logoKey) : await avatarDataUri(ports, eventType.logoKey)
+      if (logoKey) {
+        const logo = logoShape === 'natural' ? await fitDataUri(ports, logoKey) : await avatarDataUri(ports, logoKey)
         avatars.push({ ...logo, initial: eventType.title.trim().charAt(0).toUpperCase() || '?' })
       }
       for (const h of shown) {
@@ -100,7 +105,7 @@ export function buildOgRoutes(ports: EnginePorts): Hono<{ Bindings: Env }> {
         durationMinutes: eventType.durationMinutes,
         timeLabel,
         avatars,
-        extraCount: eventType.logoKey ? 0 : Math.max(0, hosts.length - shown.length),
+        extraCount: logoKey ? 0 : Math.max(0, hosts.length - shown.length),
       })
     })
     if (!png) return c.redirect(DEFAULT_CARD_PATH, 302)
