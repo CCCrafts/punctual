@@ -446,6 +446,40 @@ describe('connections save', () => {
   })
 })
 
+describe('event types — form', () => {
+  async function formCsrf(cookie: string): Promise<string> {
+    const page = await get('/dashboard/event-types/new', cookie)
+    return /name="csrf" value="([^"]+)"/.exec(await page.text())?.[1] ?? ''
+  }
+
+  it('derives the slug from the title when the field is left blank', async () => {
+    const cookie = await seedSession(HOST_ID)
+    const csrf = await formCsrf(cookie)
+    const res = await post('/dashboard/event-types', { title: 'Quick chat', slug: '', durationMinutes: '30', active: '1', csrf }, cookie)
+    expect(res.status).toBe(302)
+    const row = await db.prepare('SELECT slug FROM event_types WHERE title = ?').bind('Quick chat').first<{ slug: string }>()
+    expect(row?.slug).toBe('quick-chat')
+  })
+
+  it('a failed save counts the errors at the top, focuses the first bad field and names the bad questions line', async () => {
+    const cookie = await seedSession(HOST_ID)
+    const csrf = await formCsrf(cookie)
+    const res = await post(
+      '/dashboard/event-types',
+      { title: '', slug: 'Bad Slug!', durationMinutes: '7', questions: 'Company | text | required\nTopic | dropdown', active: '1', csrf },
+      cookie,
+    )
+    expect(res.status).toBe(400)
+    const html = await res.text()
+    expect(html).toContain('Fix the 4 fields marked below.')
+    expect(html).toMatch(/<input id="title"[^>]* autofocus>/)
+    expect(html.match(/ autofocus/g)).toHaveLength(1)
+    expect(html).toContain('Line 2 (&quot;Topic | dropdown&quot;): the type must be text, textarea or select, not &quot;dropdown&quot;')
+    // The typed text comes back for correction, not the empty parse result.
+    expect(html).toContain('Topic | dropdown</textarea>')
+  })
+})
+
 describe('settings — change slug', () => {
   const SLUG_HOST_ID = 'usr_slug_host'
   const SLUG_EVENT_ID = 'evt_slug_host'

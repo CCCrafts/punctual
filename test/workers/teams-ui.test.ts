@@ -1378,15 +1378,52 @@ describe('hosts editor', () => {
   it('the edit form lists every member, with their schedules by name and a link to set one up', async () => {
     const alice = await seedSession(ALICE_ID)
     const html = await (await get(`/dashboard/event-types/${crewEventTypeId}`, alice)).text()
-    expect(html).toContain('<legend style="font-weight:600">Hosts</legend>')
+    expect(html).toContain('<legend>Hosts</legend>')
     for (const id of [ALICE_ID, BOB_ID, CAROL_ID]) {
       expect(html).toContain(`name="host-${id}" value="on" checked`)
       expect(html).toContain(`name="host-${id}-mode"`)
       expect(html).toContain(`name="host-${id}-schedule"`)
     }
     expect(html).toContain('Support hours') // Bob's schedule, visible to the admin
-    expect(html).toContain(`/dashboard/teams/${crewId}/members/${BOB_ID}/availability">+ New schedule for Bob`)
+    // One link to the Teams page, in a new tab: leaving the form mid-edit
+    // would drop the unsaved changes above the Hosts block.
+    expect(html).toContain('href="/dashboard/teams" target="_blank" rel="noopener">Manage member schedules')
+    expect(html).not.toContain('New schedule for')
     expect(html).toContain('new members join it automatically')
+  })
+
+  /**
+   * The rows are plain grid divs now, not table cells — this posts back
+   * exactly the controls the page rendered, so a renamed or dropped field
+   * in the markup fails here rather than silently reading as "unticked".
+   */
+  it('the stacked host rows post back through the same names the route reads', async () => {
+    const alice = await seedSession(ALICE_ID)
+    const html = await (await get(`/dashboard/event-types/${crewEventTypeId}`, alice)).text()
+    expect(html).toContain('class="pu-host-row"')
+    expect(html.slice(html.indexOf('<legend>Hosts</legend>'), html.indexOf('Manage member schedules'))).not.toContain('<table')
+
+    const body: Record<string, string> = base({ csrf: /name="csrf" value="([^"]+)"/.exec(html)?.[1] ?? '' })
+    for (const m of html.matchAll(/<input type="checkbox" name="(host-[^"]+)" value="on"( checked)?>/g)) {
+      if (m[2]) body[m[1]!] = 'on'
+    }
+    for (const m of html.matchAll(/<select name="(host-[^"]+)"[^>]*>([\s\S]*?)<\/select>/g)) {
+      body[m[1]!] = /<option value="([^"]*)" selected>/.exec(m[2]!)?.[1] ?? ''
+    }
+    expect(Object.keys(body).filter((k) => k.startsWith('host-')).sort()).toEqual(
+      [ALICE_ID, BOB_ID, CAROL_ID].flatMap((id) => [`host-${id}`, `host-${id}-mode`, `host-${id}-schedule`]).sort(),
+    )
+    body[`host-${BOB_ID}-schedule`] = 'sch_bob_support'
+    const res = await post(`/dashboard/event-types/${crewEventTypeId}`, body, alice)
+    expect(res.status).toBe(302)
+    const rows = await repos().eventTypeHosts.forEventType(crewEventTypeId)
+    expect(rows.map((r) => [r.userId, r.required, r.scheduleId])).toEqual([
+      [ALICE_ID, true, null],
+      [BOB_ID, true, 'sch_bob_support'],
+      [CAROL_ID, true, null],
+    ])
+    await repos().eventTypeHosts.replace(crewEventTypeId, [])
+    sent().length = 0
   })
 
   it('leaving every host at its default keeps the implicit set — no rows, no emails', async () => {
@@ -1580,7 +1617,7 @@ describe('hosts editor', () => {
     const refused = await post(`/dashboard/event-types/${crewEventTypeId}/delete`, { csrf }, alice)
     expect(refused.status).toBe(409)
     const html = await refused.text()
-    expect(html).toContain('<legend style="font-weight:600">Hosts</legend>')
+    expect(html).toContain('<legend>Hosts</legend>')
     expect(html).toContain(`name="host-${ALICE_ID}" value="on" checked`)
     await db.prepare('DELETE FROM bookings WHERE id = ?').bind('bk_crew_block').run()
   })
@@ -1611,6 +1648,6 @@ describe('hosts editor', () => {
     expect(sent()[0]!.text).toContain('Round robin')
     const page = await (await get(location, alice)).text()
     expect(page).toContain('Event type created')
-    expect(page).toContain('<legend style="font-weight:600">Hosts</legend>')
+    expect(page).toContain('<legend>Hosts</legend>')
   })
 })
