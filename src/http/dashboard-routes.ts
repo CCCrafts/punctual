@@ -93,6 +93,7 @@ import { errorPage, shellFoot, shellHead } from './pages/booking.js'
 import {
   CSRF_FIELD,
   MAX_RANGES_PER_DAY,
+  API_KEY_SCOPES,
   apiKeysPage,
   schedulesPage,
   scheduleForm,
@@ -110,6 +111,7 @@ import {
   settingsPage,
   slugify,
   teamsPage,
+  revokeKeyPage,
   type ConnectionView,
   type EventTypeListItem,
   type TeamView,
@@ -1744,7 +1746,16 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     const user = c.get('user')
     const repos = c.get('repos')
     const name = String(form.get('name') ?? '').trim()
-    if (name === '' || name.length > 80) {
+    // Checkboxes, not free text: a key's scopes are its whole authority, so
+    // the form offers exactly the vocabulary the API checks and anything
+    // else on the wire — "admin", "*", a typo — is dropped, never stored.
+    const offered = API_KEY_SCOPES.map((s) => s.value)
+    const scopes = offered.filter((scope) => form.getAll('scopes').some((v) => String(v) === scope))
+
+    const errors: Record<string, string> = {}
+    if (name === '' || name.length > 80) errors['name'] = 'Give the key a name you will recognise'
+    if (scopes.length === 0) errors['scopes'] = 'Pick at least one scope — a key with none can do nothing'
+    if (Object.keys(errors).length > 0) {
       const keys = await repos.apiKeys.listForUser(user.id)
       return c.html(
         apiKeysPage({
@@ -1753,16 +1764,13 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
           csrf: c.get('csrf'),
           emailDelivery,
           keys,
-          errors: { name: 'Give the key a name you will recognise' },
+          nameValue: name,
+          scopesValue: scopes,
+          errors,
         }),
         400,
       )
     }
-
-    const scopes = String(form.get('scopes') ?? '')
-      .split(/\s+/)
-      .map((s) => s.trim())
-      .filter((s) => s !== '')
 
     const created = await createApiKey(
       { repos, crypto: ports.crypto },
@@ -1773,6 +1781,19 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     const keys = await repos.apiKeys.listForUser(user.id)
     return c.html(apiKeysPage({ brandName, user, csrf: c.get('csrf'),
  emailDelivery, keys, newKey: created.raw }))
+  })
+
+  /**
+   * The confirmation page for a browser without script. The row's Revoke is
+   * a link here; with script it becomes a `confirm()` and posts directly.
+   * A GET never revokes — that stays behind the CSRF-checked POST below.
+   */
+  app.get('/dashboard/api-keys/:id/revoke', requireSession, async (c) => {
+    const user = c.get('user')
+    const id = c.req.param('id') ?? ''
+    const apiKey = (await c.get('repos').apiKeys.listForUser(user.id)).find((k) => k.id === id)
+    if (!apiKey) return notFound(c)
+    return c.html(revokeKeyPage({ brandName, user, csrf: c.get('csrf'), emailDelivery, apiKey }))
   })
 
   app.post('/dashboard/api-keys/:id/delete', requireSession, async (c) => {

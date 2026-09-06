@@ -137,13 +137,14 @@ async function get(path: string, cookie?: string): Promise<Response> {
   return app.fetch(new Request(`${BASE}${path}`, cookie ? { headers: { cookie } } : {}))
 }
 
+/** A field given as an array is appended once per value, as ticked checkboxes arrive. */
 async function post(
   path: string,
-  body: Record<string, string>,
+  body: Record<string, string | string[]>,
   cookie?: string,
 ): Promise<Response> {
   const form = new FormData()
-  for (const [k, v] of Object.entries(body)) form.append(k, v)
+  for (const [k, v] of Object.entries(body)) for (const value of Array.isArray(v) ? v : [v]) form.append(k, value)
   return app.fetch(
     new Request(`${BASE}${path}`, {
       method: 'POST',
@@ -261,7 +262,7 @@ describe('CSRF', () => {
     const page = await get('/dashboard/api-keys', cookie)
     const csrf = /name="csrf" value="([^"]+)"/.exec(await page.text())?.[1] ?? ''
 
-    const res = await post('/dashboard/api-keys', { name: 'Laptop', csrf }, cookie)
+    const res = await post('/dashboard/api-keys', { name: 'Laptop', scopes: 'read', csrf }, cookie)
     expect(res.status).toBe(200)
     // The raw key is shown exactly once, at creation (ADR-0005 §7).
     const html = await res.text()
@@ -1385,5 +1386,80 @@ describe('admin — instance administration', () => {
     const html = await page.text()
     expect(html).toContain('Pinned to')
     expect(html).not.toContain('name="mode"')
+  })
+})
+
+// ---------------------------------------------------------------------------
+describe('API keys — scopes and revocation', () => {
+  async function csrfFor(cookie: string): Promise<string> {
+    const page = await get('/dashboard/api-keys', cookie)
+    return /name="csrf" value="([^"]+)"/.exec(await page.text())?.[1] ?? ''
+  }
+
+  async function scopesOf(name: string): Promise<string[] | null> {
+    const row = await db.prepare('SELECT scopes_json FROM api_keys WHERE name = ?').bind(name).first<{ scopes_json: string }>()
+    return row ? JSON.parse(row.scopes_json) : null
+  }
+
+  it('stores the ticked boxes as the scope array', async () => {
+    const cookie = await seedSession(HOST_ID)
+    const csrf = await csrfFor(cookie)
+    const res = await post('/dashboard/api-keys', { name: 'Both boxes', scopes: ['read', 'write'], csrf }, cookie)
+    expect(res.status).toBe(200)
+    expect(await scopesOf('Both boxes')).toEqual(['read', 'write'])
+
+    const one = await post('/dashboard/api-keys', { name: 'Write only', scopes: 'write', csrf }, cookie)
+    expect(one.status).toBe(200)
+    expect(await scopesOf('Write only')).toEqual(['write'])
+  })
+
+  it('refuses a key with no scope at all, and keeps what was typed', async () => {
+    const cookie = await seedSession(HOST_ID)
+    const csrf = await csrfFor(cookie)
+    const res = await post('/dashboard/api-keys', { name: 'Nothing ticked', csrf }, cookie)
+    expect(res.status).toBe(400)
+    const html = await res.text()
+    expect(html).toContain('Pick at least one scope')
+    expect(html).toContain('value="Nothing ticked"')
+    expect(html).not.toContain('only time it will be shown')
+    expect(await scopesOf('Nothing ticked')).toBeNull()
+  })
+
+  it('never stores a scope the form did not offer — "*" and "admin" are dropped, not granted', async () => {
+    const cookie = await seedSession(HOST_ID)
+    const csrf = await csrfFor(cookie)
+    const res = await post('/dashboard/api-keys', { name: 'Tampered', scopes: ['*', 'admin', 'read'], csrf }, cookie)
+    expect(res.status).toBe(200)
+    expect(await scopesOf('Tampered')).toEqual(['read'])
+
+    // Only forbidden values ticked is the same as nothing ticked.
+    const none = await post('/dashboard/api-keys', { name: 'Only forbidden', scopes: ['*'], csrf }, cookie)
+    expect(none.status).toBe(400)
+    expect(await scopesOf('Only forbidden')).toBeNull()
+  })
+
+  it('serves a confirmation page for the no-script path, which revokes nothing by itself', async () => {
+    const cookie = await seedSession(HOST_ID)
+    const csrf = await csrfFor(cookie)
+    await post('/dashboard/api-keys', { name: 'To revoke', scopes: 'read', csrf }, cookie)
+    const id = (await db.prepare('SELECT id FROM api_keys WHERE name = ?').bind('To revoke').first<{ id: string }>())?.id ?? ''
+    expect(id).not.toBe('')
+
+    const page = await get(`/dashboard/api-keys/${id}/revoke`, cookie)
+    expect(page.status).toBe(200)
+    const html = await page.text()
+    expect(html).toContain('Revoke To revoke?')
+    expect(html).toContain(`action="/dashboard/api-keys/${id}/delete"`)
+    expect(await scopesOf('To revoke')).toEqual(['read'])
+
+    const res = await post(`/dashboard/api-keys/${id}/delete`, { csrf }, cookie)
+    expect(res.status).toBe(302)
+    expect(await scopesOf('To revoke')).toBeNull()
+  })
+
+  it('404s the confirmation page for a key that is not yours', async () => {
+    const cookie = await seedSession(HOST_ID)
+    const res = await get('/dashboard/api-keys/key_nobody/revoke', cookie)
+    expect(res.status).toBe(404)
   })
 })

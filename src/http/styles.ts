@@ -168,6 +168,16 @@ export const TOKENS = `
   --pu-status-info:var(--pu-text-secondary);
   --pu-status-info-bg:var(--pu-surface-sunken);
 
+  /* Field: a text input's resting border, and the surface of the read-only
+     .pu-url box. In light mode both are the ordinary line and sunken
+     surface. In dark mode the card, the input and the URL box all sat
+     within a few shades of each other, so an editable field and a
+     read-only box were told apart only by the Copy button — the dark
+     override lifts the input's border and drops the URL box below the
+     canvas so each reads as what it is. */
+  --pu-field-border:var(--pu-line);
+  --pu-url-bg:var(--pu-surface-sunken);
+
   /* Slot: the booking flow's own state machine (see src/core/slot-state.ts).
      Rule: held/booked are visually distinct from available
      WITHOUT the accent — the accent is the guest's own current pick
@@ -212,6 +222,7 @@ export const TOKENS = `
     --pu-surface-raised:#17201B;
     --pu-text-muted:rgba(154,165,160,.72); --pu-text-disabled:rgba(154,165,160,.45);
     --pu-surface-overlay:rgba(0,0,0,.6);
+    --pu-field-border:#3C4A42; --pu-url-bg:#0B100D;
   }
 }
 :root[data-theme=dark]{
@@ -223,6 +234,7 @@ export const TOKENS = `
   --pu-surface-raised:#17201B;
   --pu-text-muted:rgba(154,165,160,.72); --pu-text-disabled:rgba(154,165,160,.45);
   --pu-surface-overlay:rgba(0,0,0,.6);
+  --pu-field-border:#3C4A42; --pu-url-bg:#0B100D;
 }
 `
 
@@ -372,9 +384,14 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{
 .pu-btn-danger:hover{background:var(--pu-danger-800);border-color:var(--pu-danger-800)}
 
 label{display:block;font-size:.875rem;font-weight:600;margin:1rem 0 .35rem}
-input,select,textarea{width:100%;padding:.65rem .75rem;border:1px solid var(--pu-line);
+input,select,textarea{width:100%;padding:.65rem .75rem;border:1px solid var(--pu-field-border);
   border-radius:var(--pu-radius);background:var(--pu-paper);color:var(--pu-ink-950);
   font:inherit;transition:border-color .12s ease}
+/* Without this the browser paints ticks and radios in its own accent — a
+   blue that is the one hue the brand never uses. --pu-green-fill, not
+   --pu-green-700: the tick is white on the fill, same contrast rule as
+   .pu-btn. width:auto undoes the 100% every other input gets. */
+input[type=checkbox],input[type=radio]{accent-color:var(--pu-green-fill);width:auto}
 textarea{min-height:5rem;resize:vertical}
 input:has(+ .pu-err),select:has(+ .pu-err),textarea:has(+ .pu-err){border-color:var(--pu-status-danger)}
 .pu-err{display:flex;align-items:flex-start;gap:.4rem;color:var(--pu-status-danger);
@@ -451,17 +468,28 @@ input:has(+ .pu-err),select:has(+ .pu-err),textarea:has(+ .pu-err){border-color:
 .pu-nav-link:hover{color:var(--pu-text-primary)}
 .pu-nav-link[aria-current="page"]{color:var(--pu-text-primary);font-weight:600;
   border-bottom-color:var(--pu-green-700)}
-.pu-dash-header{border-bottom:1px solid var(--pu-line);padding-bottom:1rem}
-/* Narrow enough that the nav's own wrapping (5 links) collides with the
-   header's justify-content:space-between — one link stranded on its own row
-   with the sign-out button, uneven gaps either side. Stacking the three
-   header children instead of trying to keep them in one wrapping row reads
-   as intentional rather than as an overflow accident. */
+/* Layout lives here, not inline on the <header>: an inline style outranks
+   every media query, which is how the phone header ended up as three
+   stacked, centred rows (~200px before any content). */
+.pu-dash-header{display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;
+  border-bottom:1px solid var(--pu-line);padding-bottom:1rem;margin-bottom:1.5rem}
+.pu-nav{display:flex;gap:1rem;flex-wrap:wrap;font-size:.9375rem}
+.pu-dash-signout{margin:0}
+/* Narrow enough that seven links cannot share a row with the wordmark and
+   the sign-out button. Wordmark and sign-out keep the first row; the nav
+   takes the whole second row as one horizontally scrolling strip with
+   thumb-sized targets, so the header stays ~110px and left-aligned. */
 @media(max-width:480px){
-  .pu-dash-header{flex-direction:column;align-items:flex-start}
+  .pu-dash-header{gap:.25rem 1rem;padding-bottom:0}
+  .pu-dash-signout{order:1}
+  .pu-nav{order:2;flex:1 0 100%;flex-wrap:nowrap;gap:0;overflow-x:auto;white-space:nowrap;
+    -webkit-overflow-scrolling:touch;scrollbar-width:none}
+  .pu-nav::-webkit-scrollbar{display:none}
+  .pu-nav .pu-nav-link{display:inline-flex;align-items:center;min-height:44px;padding:0 .6rem}
+  .pu-nav .pu-nav-link:first-child{padding-left:0}
 }
 
-.pu-url{display:flex;align-items:center;gap:.5rem;background:var(--pu-surface-sunken);
+.pu-url{display:flex;align-items:center;gap:.5rem;background:var(--pu-url-bg);
   border:1px solid var(--pu-line);border-radius:var(--pu-radius);padding:.15rem .15rem .15rem .8rem}
 .pu-url-input{flex:1;min-width:0;border:0;background:none;padding:.5rem 0;
   font-family:var(--pu-font-mono);font-size:.8125rem;color:var(--pu-text-primary);cursor:pointer}
@@ -640,6 +668,37 @@ form:has(#locationType option[value="google_meet"]:checked) .pu-loc-wrap{display
   .pu-host-row{grid-template-columns:1fr;gap:.4rem;padding:.6rem 0}
   .pu-host-head{display:none}
 }
+/* shell, calendars, keys */
+/* A status strip that is not a success: "Calendar connected." and "add your
+   name" wore the success badge's green, which made every notice look like
+   praise. Info tokens, one quiet accent edge, ordinary text. */
+.pu-notice{display:block;margin:0 0 1.25rem;padding:.5rem .75rem;border-radius:var(--pu-radius);
+  background:var(--pu-status-info-bg);border-left:3px solid var(--pu-status-info);
+  color:var(--pu-text-primary);font-size:.875rem}
+.pu-notice a{font-weight:600}
+/* Badge states, in the brand's own vocabulary: a filled dot is "confirmed",
+   a ring is "open" — so Connected vs Needs reconnect reads without colour
+   as well as with it. The danger badge keeps a pill background in dark mode
+   because the tokens carry one; the old inline colour did not. */
+.pu-badge-dot::before{content:"";display:inline-block;width:.45rem;height:.45rem;margin:0 .35rem .1rem 0;
+  border-radius:99px;background:currentColor;vertical-align:middle}
+.pu-badge-danger{background:var(--pu-status-danger-bg);color:var(--pu-status-danger)}
+.pu-badge-danger::before{background:none;border:1.5px solid currentColor;box-sizing:border-box}
+/* A destructive action that is not the card's purpose: text in the danger
+   colour on a ghost frame, so Save stays the only solid button in the row. */
+.pu-btn-ghost-danger{background:none;color:var(--pu-status-danger);border-color:var(--pu-border-subtle)}
+.pu-btn-ghost-danger:hover{background:var(--pu-status-danger-bg);border-color:var(--pu-status-danger);
+  color:var(--pu-status-danger)}
+.pu-form-row{display:flex;align-items:center;justify-content:space-between;gap:.75rem;flex-wrap:wrap;margin-top:1rem}
+/* A checkbox with its label on one line, and the label at body weight: the
+   heading above the group carries the emphasis, not every option. */
+.pu-check{display:flex;align-items:flex-start;gap:.5rem;font-weight:400;margin:.35rem 0;font-size:.9375rem}
+.pu-check input{margin-top:.25rem;flex:none}
+/* The one-time key, shown whole: a mono block that breaks anywhere rather
+   than a single-line input that clips the tail on a phone. */
+.pu-key{display:block;margin:0;padding:.75rem .9rem;background:var(--pu-url-bg);border:1px solid var(--pu-line);
+  border-radius:var(--pu-radius);font-family:var(--pu-font-mono);font-size:.8125rem;
+  word-break:break-all;white-space:pre-wrap;user-select:all;-webkit-user-select:all}
 `
 
 export function pageCss(): string {

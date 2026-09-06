@@ -131,19 +131,32 @@ function shellTop(chrome: DashboardChrome, title: string, active: NavKey | null)
 
   return (
     shellHead({ title: `${title} · ${chrome.brandName}`, brandName: chrome.brandName }) +
-    `<header class="pu-dash-header" style="display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;margin-bottom:1.5rem">
+    `<header class="pu-dash-header">
   <a class="pu-mark" href="/dashboard">${escapeHtml(chrome.brandName.toLowerCase())}<span>:</span></a>
-  <nav aria-label="Dashboard" style="display:flex;gap:1rem;flex-wrap:wrap;font-size:.9375rem">
+  <nav class="pu-nav" aria-label="Dashboard">
       ${links}
   </nav>
-  <form method="post" action="/logout" style="margin:0">
+  <form class="pu-dash-signout" method="post" action="/logout">
     ${csrfField(chrome.csrf)}
     <button class="pu-btn pu-btn-ghost" type="submit" style="padding:.4rem .8rem;font-size:.875rem">Sign out</button>
   </form>
 </header>
 <p class="pu-sr">Signed in as ${escapeHtml(chrome.user.email)}</p>` +
-    emailWarningBanner(chrome)
+    emailWarningBanner(chrome) +
+    blankNameNotice(chrome, active)
   )
+}
+
+/**
+ * A host with no name is "?" on their booking page and an empty line in
+ * every confirmation. Settings makes the field required, but an account
+ * created by magic link never visited Settings — so the nudge rides the
+ * chrome. Not on Settings itself: the form there already says it.
+ */
+function blankNameNotice(chrome: DashboardChrome, active: NavKey | null): string {
+  if (chrome.user.name.trim() !== '' || active === 'settings') return ''
+  return `<p class="pu-notice">Add your name so guests know who they are booking with &mdash;
+  <a href="/dashboard/settings">Settings</a></p>`
 }
 
 function shellBottom(brandName: string): string {
@@ -169,9 +182,9 @@ function shellBottom(brandName: string): string {
   )
 }
 
-/** A dismissible-looking status strip. Not an error — errors use `.pu-err`. */
+/** A status strip. Not an error — errors use `.pu-err` — and not a success badge either. */
 function notice(message: string): string {
-  return `<p class="pu-badge" role="status" style="display:block;padding:.5rem .75rem;border-radius:var(--pu-radius)">${escapeHtml(message)}</p>`
+  return `<p class="pu-notice" role="status">${escapeHtml(message)}</p>`
 }
 
 function fieldError(id: string, errors: Record<string, string>): string {
@@ -1535,10 +1548,12 @@ export function connectionsPage(d: ConnectionsPageData): string {
       ? `<p class="pu-muted">No calendars connected. Bookings still work — nothing will be checked for conflicts.</p>`
       : d.connections.map((c) => connectionCard(d, c)).join('\n')
 
+  // The reader is the host, who usually cannot set a secret; only when they
+  // also run the deployment is the fix theirs to make.
   const connectButtons =
     d.availableProviders.length === 0
-      ? `<p class="pu-muted">No calendar provider is configured on this deployment. Set the provider's
-       client id and secret to enable connecting.</p>`
+      ? `<p class="pu-muted">This deployment has no Google or Microsoft credentials yet. If you run it, see
+       <a href="/docs/self-hosting">self-hosting &rarr; calendar providers</a>; otherwise ask your admin.</p>`
       : d.availableProviders
           .map(
             (p) =>
@@ -1554,7 +1569,7 @@ export function connectionsPage(d: ConnectionsPageData): string {
   <p class="pu-muted">Calendars you read are checked for conflicts. The calendar you write to receives the booking.</p>
   <div style="display:grid;gap:1rem">${cards}</div>
   <div class="pu-card" style="margin-top:1.5rem">
-    <h2>Connect another calendar</h2>
+    <h2>${d.connections.length === 0 ? 'Connect a calendar' : 'Connect another calendar'}</h2>
     <p class="pu-muted" style="font-size:.8125rem">
       Connecting asks for calendar permissions. Signing in never does — they are separate grants, so revoking
       one does not affect the other.</p>
@@ -1568,20 +1583,45 @@ export function connectionsPage(d: ConnectionsPageData): string {
 function connectionCard(d: ConnectionsPageData, view: ConnectionView): string {
   const c = view.connection
   const id = encodeURIComponent(c.id)
+
+  // Nothing here can be saved until the host reconnects — the provider will
+  // not even list calendars — so the form would only promise what Save
+  // cannot do. Two actions, the only two that work.
+  if (c.syncStatus === 'needs_reconnect') {
+    return `<article class="pu-card">
+  ${connectionHeading(c)}
+  <div role="alert">
+    <p class="pu-err" style="font-size:.9375rem;margin-top:.75rem">Access was revoked or expired. Conflicts from this calendar are not
+       being checked and new bookings are not written to it.</p>
+  </div>
+  <div class="pu-form-row">
+    <a class="pu-btn" href="/auth/${c.provider}/start?purpose=calendar">Reconnect ${escapeHtml(providerLabel(c.provider))}</a>
+    <form method="post" action="/dashboard/connections/${id}/disconnect" style="margin:0">
+      ${csrfField(d.csrf)}
+      <button class="pu-btn pu-btn-ghost pu-btn-ghost-danger" type="submit">Disconnect</button>
+    </form>
+  </div>
+</article>`
+  }
+
   // A provider list we could not fetch must not silently drop the host's
-  // selection, so fall back to the stored ids as their own labels.
-  const calendars =
-    view.calendars.length > 0
-      ? view.calendars
-      : c.calendarIdsRead.map((cid) => ({ id: cid, name: cid, primary: false }))
+  // selection, so fall back to the stored ids — labelled as ids we could
+  // not resolve, so the host knows the name is missing and not the calendar.
+  const listed = view.calendars.length > 0
+  const calendars = listed
+    ? view.calendars
+    : c.calendarIdsRead.map((cid) => ({ id: cid, name: cid, primary: false }))
 
   const readRows = calendars
     .map((cal) => {
       const inputId = `read-${escapeHtml(c.id)}-${escapeHtml(cal.id)}`
       const checked = c.calendarIdsRead.includes(cal.id) ? ' checked' : ''
-      return `<label for="${inputId}" style="display:flex;align-items:center;gap:.5rem;font-weight:400;margin:.35rem 0">
-        <input id="${inputId}" name="read" type="checkbox" value="${escapeHtml(cal.id)}"${checked} style="width:auto">
-        <span>${escapeHtml(cal.name)}${cal.primary ? ' <span class="pu-muted">(primary)</span>' : ''}</span>
+      const label = listed
+        ? `${escapeHtml(cal.name)}${cal.primary ? ' <span class="pu-muted">(primary)</span>' : ''}`
+        : `${escapeHtml(cal.id)} <span class="pu-muted">&mdash; could not list calendars</span>`
+      return `<label class="pu-check" for="${inputId}">
+        <input id="${inputId}" name="read" type="checkbox" value="${escapeHtml(cal.id)}"${checked}>
+        <span>${label}</span>
       </label>`
     })
     .join('\n      ')
@@ -1594,22 +1634,12 @@ function connectionCard(d: ConnectionsPageData, view: ConnectionView): string {
     ),
   ].join('\n        ')
 
+  // Disconnect sits on Save's row but must not post to Save's action, and
+  // forms cannot nest — the button's `form` attribute points it at its own
+  // form, rendered after, which plain HTML honours without any script.
   return `<article class="pu-card">
-  <div style="display:flex;align-items:baseline;justify-content:space-between;gap:1rem;flex-wrap:wrap">
-    <h2 style="margin:0">${escapeHtml(providerLabel(c.provider))}</h2>
-    ${syncBadge(c)}
-  </div>
-  <p class="pu-muted" style="margin:.25rem 0 0">${escapeHtml(c.providerAccountEmail || 'Unknown account')}</p>
-  ${
-    c.syncStatus === 'needs_reconnect'
-      ? `<div style="margin:.75rem 0" role="alert">
-    <p class="pu-err" style="font-size:.9375rem">Access was revoked or expired. Conflicts from this calendar are not
-       being checked and new bookings are not written to it.</p>
-    <a class="pu-btn" href="/auth/${c.provider}/start?purpose=calendar">Reconnect ${escapeHtml(providerLabel(c.provider))}</a>
-  </div>`
-      : ''
-  }
-  <form method="post" action="/dashboard/connections/${id}">
+  ${connectionHeading(c)}
+  <form id="save-${escapeHtml(c.id)}" method="post" action="/dashboard/connections/${id}">
     ${csrfField(d.csrf)}
     <fieldset style="border:0;padding:0;margin:1rem 0 0">
       <legend style="font-size:.875rem;font-weight:600;padding:0">Check these for conflicts</legend>
@@ -1619,19 +1649,29 @@ function connectionCard(d: ConnectionsPageData, view: ConnectionView): string {
     <select id="write-${escapeHtml(c.id)}" name="write">
         ${writeOptions}
     </select>
-    <div style="margin-top:1rem"><button class="pu-btn" type="submit">Save</button></div>
+    <div class="pu-form-row">
+      <button class="pu-btn" type="submit">Save</button>
+      <button class="pu-btn pu-btn-ghost pu-btn-ghost-danger" type="submit" form="disconnect-${escapeHtml(c.id)}">Disconnect</button>
+    </div>
   </form>
-  <form method="post" action="/dashboard/connections/${id}/disconnect" style="margin-top:.75rem">
+  <form id="disconnect-${escapeHtml(c.id)}" method="post" action="/dashboard/connections/${id}/disconnect" style="margin:0">
     ${csrfField(d.csrf)}
-    <button class="pu-btn pu-btn-danger" type="submit">Disconnect</button>
   </form>
 </article>`
 }
 
+function connectionHeading(c: CalendarConnection): string {
+  return `<div style="display:flex;align-items:baseline;justify-content:space-between;gap:1rem;flex-wrap:wrap">
+    <h2 style="margin:0">${escapeHtml(providerLabel(c.provider))}</h2>
+    ${syncBadge(c)}
+  </div>
+  <p class="pu-muted" style="margin:.25rem 0 0">${escapeHtml(c.providerAccountEmail || 'Unknown account')}</p>`
+}
+
 function syncBadge(c: CalendarConnection): string {
-  if (c.syncStatus === 'ok') return '<span class="pu-badge">Connected</span>'
+  if (c.syncStatus === 'ok') return '<span class="pu-badge pu-badge-dot">Connected</span>'
   const label = c.syncStatus === 'needs_reconnect' ? 'Needs reconnect' : 'Sync error'
-  return `<span class="pu-badge" style="background:var(--pu-paper-dim);color:var(--pu-danger)">${label}</span>`
+  return `<span class="pu-badge pu-badge-dot pu-badge-danger">${label}</span>`
 }
 
 // ---------------------------------------------------------------------------
@@ -1646,11 +1686,32 @@ export interface ApiKeysPageData extends DashboardChrome {
    * anyone, including us.
    */
   newKey?: string
+  /** Echoed on a failed submit so the host does not retype the name. */
+  nameValue?: string
+  /** Scopes ticked on a failed submit; both by default. */
+  scopesValue?: readonly string[]
   errors?: Record<string, string>
 }
 
+/**
+ * The whole scope vocabulary the form offers, with the words a host needs
+ * to choose. Mirrors `API_SCOPE_READ`/`API_SCOPE_WRITE` in the REST layer;
+ * the route accepts nothing outside this list.
+ */
+export const API_KEY_SCOPES: ReadonlyArray<{ value: string; what: string }> = [
+  { value: 'read', what: 'list event types, availability, bookings' },
+  { value: 'write', what: 'create, reschedule, cancel bookings' },
+]
+
 export function apiKeysPage(d: ApiKeysPageData): string {
   const errors = d.errors ?? {}
+  const ticked = d.scopesValue ?? API_KEY_SCOPES.map((s) => s.value)
+  const scopeRows = API_KEY_SCOPES.map(
+    (s) => `<label class="pu-check" for="scope-${s.value}">
+      <input id="scope-${s.value}" name="scopes" type="checkbox" value="${s.value}"${ticked.includes(s.value) ? ' checked' : ''}>
+      <span><strong>${s.value}</strong> &mdash; ${s.what}</span>
+    </label>`,
+  ).join('\n    ')
 
   const list =
     d.keys.length === 0
@@ -1667,10 +1728,12 @@ export function apiKeysPage(d: ApiKeysPageData): string {
   <h2>Copy your key now</h2>
   <p><strong>This is the only time it will be shown.</strong> We store only a hash of it, so if you lose it
      you will have to create a new one.</p>
-  <label for="new-key">New API key</label>
-  <div class="pu-url">
-    <input id="new-key" class="pu-url-input" readonly value="${escapeHtml(d.newKey)}" onclick="this.select()">
-    ${copyButton(d.newKey)}
+  <h3 style="font-size:.875rem;margin:1rem 0 .35rem">New API key</h3>
+  <code id="new-key" class="pu-key">${escapeHtml(d.newKey)}</code>
+  <div class="pu-form-row" style="justify-content:flex-start">
+    ${revealCopyButton(d.newKey)}
+    <span class="pu-muted" style="font-size:.8125rem">Send it as <code>Authorization: Bearer &lt;key&gt;</code>
+      &mdash; see the <a href="/docs/api">API docs</a>.</span>
   </div>
 </section>`
       : '') +
@@ -1683,12 +1746,13 @@ export function apiKeysPage(d: ApiKeysPageData): string {
     <h2>Create a key</h2>
     <label for="name">Name</label>
     <input id="name" name="name" required aria-required="true" maxlength="80"
-           placeholder="Laptop CLI"${describedBy('name', errors)}>
+           placeholder="Laptop CLI" value="${escapeHtml(d.nameValue ?? '')}"${describedBy('name', errors)}>
     ${fieldError('name', errors)}
-    <label for="scopes">Scopes</label>
-    <input id="scopes" name="scopes" value="read write"
-           maxlength="200"${describedBy('scopes', errors)}>
-    <p class="pu-muted" style="font-size:.8125rem;margin:.25rem 0 0">Space-separated. Grant the fewest that work.</p>
+    <fieldset style="border:0;padding:0;margin:1rem 0 0"${describedBy('scopes', errors)}>
+      <legend style="font-size:.875rem;font-weight:600;padding:0">Scopes</legend>
+      ${scopeRows}
+      <p class="pu-muted" style="font-size:.8125rem;margin:.25rem 0 0">Grant the fewest that work.</p>
+    </fieldset>
     ${fieldError('scopes', errors)}
     <div style="margin-top:1.25rem"><button class="pu-btn" type="submit">Create key</button></div>
   </form>
@@ -1703,18 +1767,64 @@ function apiKeyRow(d: ApiKeysPageData, k: ApiKey): string {
     k.lastUsedAt === null
       ? 'never used'
       : `last used ${formatInZone(k.lastUsedAt, d.user.tz, { month: 'short', day: 'numeric' })}`
+  const keyId = encodeURIComponent(k.id)
   return `<li class="pu-card" style="display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap">
         <div>
           <strong>${escapeHtml(k.name || 'Unnamed key')}</strong><br>
           <span class="pu-time pu-muted">pk_${escapeHtml(k.prefix)}…</span>
           <span class="pu-muted">· created ${escapeHtml(created)} · ${escapeHtml(used)}</span>
         </div>
-        <form method="post" action="/dashboard/api-keys/${encodeURIComponent(k.id)}/delete" style="margin:0">
+        <form method="post" action="/dashboard/api-keys/${keyId}/delete" style="margin:0"
+              onsubmit="return confirm(${escapeHtml(JSON.stringify(revokePrompt(k)))})">
           ${csrfField(d.csrf)}
-          <button class="pu-btn pu-btn-danger" type="submit"
-                  style="padding:.4rem .8rem;font-size:.875rem">Revoke</button>
+          <a class="pu-btn pu-btn-danger" href="/dashboard/api-keys/${keyId}/revoke"
+             onclick="var f=this.closest('form');if(f&&f.requestSubmit){f.requestSubmit();return false}"
+             style="padding:.4rem .8rem;font-size:.875rem">Revoke</a>
         </form>
       </li>`
+}
+
+function revokePrompt(k: ApiKey): string {
+  return `Revoke ${k.name || 'this key'}? Anything using it stops working immediately.`
+}
+
+/**
+ * The one-time key's copy control. `copyButton` selects a sibling input as
+ * its no-clipboard fallback; the key is a block of text here, so the
+ * fallback selects that block instead — the host can still copy by hand.
+ */
+function revealCopyButton(value: string): string {
+  return `<button type="button" class="pu-btn pu-btn-ghost pu-copy" data-copy="${escapeHtml(value)}"
+    onclick="var b=this,f=function(){var e=document.getElementById('new-key'),s=window.getSelection(),r=document.createRange();r.selectNodeContents(e);s.removeAllRanges();s.addRange(r)};if(navigator.clipboard){navigator.clipboard.writeText(b.dataset.copy).then(function(){b.textContent='Copied';setTimeout(function(){b.textContent='Copy'},1500)}).catch(f)}else{f()}">Copy</button>`
+}
+
+export interface RevokeKeyPageData extends DashboardChrome {
+  apiKey: ApiKey
+}
+
+/**
+ * The no-script path of the revoke confirmation. With script, the row's
+ * `confirm()` asks before the POST; without it, the row's control is a
+ * plain link that lands here and the question is a page. Both end at the
+ * same POST.
+ */
+export function revokeKeyPage(d: RevokeKeyPageData): string {
+  const k = d.apiKey
+  return (
+    shellTop(d, 'Revoke API key', 'keys') +
+    `<section class="pu-card" aria-labelledby="revoke-title" style="max-width:36rem">
+  <h1 id="revoke-title" style="font-size:1.25rem">Revoke ${escapeHtml(k.name || 'this key')}?</h1>
+  <p>Anything using it stops working immediately. There is no undo &mdash; a key is only ever shown once, so a
+     revoked key can only be replaced by a new one.</p>
+  <p class="pu-muted"><span class="pu-time">pk_${escapeHtml(k.prefix)}&hellip;</span></p>
+  <form method="post" action="/dashboard/api-keys/${encodeURIComponent(k.id)}/delete" class="pu-form-row" style="justify-content:flex-start">
+    ${csrfField(d.csrf)}
+    <button class="pu-btn pu-btn-danger" type="submit">Revoke key</button>
+    <a class="pu-btn pu-btn-ghost" href="/dashboard/api-keys">Keep it</a>
+  </form>
+</section>` +
+    shellBottom(d.brandName)
+  )
 }
 
 // ---------------------------------------------------------------------------
