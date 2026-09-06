@@ -310,6 +310,13 @@ export async function notifyBookingCancelled(ctx: {
   host: User
   hosts?: User[]
   cancelledBy: 'host' | 'guest'
+  /**
+   * The host who actually cancelled, when one did. Without it the email
+   * credits every host of a team booking — "Alice and Bob cancelled" —
+   * when only Alice pressed the button and wrote the note.
+   */
+  actor?: User
+  /** A note to the guest, quoted in the email and attributed to whoever cancelled. */
   reason?: string
 }): Promise<void> {
   const { ports, booking, eventType, host } = ctx
@@ -319,6 +326,7 @@ export async function notifyBookingCancelled(ctx: {
     host,
     ...(ctx.hosts ? { hosts: ctx.hosts } : {}),
     cancelledBy: ctx.cancelledBy,
+    ...(ctx.actor ? { cancelledByName: ctx.actor.name || ctx.actor.slug } : {}),
     ...(ctx.reason ? { reason: ctx.reason } : {}),
     brandName: ports.config.brandName,
     supportEmail: ports.config.supportEmail,

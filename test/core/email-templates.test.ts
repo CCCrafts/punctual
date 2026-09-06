@@ -378,6 +378,37 @@ describe('lifecycle templates', () => {
     expect(mail.html).toContain('#D92D20')
   })
 
+  // A note is a message from a person, quoted as one — not a "Reason" row
+  // that reads as the system's verdict. And the person named is the one who
+  // pressed the button, not every host of the meeting.
+  it('quotes a host note in the intro, attributed to the host who cancelled', () => {
+    const mail = bookingCancelled({
+      ...ctx({
+        booking: booking({ status: 'cancelled', cancelledAt: START - 3600_000 }),
+        hosts: [host, { ...host, id: 'u_bob', name: 'Bob Builder', email: 'bob@example.com' }],
+      }),
+      audience: 'guest',
+      cancelledBy: 'host',
+      cancelledByName: 'Bob Builder',
+      reason: 'Something came up.',
+    })
+    expect(mail.text).toContain('Bob Builder cancelled Intro call and wrote: “Something came up.” It has been removed from the calendar.')
+    expect(mail.text).not.toContain('Grace Hopper cancelled')
+    expect(mail.text).not.toContain('Reason')
+    expect(mail.html).toContain('wrote: “Something came up.”')
+  })
+
+  it('escapes a note in the html body', () => {
+    const mail = bookingCancelled({
+      ...ctx({ booking: booking({ status: 'cancelled' }) }),
+      audience: 'guest',
+      cancelledBy: 'host',
+      reason: '<script>alert(1)</script>',
+    })
+    expect(mail.html).not.toContain('<script>')
+    expect(mail.html).toContain('&lt;script&gt;')
+  })
+
   it('reminders differ between 24h and 1h', () => {
     const base = { ...ctx(), audience: 'guest' as const }
     const day = bookingReminder({ ...base, when: '24h' })

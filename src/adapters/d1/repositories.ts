@@ -587,6 +587,34 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
       )
       return rows.map((r) => mapBooking(r)!).filter(Boolean)
     },
+    async listForHostByStatus(hostUserId, opts) {
+      // Same host match as `listForHost`: the primary column OR the
+      // co-host list, so a collective booking's second host sees it too.
+      const where = `(host_user_id = ? OR host_user_ids_json LIKE '%"' || ? || '"%')`
+      let rows: Record<string, unknown>[]
+      if (opts.view === 'upcoming') {
+        rows = await all<Record<string, unknown>>(
+          `SELECT * FROM bookings WHERE ${where} AND status = 'confirmed' AND end_utc > ?
+           ORDER BY start_utc ASC LIMIT ?`,
+          hostUserId, hostUserId, opts.now, opts.limit,
+        )
+      } else if (opts.view === 'past') {
+        rows = await all<Record<string, unknown>>(
+          `SELECT * FROM bookings WHERE ${where} AND status = 'confirmed' AND end_utc <= ?
+           ORDER BY start_utc DESC LIMIT ?`,
+          hostUserId, hostUserId, opts.now, opts.limit,
+        )
+      } else {
+        // `cancelled_at` can be null on rows written before it was stamped
+        // reliably; the start is the fallback so those never float to the top.
+        rows = await all<Record<string, unknown>>(
+          `SELECT * FROM bookings WHERE ${where} AND status = 'cancelled'
+           ORDER BY COALESCE(cancelled_at, start_utc) DESC, start_utc DESC LIMIT ?`,
+          hostUserId, hostUserId, opts.limit,
+        )
+      }
+      return rows.map((r) => mapBooking(r)!).filter(Boolean)
+    },
     async countForHostOnDate(hostUserId, range) {
       // Matched against `start_utc` in the caller's resolved range, NOT the
       // stored `local_date` column. `local_date` is stamped once, in a
