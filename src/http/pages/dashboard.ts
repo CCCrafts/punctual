@@ -131,19 +131,32 @@ function shellTop(chrome: DashboardChrome, title: string, active: NavKey | null)
 
   return (
     shellHead({ title: `${title} · ${chrome.brandName}`, brandName: chrome.brandName }) +
-    `<header class="pu-dash-header" style="display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;margin-bottom:1.5rem">
+    `<header class="pu-dash-header">
   <a class="pu-mark" href="/dashboard">${escapeHtml(chrome.brandName.toLowerCase())}<span>:</span></a>
-  <nav aria-label="Dashboard" style="display:flex;gap:1rem;flex-wrap:wrap;font-size:.9375rem">
+  <nav class="pu-nav" aria-label="Dashboard">
       ${links}
   </nav>
-  <form method="post" action="/logout" style="margin:0">
+  <form class="pu-dash-signout" method="post" action="/logout">
     ${csrfField(chrome.csrf)}
     <button class="pu-btn pu-btn-ghost" type="submit" style="padding:.4rem .8rem;font-size:.875rem">Sign out</button>
   </form>
 </header>
 <p class="pu-sr">Signed in as ${escapeHtml(chrome.user.email)}</p>` +
-    emailWarningBanner(chrome)
+    emailWarningBanner(chrome) +
+    blankNameNotice(chrome, active)
   )
+}
+
+/**
+ * A host with no name is "?" on their booking page and an empty line in
+ * every confirmation. Settings makes the field required, but an account
+ * created by magic link never visited Settings — so the nudge rides the
+ * chrome. Not on Settings itself: the form there already says it.
+ */
+function blankNameNotice(chrome: DashboardChrome, active: NavKey | null): string {
+  if (chrome.user.name.trim() !== '' || active === 'settings') return ''
+  return `<p class="pu-notice">Add your name so guests know who they are booking with &mdash;
+  <a href="/dashboard/settings">Settings</a></p>`
 }
 
 function shellBottom(brandName: string): string {
@@ -169,9 +182,9 @@ function shellBottom(brandName: string): string {
   )
 }
 
-/** A dismissible-looking status strip. Not an error — errors use `.pu-err`. */
+/** A status strip. Not an error — errors use `.pu-err` — and not a success badge either. */
 function notice(message: string): string {
-  return `<p class="pu-badge" role="status" style="display:block;padding:.5rem .75rem;border-radius:var(--pu-radius)">${escapeHtml(message)}</p>`
+  return `<p class="pu-notice" role="status">${escapeHtml(message)}</p>`
 }
 
 function fieldError(id: string, errors: Record<string, string>): string {

@@ -451,14 +451,25 @@ input:has(+ .pu-err),select:has(+ .pu-err),textarea:has(+ .pu-err){border-color:
 .pu-nav-link:hover{color:var(--pu-text-primary)}
 .pu-nav-link[aria-current="page"]{color:var(--pu-text-primary);font-weight:600;
   border-bottom-color:var(--pu-green-700)}
-.pu-dash-header{border-bottom:1px solid var(--pu-line);padding-bottom:1rem}
-/* Narrow enough that the nav's own wrapping (5 links) collides with the
-   header's justify-content:space-between — one link stranded on its own row
-   with the sign-out button, uneven gaps either side. Stacking the three
-   header children instead of trying to keep them in one wrapping row reads
-   as intentional rather than as an overflow accident. */
+/* Layout lives here, not inline on the <header>: an inline style outranks
+   every media query, which is how the phone header ended up as three
+   stacked, centred rows (~200px before any content). */
+.pu-dash-header{display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;
+  border-bottom:1px solid var(--pu-line);padding-bottom:1rem;margin-bottom:1.5rem}
+.pu-nav{display:flex;gap:1rem;flex-wrap:wrap;font-size:.9375rem}
+.pu-dash-signout{margin:0}
+/* Narrow enough that seven links cannot share a row with the wordmark and
+   the sign-out button. Wordmark and sign-out keep the first row; the nav
+   takes the whole second row as one horizontally scrolling strip with
+   thumb-sized targets, so the header stays ~110px and left-aligned. */
 @media(max-width:480px){
-  .pu-dash-header{flex-direction:column;align-items:flex-start}
+  .pu-dash-header{gap:.25rem 1rem;padding-bottom:0}
+  .pu-dash-signout{order:1}
+  .pu-nav{order:2;flex:1 0 100%;flex-wrap:nowrap;gap:0;overflow-x:auto;white-space:nowrap;
+    -webkit-overflow-scrolling:touch;scrollbar-width:none}
+  .pu-nav::-webkit-scrollbar{display:none}
+  .pu-nav .pu-nav-link{display:inline-flex;align-items:center;min-height:44px;padding:0 .6rem}
+  .pu-nav .pu-nav-link:first-child{padding-left:0}
 }
 
 .pu-url{display:flex;align-items:center;gap:.5rem;background:var(--pu-surface-sunken);
@@ -546,6 +557,15 @@ input:has(+ .pu-err),select:has(+ .pu-err),textarea:has(+ .pu-err){border-color:
     transition-duration:.01ms!important;scroll-behavior:auto!important}
   .pu-day:hover[data-has-slots="1"],.pu-slot-available:hover,.pu-slot-available:active{transform:none}
 }
+
+/* shell, calendars, keys */
+/* A status strip that is not a success: "Calendar connected." and "add your
+   name" wore the success badge's green, which made every notice look like
+   praise. Info tokens, one quiet accent edge, ordinary text. */
+.pu-notice{display:block;margin:0 0 1.25rem;padding:.5rem .75rem;border-radius:var(--pu-radius);
+  background:var(--pu-status-info-bg);border-left:3px solid var(--pu-status-info);
+  color:var(--pu-text-primary);font-size:.875rem}
+.pu-notice a{font-weight:600}
 `
 
 export function pageCss(): string {
