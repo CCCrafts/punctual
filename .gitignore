@@ -8,7 +8,7 @@ scratch/
 .dev.vars
 
 # Dependencies & build
-node_modules/
+node_modules
 dist/
 .wrangler/
 
