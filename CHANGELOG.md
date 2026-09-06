@@ -11,6 +11,13 @@ Dashboard usability pass — every screen reviewed on desktop, dark and a
 
 ### Added
 
+- **Change a booking's hosts after it is booked.** A host of a team booking,
+  or anyone who manages the team, can add a team member to it or take a
+  host off it. The newcomer's calendar locks are claimed in the same write
+  as the host list, so a clash with a meeting they already have refuses
+  the change; the provider events get the new attendee list, and a host
+  added on a provider that had no event yet gets one. The hosts who came
+  or went are emailed; the guest, whose meeting has not moved, is not.
 - **A first-run checklist** on an empty dashboard: add your name, connect
   a calendar, check your hours (naming the zone they are read in), create
   an event type — with done marks, until the first event type exists.
