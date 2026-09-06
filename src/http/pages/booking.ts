@@ -16,6 +16,7 @@
  */
 
 import type { ResolvedHost } from '../../core/domain/hosts.js'
+import { fitKeyFor, type LogoShape } from '../../core/domain/media.js'
 import type {
   Team, EventType, Slot, User } from '../../core/domain/types.js'
 import { effectiveQuestions } from '../../core/domain/booking-service.js'
@@ -194,6 +195,21 @@ export interface BookingPageData {
  * booking page header and the dashboard settings page — the same key served
  * by the same `/avatars/:key` route either way.
  */
+/**
+ * A logo in the shape its owner chose: `circle` is `avatarHtml` (square
+ * crop, round mask); `natural` is the uncropped "-fit" rendering, aligned
+ * by height — as wide as its proportions make it, capped at three times
+ * the height so a banner cannot push the title off the row. Initials when
+ * there is no image, as for avatars.
+ */
+export function logoHtml(opts: { key: string | null; shape?: LogoShape | null; name: string; size?: number; alt?: string }): string {
+  const size = opts.size ?? 40
+  if (opts.key && opts.shape === 'natural') {
+    return `<img src="/avatars/${encodeURIComponent(fitKeyFor(opts.key))}" alt="${escapeHtml(opts.alt ?? opts.name)}" height="${size}" style="height:${size}px;width:auto;max-width:${size * 3}px;object-fit:contain;display:block;flex:none" loading="lazy">`
+  }
+  return avatarHtml({ key: opts.key, name: opts.name, size, ...(opts.alt !== undefined ? { alt: opts.alt } : {}) })
+}
+
 export function avatarHtml(opts: { key: string | null; name: string; size?: number; alt?: string }): string {
   const size = opts.size ?? 40
   if (opts.key) {
@@ -327,9 +343,10 @@ export function eventHeader(d: BookingPageData): string {
   // The event type's own logo wins over the team's logo and the host's
   // photo: it is the one image the host chose for exactly this page.
   const headKey = d.eventType.logoKey ?? (d.team ? d.team.logoKey : d.host.avatarKey)
+  const headShape = d.eventType.logoKey ? (d.eventType.logoShape ?? 'circle') : d.team ? (d.team.logoShape ?? 'circle') : 'circle'
   return `<header class="pu-event-header">
   <div class="pu-host">
-    ${avatarHtml({ key: headKey, name: headName, size: 56 })}
+    ${logoHtml({ key: headKey, shape: headShape, name: headName, size: 56 })}
     <div>
       <p class="pu-host-name">${escapeHtml(headName)}</p>
       ${identity ? `<p class="pu-host-org">${identity}</p>` : ''}

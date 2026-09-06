@@ -19,6 +19,7 @@ import type { OgAvatar } from './card.js'
 import { resolveHosts } from '../../core/domain/hosts.js'
 import { joinNames } from '../pages/booking.js'
 import { toPng } from '../../adapters/image/resize.js'
+import { fitKeyFor, readImageDimensions } from '../../core/domain/media.js'
 
 type Env = Record<string, unknown>
 
@@ -65,7 +66,7 @@ export function buildOgRoutes(ports: EnginePorts): Hono<{ Bindings: Env }> {
     // Hashed, not concatenated: KV rejects keys over 512 bytes, and six
     // hosts with photos would pass that — silently, since the cache calls
     // below swallow errors, leaving every crawler hit to re-render.
-    const faceKeys = `${eventType.logoKey ?? '-'}|` + hosts.map((h) => `${h.user.id}:${h.user.avatarKey ?? '-'}`).join(',')
+    const faceKeys = `${eventType.logoKey ?? '-'}:${eventType.logoShape ?? 'circle'}|` + hosts.map((h) => `${h.user.id}:${h.user.avatarKey ?? '-'}`).join(',')
     const cacheKey = `og:v2:${userSlug}:${eventSlug}:${await ports.crypto.hash(faceKeys)}`
 
     const cached = await safeGet(ports, cacheKey)
@@ -83,7 +84,9 @@ export function buildOgRoutes(ports: EnginePorts): Hono<{ Bindings: Env }> {
       const shown = eventType.logoKey ? [] : hosts.slice(0, 3)
       const avatars: OgAvatar[] = []
       if (eventType.logoKey) {
-        avatars.push({ ...(await avatarDataUri(ports, eventType.logoKey)), initial: eventType.title.trim().charAt(0).toUpperCase() || '?' })
+        const natural = eventType.logoShape === 'natural'
+        const logo = natural ? await fitDataUri(ports, eventType.logoKey) : await avatarDataUri(ports, eventType.logoKey)
+        avatars.push({ ...logo, initial: eventType.title.trim().charAt(0).toUpperCase() || '?' })
       }
       for (const h of shown) {
         avatars.push({
@@ -151,6 +154,26 @@ async function avatarDataUri(ports: EnginePorts, key: string | null): Promise<{ 
     return { src: `data:image/png;base64,${btoa(binary)}` }
   } catch {
     return {}
+  }
+}
+
+/**
+ * The uncropped "-fit" rendering of a logo as a PNG data URI plus its
+ * aspect, for a logo shown in its own proportions; falls back to the
+ * square crop (no aspect → drawn round) when the fit variant is missing.
+ */
+async function fitDataUri(ports: EnginePorts, thumbKey: string): Promise<{ src?: string; aspect?: number }> {
+  try {
+    const object = await ports.blobStorage.get(fitKeyFor(thumbKey))
+    if (!object) return avatarDataUri(ports, thumbKey)
+    const dims = readImageDimensions(object.bytes, 'image/webp')
+    const png = toPng(object.bytes)
+    if (!png || !dims || dims.height === 0) return avatarDataUri(ports, thumbKey)
+    let binary = ''
+    for (let i = 0; i < png.length; i++) binary += String.fromCharCode(png[i]!)
+    return { src: `data:image/png;base64,${btoa(binary)}`, aspect: dims.width / dims.height }
+  } catch {
+    return avatarDataUri(ports, thumbKey)
   }
 }
 

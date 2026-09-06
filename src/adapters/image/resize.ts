@@ -21,7 +21,7 @@
  */
 
 import { PhotonImage, crop, resize as photonResize, SamplingFilter } from '@cf-wasm/photon/workerd'
-import { THUMB_DIMENSION } from '../../core/domain/media.js'
+import { FIT_HEIGHT, FIT_MAX_WIDTH, THUMB_DIMENSION } from '../../core/domain/media.js'
 
 /**
  * Decodes `bytes`, center-crops to a square (cover, not stretch — an avatar
@@ -80,5 +80,36 @@ export function toPng(bytes: Uint8Array): Uint8Array | null {
     return null
   } finally {
     decoded?.free()
+  }
+}
+
+/**
+ * The uncropped sibling of `resizeToSquareThumbnail`: the whole image at
+ * `FIT_HEIGHT` tall and whatever width its proportions give, capped at
+ * `FIT_MAX_WIDTH` (a very wide banner scales down by width instead). What
+ * a logo shown "in its original proportions" is rendered from. Same
+ * `null`-on-failure contract.
+ */
+export function resizeToFitThumbnail(bytes: Uint8Array): Uint8Array | null {
+  let decoded: PhotonImage | undefined
+  let resized: PhotonImage | undefined
+  try {
+    decoded = PhotonImage.new_from_byteslice(bytes)
+    const width = decoded.get_width()
+    const height = decoded.get_height()
+    if (width === 0 || height === 0) return null
+    let targetH = FIT_HEIGHT
+    let targetW = Math.max(1, Math.round((width * FIT_HEIGHT) / height))
+    if (targetW > FIT_MAX_WIDTH) {
+      targetW = FIT_MAX_WIDTH
+      targetH = Math.max(1, Math.round((height * FIT_MAX_WIDTH) / width))
+    }
+    resized = photonResize(decoded, targetW, targetH, SamplingFilter.Lanczos3)
+    return resized.get_bytes_webp()
+  } catch {
+    return null
+  } finally {
+    decoded?.free()
+    resized?.free()
   }
 }

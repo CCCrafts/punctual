@@ -34,6 +34,7 @@ import type {
   DayWindow,
   EventType,
   EventTypeHost,
+  LogoShape,
   EventTypeQuestion,
   Schedule,
   Slot,
@@ -48,7 +49,7 @@ import { slotStateClassName } from '../../core/slot-state.js'
 import { slugify } from '../../core/domain/booking-service.js'
 import { formatInZone, localDateString, offsetLabel } from '../../core/time/zone.js'
 import type { ResolvedHost } from '../../core/domain/hosts.js'
-import { avatarHtml, escapeHtml, hostsSentence, joinNames, shellFoot, shellHead } from './booking.js'
+import { avatarHtml, escapeHtml, hostsSentence, joinNames, logoHtml, shellFoot, shellHead } from './booking.js'
 
 // ---------------------------------------------------------------------------
 // Chrome
@@ -482,7 +483,7 @@ function copyButton(value: string): string {
 
 function eventTypeCard(d: DashboardHomeData, item: EventTypeListItem): string {
   const et = item.eventType
-  const logo = et.logoKey ? avatarHtml({ key: et.logoKey, name: et.title, size: 28 }) : ''
+  const logo = et.logoKey ? logoHtml({ key: et.logoKey, shape: et.logoShape, name: et.title, size: 28 }) : ''
   const url = `${trimSlash(d.baseUrl)}/${encodeURIComponent(item.ownerSlug)}/${encodeURIComponent(et.slug)}`
   const inputId = `url-${escapeHtml(et.id)}`
   // Edit and Preview sit in the header beside the badges, and the link row
@@ -669,9 +670,21 @@ function formErrorCount(errors: Record<string, string>): number {
  * a real button without scripts, Remove only when there is something to
  * remove. Lives OUTSIDE any other form (nested forms are not HTML).
  */
-function logoPanel(o: { csrf: string; action: string; key: string | null; name: string; errorKey: string; errors: Record<string, string>; hint: string }): string {
+function logoPanel(o: { csrf: string; action: string; key: string | null; shape?: LogoShape | null; name: string; errorKey: string; errors: Record<string, string>; hint: string }): string {
+  const shape: LogoShape = o.shape ?? 'circle'
+  // Only offered once there is a logo to shape. Radios submit on change,
+  // with a real button without scripts; the route re-renders the page.
+  const shapeForm = o.key
+    ? `<form method="post" action="${escapeHtml(o.action)}-shape" class="pu-logo-shape" style="margin:.5rem 0 0">
+          ${csrfField(o.csrf)}
+          <span class="pu-muted" style="font-size:.8125rem">Shown as</span>
+          <label style="display:inline-flex;align-items:center;gap:.3rem;margin:0 .75rem 0 .5rem;font-weight:400"><input type="radio" name="shape" value="circle"${shape === 'circle' ? ' checked' : ''} onchange="this.form.submit()"> a circle</label>
+          <label style="display:inline-flex;align-items:center;gap:.3rem;margin:0;font-weight:400"><input type="radio" name="shape" value="natural"${shape === 'natural' ? ' checked' : ''} onchange="this.form.submit()"> its own proportions</label>
+          <noscript><button class="pu-btn pu-btn-ghost" type="submit" style="margin-left:.5rem;padding:.2rem .5rem;font-size:.8125rem">Apply</button></noscript>
+        </form>`
+    : ''
   return `<div class="pu-profile-photo pu-logo-panel">
-      ${avatarHtml({ key: o.key, name: o.name, size: 72 })}
+      ${logoHtml({ key: o.key, shape, name: o.name, size: 72 })}
       <div>
         <form method="post" action="${escapeHtml(o.action)}" enctype="multipart/form-data" style="margin:0">
           ${csrfField(o.csrf)}
@@ -689,6 +702,7 @@ function logoPanel(o: { csrf: string; action: string; key: string | null; name: 
         </form>`
             : ''
         }
+        ${shapeForm}
         <p class="pu-muted" style="font-size:.8125rem;margin:.35rem 0 0">${o.hint} PNG, JPEG or WebP, up to 5 MB.</p>
         ${fieldError(o.errorKey, o.errors)}
       </div>
@@ -752,7 +766,7 @@ export function eventTypeForm(d: EventTypeFormData): string {
     (d.notice ? notice(d.notice) : '') +
     `<section class="pu-card" aria-label="${editing ? 'Edit event type' : 'New event type'}">
   <h1>${editing ? 'Edit event type' : 'New event type'}</h1>
-  ${editing ? logoPanel({ csrf: d.csrf, action: `/dashboard/event-types/${encodeURIComponent(et!.id)}/logo`, key: et!.logoKey ?? null, name: et!.title, errorKey: 'logo', errors, hint: "Heads this event type's booking page and social card instead of your photo or the team's logo. Square works best." }) : ''}
+  ${editing ? logoPanel({ csrf: d.csrf, action: `/dashboard/event-types/${encodeURIComponent(et!.id)}/logo`, key: et!.logoKey ?? null, shape: et!.logoShape ?? null, name: et!.title, errorKey: 'logo', errors, hint: "Heads this event type's booking page and social card instead of your photo or the team's logo. Square works best." }) : ''}
   <form method="post" action="${escapeHtml(action)}" class="pu-et-form">
     ${csrfField(d.csrf)}
     ${errorNotice}
@@ -1829,7 +1843,7 @@ function teamCard(d: TeamsPageData, view: TeamView): string {
   const settings = view.canManage
     ? `<details class="pu-team-settings"${d.editValues?.teamId === team.id || errors[`logo-${team.id}`] ? ' open' : ''}>
     <summary>Team settings — name, address, logo</summary>
-    ${logoPanel({ csrf: d.csrf, action: `/dashboard/teams/${teamId}/logo`, key: team.logoKey, name: team.name, errorKey: `logo-${team.id}`, errors, hint: "Heads the team's booking pages and social cards." })}
+    ${logoPanel({ csrf: d.csrf, action: `/dashboard/teams/${teamId}/logo`, key: team.logoKey, shape: team.logoShape ?? null, name: team.name, errorKey: `logo-${team.id}`, errors, hint: "Heads the team's booking pages and social cards." })}
     <form method="post" action="/dashboard/teams/${teamId}" style="margin-top:1rem">
       ${csrfField(d.csrf)}
       <div class="pu-grid" style="grid-template-columns:repeat(auto-fit,minmax(11rem,1fr));gap:0 1rem">
@@ -1854,7 +1868,7 @@ function teamCard(d: TeamsPageData, view: TeamView): string {
 
   return `<article class="pu-card">
   <div class="pu-card-title">
-    ${team.logoKey ? avatarHtml({ key: team.logoKey, name: team.name, size: 32 }) : ''}
+    ${team.logoKey ? logoHtml({ key: team.logoKey, shape: team.logoShape, name: team.name, size: 32 }) : ''}
     <h2>${escapeHtml(team.name)}</h2>${view.viaInstanceAdmin ? '<span class="pu-badge pu-badge-neutral">Instance admin view</span>' : ''}
     <span class="pu-time pu-muted pu-card-title-action" style="margin-left:auto">/${escapeHtml(team.slug)}</span>
   </div>

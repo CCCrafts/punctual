@@ -88,9 +88,9 @@ import {
   deriveBlobKey,
   isAllowedImageType,
   readImageDimensions,
-  thumbKeyFor,
+  thumbKeyFor, fitKeyFor, originalKeyCandidates, isLogoShape,
 } from '../core/domain/media.js'
-import { resizeToSquareThumbnail } from '../adapters/image/resize.js'
+import { resizeToFitThumbnail, resizeToSquareThumbnail } from '../adapters/image/resize.js'
 import { errorPage, shellFoot, shellHead } from './pages/booking.js'
 import {
   CSRF_FIELD,
@@ -997,6 +997,22 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     return c.html(eventTypeForm({ ...(await editFormData(c, { ...existing, logoKey: stored.key })), notice: 'Logo updated.' }))
   })
 
+  app.post('/dashboard/event-types/:id/logo-shape', requireSession, async (c) => {
+    const form = await c.req.formData()
+    if (!(await csrfOk(c, form))) return csrfRejected(c)
+    const existing = await ownedEventType(c)
+    if (!existing) return notFound(c)
+    const shape = String(form.get('shape') ?? '')
+    if (!isLogoShape(shape)) return c.html(eventTypeForm({ ...(await editFormData(c, existing)), errors: { logo: 'Choose a circle or its own proportions.' } }), 400)
+    if (!existing.logoKey) return c.html(eventTypeForm({ ...(await editFormData(c, existing)), errors: { logo: 'Upload a logo first.' } }), 400)
+    if (shape === 'natural' && !(await ensureFitThumb(existing.logoKey))) {
+      return c.html(eventTypeForm({ ...(await editFormData(c, existing)), errors: { logo: 'The original of this logo is gone — upload it again to show it in its own proportions.' } }), 400)
+    }
+    await c.get('repos').eventTypes.update(existing.id, { logoShape: shape })
+    await advanceBookmark(c)
+    return c.html(eventTypeForm({ ...(await editFormData(c, { ...existing, logoShape: shape })), notice: shape === 'natural' ? 'Logo shown in its own proportions.' : 'Logo shown as a circle.' }))
+  })
+
   app.post('/dashboard/event-types/:id/logo/delete', requireSession, async (c) => {
     const form = await c.req.formData()
     if (!(await csrfOk(c, form))) return csrfRejected(c)
@@ -1757,6 +1773,23 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     return c.html(teamsPage({ ...(await teamsData(c)), notice: `${team.name}'s logo updated.` }))
   })
 
+  app.post('/dashboard/teams/:id/logo-shape', requireSession, async (c) => {
+    const form = await c.req.formData()
+    if (!(await csrfOk(c, form))) return csrfRejected(c)
+    const team = await managedTeam(c)
+    if (!team) return notFound(c)
+    const shape = String(form.get('shape') ?? '')
+    const fail = async (message: string) => c.html(teamsPage({ ...(await teamsData(c)), errors: { [`logo-${team.id}`]: message } }), 400)
+    if (!isLogoShape(shape)) return fail('Choose a circle or its own proportions.')
+    if (!team.logoKey) return fail('Upload a logo first.')
+    if (shape === 'natural' && !(await ensureFitThumb(team.logoKey))) {
+      return fail('The original of this logo is gone — upload it again to show it in its own proportions.')
+    }
+    await c.get('repos').teams.update(team.id, { logoShape: shape })
+    await advanceBookmark(c)
+    return c.html(teamsPage({ ...(await teamsData(c)), notice: shape === 'natural' ? `${team.name}'s logo shown in its own proportions.` : `${team.name}'s logo shown as a circle.` }))
+  })
+
   app.post('/dashboard/teams/:id/logo/delete', requireSession, async (c) => {
     const form = await c.req.formData()
     if (!(await csrfOk(c, form))) return csrfRejected(c)
@@ -2239,7 +2272,32 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
       await ports.blobStorage.put(originalKey, bytes, file.type)
       await ports.blobStorage.put(thumbKey, thumb, THUMB_CONTENT_TYPE)
     }
+    // The uncropped sibling, for a logo shown in its own proportions. Made
+    // here so switching shape later is a column change, not a re-upload.
+    if (!(await ports.blobStorage.get(fitKeyFor(thumbKey)))) {
+      const fit = resizeToFitThumbnail(bytes)
+      if (fit) await ports.blobStorage.put(fitKeyFor(thumbKey), fit, THUMB_CONTENT_TYPE)
+    }
     return { ok: true, key: thumbKey }
+  }
+
+  /**
+   * A logo uploaded before the fit thumbnail existed has only the square
+   * one; regenerate the fit variant from the stored original on the first
+   * switch to "natural". False when no original can be found either.
+   */
+  async function ensureFitThumb(thumbKey: string): Promise<boolean> {
+    const fitKey = fitKeyFor(thumbKey)
+    if (await ports.blobStorage.get(fitKey)) return true
+    for (const candidate of originalKeyCandidates(thumbKey)) {
+      const original = await ports.blobStorage.get(candidate)
+      if (!original) continue
+      const fit = resizeToFitThumbnail(original.bytes)
+      if (!fit) return false
+      await ports.blobStorage.put(fitKey, fit, THUMB_CONTENT_TYPE)
+      return true
+    }
+    return false
   }
 
   app.post('/dashboard/settings/avatar', requireSession, async (c) => {

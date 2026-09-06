@@ -8,6 +8,16 @@ still change interfaces.
 
 ### Added
 
+- **Logo shape.** An event type's or a team's logo can be shown as a
+  circle (the square crop in a round mask, as before) or in its own
+  proportions, aligned by height — chosen next to the logo, applied on the
+  booking page, the dashboard cards and the social card (migration `0014`).
+  Uploads now store an uncropped thumbnail alongside the square one; a
+  logo uploaded earlier gets it regenerated from the stored original the
+  first time it is switched.
+
+### Added
+
 - **A logo per event type**, uploaded from its edit form through the same
   pipeline as the profile photo (5 MB, PNG/JPEG/WebP, square thumbnail).
   It heads the booking page and is the single image on the social card,

@@ -19,6 +19,7 @@ import type {
   CalendarConnection,
   EventType,
   EventTypeHost,
+  LogoShape,
   Interval,
   MagicLinkToken,
   Schedule,
@@ -409,7 +410,7 @@ export interface TeamRepository {
    * the same shape as `UserRepository.update` with a slug.
    * @returns false when the new slug is already claimed (nothing changed).
    */
-  update(teamId: string, patch: { name?: string; slug?: string }): Promise<boolean>
+  update(teamId: string, patch: { name?: string; slug?: string; logoShape?: LogoShape }): Promise<boolean>
   /**
    * Insert, or update the weight of, a membership. `member.role` applies to
    * the INSERT only — an existing row keeps its role, because role changes

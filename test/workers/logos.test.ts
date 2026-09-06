@@ -11,6 +11,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 
 import { buildRouter } from '../../src/http/router.js'
 import { createD1Repositories } from '../../src/adapters/d1/repositories.js'
+import { fitKeyFor, readImageDimensions } from '../../src/core/domain/media.js'
 import { createR2BlobStorage } from '../../src/adapters/storage/r2-blob.js'
 import { createWebCrypto } from '../../src/adapters/crypto/webcrypto.js'
 import { createSlotService } from '../../src/engine.js'
@@ -268,5 +269,77 @@ describe('team editing', () => {
 
     const bob = await seedSession(L_BOB)
     expect((await postForm(`/dashboard/teams/${L_TEAM}`, bob, { csrf: await csrfFor(bob), name: 'X', slug: 'x' })).status).toBe(404)
+  })
+})
+
+describe('logo shape', () => {
+  it('an upload stores the uncropped fit thumbnail too, at height 256 in the original proportions', async () => {
+    const cookie = await seedSession(L_ALICE)
+    const csrf = await csrfFor(cookie)
+    expect((await multipart(`/dashboard/event-types/${L_ET}/logo`, cookie, csrf, 'logo', pngBytes())).status).toBe(200)
+    const row = await db.prepare('SELECT logo_key, logo_shape FROM event_types WHERE id = ?').bind(L_ET).first<{ logo_key: string; logo_shape: string }>()
+    expect(row?.logo_shape).toBe('circle')
+    const fit = await env.AVATARS.get(fitKeyFor(row!.logo_key))
+    expect(fit).not.toBeNull()
+    const bytes = new Uint8Array(await fit!.arrayBuffer())
+    // The fixture is 6×4: the fit variant is 256 tall and 384 wide, uncropped.
+    expect(readImageDimensions(bytes, 'image/webp')).toEqual({ width: 384, height: 256 })
+    const served = await app.fetch(new Request(`${BASE}/avatars/${fitKeyFor(row!.logo_key)}`))
+    expect(served.status).toBe(200)
+    expect(served.headers.get('content-type')).toBe('image/webp')
+  })
+
+  it('switching to its own proportions renders the fit image aligned by height on the booking page and the card', async () => {
+    const cookie = await seedSession(L_ALICE)
+    const csrf = await csrfFor(cookie)
+    const res = await postForm(`/dashboard/event-types/${L_ET}/logo-shape`, cookie, { csrf, shape: 'natural' })
+    expect(res.status).toBe(200)
+    const html = await res.text()
+    expect(html).toContain('Logo shown in its own proportions.')
+    expect(html).toContain('value="natural" checked')
+    const row = await db.prepare('SELECT logo_key, logo_shape FROM event_types WHERE id = ?').bind(L_ET).first<{ logo_key: string; logo_shape: string }>()
+    expect(row?.logo_shape).toBe('natural')
+
+    const page = await (await app.fetch(new Request(`${BASE}/logo-crew-ltd/crew-call`))).text()
+    expect(page).toContain(`/avatars/${fitKeyFor(row!.logo_key)}`)
+    expect(page).toMatch(/style="height:56px;width:auto;max-width:168px/)
+    expect(page).not.toContain(`/avatars/${row!.logo_key}"`)
+
+    // Back to a circle: the square crop in the round mask.
+    const back = await postForm(`/dashboard/event-types/${L_ET}/logo-shape`, cookie, { csrf, shape: 'circle' })
+    expect(await back.text()).toContain('Logo shown as a circle.')
+    const again = await (await app.fetch(new Request(`${BASE}/logo-crew-ltd/crew-call`))).text()
+    expect(again).toContain(`/avatars/${row!.logo_key}"`)
+    expect(again).toContain('border-radius:50%')
+  })
+
+  it('refuses an unknown shape, and a shape without a logo', async () => {
+    const cookie = await seedSession(L_ALICE)
+    const csrf = await csrfFor(cookie)
+    expect((await postForm(`/dashboard/event-types/${L_ET}/logo-shape`, cookie, { csrf, shape: 'hexagon' })).status).toBe(400)
+    expect((await postForm(`/dashboard/event-types/${L_PERSONAL}/logo-shape`, cookie, { csrf, shape: 'natural' })).status).toBe(400)
+  })
+
+  it('a logo uploaded before the fit variant existed gets it regenerated from the original on first switch', async () => {
+    const cookie = await seedSession(L_ALICE)
+    const csrf = await csrfFor(cookie)
+    const row = await db.prepare('SELECT logo_key FROM event_types WHERE id = ?').bind(L_ET).first<{ logo_key: string }>()
+    await env.AVATARS.delete(fitKeyFor(row!.logo_key))
+    expect(await env.AVATARS.get(fitKeyFor(row!.logo_key))).toBeNull()
+    const res = await postForm(`/dashboard/event-types/${L_ET}/logo-shape`, cookie, { csrf, shape: 'natural' })
+    expect(res.status).toBe(200)
+    expect(await env.AVATARS.get(fitKeyFor(row!.logo_key))).not.toBeNull()
+  })
+
+  it('a team logo has the same setting, for admins only', async () => {
+    const cookie = await seedSession(L_ALICE)
+    const csrf = await csrfFor(cookie)
+    expect((await multipart(`/dashboard/teams/${L_TEAM}/logo`, cookie, csrf, 'logo', pngBytes())).status).toBe(200)
+    const res = await postForm(`/dashboard/teams/${L_TEAM}/logo-shape`, cookie, { csrf, shape: 'natural' })
+    expect(res.status).toBe(200)
+    expect(await res.text()).toContain('shown in its own proportions')
+    expect((await db.prepare('SELECT logo_shape FROM teams WHERE id = ?').bind(L_TEAM).first<{ logo_shape: string }>())?.logo_shape).toBe('natural')
+    const bob = await seedSession(L_BOB)
+    expect((await postForm(`/dashboard/teams/${L_TEAM}/logo-shape`, bob, { csrf: await csrfFor(bob), shape: 'circle' })).status).toBe(404)
   })
 })

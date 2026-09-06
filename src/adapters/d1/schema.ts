@@ -56,6 +56,7 @@ export const teams = sqliteTable(
     slug: text('slug').notNull(),
     // Resized logo thumbnail's R2 key; same convention as `users.avatarKey`.
     logoKey: text('logo_key'),
+    logoShape: text('logo_shape').notNull().default('circle'),
     createdAt: integer('created_at').notNull(),
   },
   (t) => [uniqueIndex('teams_slug_idx').on(t.slug)],
@@ -102,6 +103,8 @@ export const eventTypes = sqliteTable(
     scheduleId: text('schedule_id'),
     // The resized logo thumbnail's key, like users.avatar_key (migration 0013).
     logoKey: text('logo_key'),
+    // 'circle' | 'natural' (migration 0014).
+    logoShape: text('logo_shape').notNull().default('circle'),
   },
   (t) => [
     index('event_types_owner_user_idx').on(t.ownerUserId),

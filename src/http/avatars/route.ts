@@ -23,7 +23,7 @@ type Env = Record<string, unknown>
  * pattern also keeps the route from being usable as a generic "fetch any
  * key" probe against the bucket.
  */
-const KEY_PATTERN = /^[a-f0-9]{64}-thumb\.webp$/
+const KEY_PATTERN = /^[a-f0-9]{64}-(thumb|fit)\.webp$/
 
 // A year, immutable: the key IS the hash of the bytes, so nothing this route
 // serves can ever change under a fixed key (contrast the OG card route's

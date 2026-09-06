@@ -58,8 +58,32 @@ export function thumbKeyFor(originalKey: string): string {
   return `${originalKey.replace(/\.[^./]+$/, '')}-thumb.webp`
 }
 
+/**
+ * The uncropped sibling of a square thumbnail: same source, original
+ * proportions, `FIT_HEIGHT` tall. Derived from the thumb key so a logo's
+ * one stored key still finds both renderings.
+ */
+export function fitKeyFor(thumbKey: string): string {
+  return thumbKey.replace(/-thumb\.webp$/, '-fit.webp')
+}
+
+/** The original's key candidates for a thumb key — the extension is not stored, so the caller tries each. */
+export function originalKeyCandidates(thumbKey: string): string[] {
+  const base = thumbKey.replace(/-thumb\.webp$/, '')
+  return ['png', 'jpg', 'webp'].map((ext) => `${base}.${ext}`)
+}
+
+/** How a logo is shown: a square crop in a round mask, or its own proportions aligned by height. */
+export type LogoShape = 'circle' | 'natural'
+export function isLogoShape(value: string): value is LogoShape {
+  return value === 'circle' || value === 'natural'
+}
+
 /** The square pixel size every avatar/logo thumbnail is resized to. */
 export const THUMB_DIMENSION = 256
+/** Height of the uncropped "fit" thumbnail; width follows the source's proportions, capped at FIT_MAX_WIDTH. */
+export const FIT_HEIGHT = 256
+export const FIT_MAX_WIDTH = 1024
 export const THUMB_CONTENT_TYPE = 'image/webp'
 
 /**

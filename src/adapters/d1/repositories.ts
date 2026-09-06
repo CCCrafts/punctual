@@ -373,6 +373,7 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
       if (patch.questions !== undefined) put('questions_json', JSON.stringify(patch.questions))
       if (patch.active !== undefined) put('active', patch.active ? 1 : 0)
       if (patch.logoKey !== undefined) put('logo_key', patch.logoKey)
+      if (patch.logoShape !== undefined) put('logo_shape', patch.logoShape)
       // Same scalar-subquery guard as `create`: a concurrent
       // delete of this exact schedule between the caller's ownership check
       // and this write resolves to NULL — "use the default", which is what
@@ -1117,6 +1118,7 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
       const binds: unknown[] = []
       if (patch.name !== undefined) (sets.push('name = ?'), binds.push(patch.name))
       if (patch.slug !== undefined) (sets.push('slug = ?'), binds.push(patch.slug))
+      if (patch.logoShape !== undefined) (sets.push('logo_shape = ?'), binds.push(patch.logoShape))
       if (sets.length === 0) return true
       binds.push(id)
       try {
@@ -1568,6 +1570,7 @@ function mapTeam(row: Record<string, unknown> | null): Team | null {
     id: String(row['id']),
     name: String(row['name']),
     slug: String(row['slug']),
+    logoShape: row['logo_shape'] === 'natural' ? 'natural' : 'circle',
     logoKey: row['logo_key'] == null ? null : String(row['logo_key']),
     createdAt: Number(row['created_at']),
   }
@@ -1616,6 +1619,7 @@ function mapEventType(row: Record<string, unknown> | null): EventType | null {
     active: Number(row['active']) === 1,
     createdAt: Number(row['created_at']),
     logoKey: row['logo_key'] == null ? null : String(row['logo_key']),
+    logoShape: row['logo_shape'] === 'natural' ? 'natural' : 'circle',
     scheduleId: row['schedule_id'] == null ? null : String(row['schedule_id']),
   }
 }

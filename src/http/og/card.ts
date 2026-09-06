@@ -22,6 +22,8 @@ export interface OgElement {
 export interface OgAvatar {
   src?: string
   initial: string
+  /** Width over height of an uncropped logo; absent = a square crop shown round. */
+  aspect?: number
 }
 
 export interface OgCardProps {
@@ -47,6 +49,16 @@ const STACK_SIZE = 132
 
 function avatarNode(a: OgAvatar, size: number, overlap = 0): OgElement {
   const ring = { border: `6px solid ${INK}`, borderRadius: '50%' }
+  if (a.src && a.aspect) {
+    // A logo in its own proportions: height-aligned, width from the
+    // aspect, capped so a banner stays inside the card, soft corners
+    // rather than a circle.
+    const width = Math.min(Math.round(size * a.aspect), 720)
+    return {
+      type: 'img',
+      props: { src: a.src, width, height: size, style: { width: `${width}px`, height: `${size}px`, objectFit: 'contain', borderRadius: '16px' } },
+    }
+  }
   if (a.src) {
     return {
       type: 'img',

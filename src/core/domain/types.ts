@@ -1,3 +1,6 @@
+import type { LogoShape } from './media.js'
+export type { LogoShape } from './media.js'
+
 /**
  * Domain types. Pure data — no I/O, no Cloudflare imports (ADR-0003 §5).
  *
@@ -54,6 +57,8 @@ export interface Team {
   slug: string
   /** Same convention as `User.avatarKey` — the resized logo thumbnail's key. */
   logoKey: string | null
+  /** How the logo is shown; see `LogoShape`. Optional for older fixtures; the repository always fills it. */
+  logoShape?: LogoShape
   createdAt: number
 }
 
@@ -134,6 +139,8 @@ export interface EventType {
    * always fills it.
    */
   logoKey?: string | null
+  /** How the logo is shown; see `LogoShape`. Optional for older fixtures; the repository always fills it. */
+  logoShape?: LogoShape
   active: boolean
   createdAt: number
   /**
