@@ -509,6 +509,8 @@ export function bookingRescheduled(ctx: RescheduleEmailContext): EmailContent {
 export interface CancellationEmailContext extends BookingEmailContext {
   audience: EmailAudience
   cancelledBy?: EmailAudience
+  /** The one host who cancelled, when `cancelledBy` is 'host' and it is known; otherwise every host is named. */
+  cancelledByName?: string
   reason?: string
   /** Where the guest can pick a new time. */
   rebookUrl?: string
@@ -518,14 +520,24 @@ export function bookingCancelled(ctx: CancellationEmailContext): EmailContent {
   const tz = zoneFor(ctx, ctx.audience)
   const brandName = brandOf(ctx)
   const rows = baseRows(ctx, ctx.audience, tz)
-  if (ctx.reason && ctx.reason.trim() !== '') rows.push({ label: 'Reason', value: ctx.reason.trim() })
+  const reason = ctx.reason?.trim() ?? ''
 
   const by =
     ctx.cancelledBy === 'host'
-      ? hostNames(ctx)
+      ? ctx.cancelledByName ?? hostNames(ctx)
       : ctx.cancelledBy === 'guest'
         ? ctx.booking.guestName
         : null
+  // A note from whoever cancelled is quoted in the intro, attributed to
+  // them — "Alice cancelled … and wrote: …" — because a bare "Reason" row
+  // reads as the system's verdict rather than a person's message. Only
+  // when nobody is named does it fall back to a row.
+  if (reason !== '' && !by) rows.push({ label: 'Reason', value: reason })
+  const intro = by
+    ? reason !== ''
+      ? `${by} cancelled ${ctx.eventType.title} and wrote: “${reason}” It has been removed from the calendar.`
+      : `${by} cancelled ${ctx.eventType.title}. It has been removed from the calendar.`
+    : `${ctx.eventType.title} has been cancelled and removed from the calendar.`
   const input: ShellInput = {
     brandName,
     // Red only here, and only as the accent: cancellation is the one state
@@ -533,9 +545,7 @@ export function bookingCancelled(ctx: CancellationEmailContext): EmailContent {
     accent: DANGER,
     preheader: `${ctx.eventType.title} — ${formatWhenShort(ctx.booking.startUtc, tz)}`,
     heading: 'This meeting was cancelled',
-    intro: by
-      ? `${by} cancelled ${ctx.eventType.title}. It has been removed from the calendar.`
-      : `${ctx.eventType.title} has been cancelled and removed from the calendar.`,
+    intro,
     rows,
     ctas: ctx.rebookUrl ? [{ label: 'Book a new time', url: ctx.rebookUrl, primary: true }] : [],
     notes: [tzNote(tz, ctx.booking.startUtc), ...supportNote(ctx)],
