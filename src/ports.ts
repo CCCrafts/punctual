@@ -263,6 +263,30 @@ export interface BookingRepository {
   createWithLocks(booking: Booking, buckets: BucketClaim[]): Promise<Booking | null>
 
   /**
+   * Change who hosts an existing booking, keeping the invariant: the new
+   * host list, the new primary host, the incoming hosts' `slot_locks` rows
+   * (`claim`) and the outgoing hosts' rows (`release`) go into ONE batch,
+   * the same way `createWithLocks` writes a booking and its locks together.
+   * A claimed bucket someone else already holds fails the whole batch, so a
+   * host can no longer be put on a meeting that overlaps one they have.
+   *
+   * Only a `confirmed` booking is changed. A cancel or reschedule that lands
+   * between the caller's read and this write leaves nothing behind — no
+   * locks are inserted for a booking that no longer holds any.
+   *
+   * @returns the updated booking; `null` when a claimed bucket was taken or
+   *          the booking was no longer confirmed — either way nothing
+   *          changed, and the caller re-reads to tell the two apart.
+   */
+  replaceHosts(
+    bookingId: string,
+    hostUserIds: string[],
+    primaryHostId: string,
+    claim: BucketClaim[],
+    release: BucketClaim[],
+  ): Promise<Booking | null>
+
+  /**
    * Confirmed bookings starting in `[from, to)`, across ALL hosts.
    *
    * Reminders need a cross-host query, which is precisely why bookings live in

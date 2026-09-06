@@ -660,6 +660,63 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
       }
     },
 
+    /**
+     * Same discipline as `createWithLocks`: the host columns, the released
+     * locks and the claimed locks are one batch, and the PK on slot_locks is
+     * the check — no read-then-insert.
+     *
+     * The status guard is inside the batch too. The UPDATE only touches a
+     * `confirmed` row, and each INSERT is a conditional `INSERT … SELECT`
+     * on the same condition, so a cancel that landed between the caller's
+     * read and this write makes the whole batch a no-op instead of leaving
+     * orphan locks on a booking whose own locks were just deleted. The
+     * DELETEs need no guard: a booking that is no longer confirmed holds
+     * no locks to delete.
+     *
+     * Release is by (booking, host), not by bucket: the outgoing host's
+     * rows are whatever the booking claimed for them at commit time, and
+     * the event type's buffers may have been edited since. Deleting the
+     * footprint as computed today could leave a stray bucket that keeps
+     * the host busy for a meeting they are no longer on.
+     */
+    async replaceHosts(bookingId, hostUserIds, primaryHostId, claim, release) {
+      const statements: D1PreparedStatement[] = [
+        session
+          .prepare(
+            `UPDATE bookings SET host_user_ids_json = ?, host_user_id = ?
+             WHERE id = ? AND status = 'confirmed'`,
+          )
+          .bind(JSON.stringify(hostUserIds), primaryHostId, bookingId),
+      ]
+      for (const hostUserId of new Set(release.map((b) => b.hostUserId))) {
+        statements.push(
+          session
+            .prepare('DELETE FROM slot_locks WHERE booking_id = ? AND host_user_id = ?')
+            .bind(bookingId, hostUserId),
+        )
+      }
+      for (const b of claim) {
+        statements.push(
+          session
+            .prepare(
+              `INSERT INTO slot_locks (host_user_id,bucket_start,booking_id)
+               SELECT ?, ?, ? WHERE EXISTS (SELECT 1 FROM bookings WHERE id = ? AND status = 'confirmed')`,
+            )
+            .bind(b.hostUserId, b.bucketStart, bookingId, bookingId),
+        )
+      }
+
+      let results: D1Result[]
+      try {
+        results = await session.batch(statements)
+      } catch (err) {
+        if (isConstraintViolation(err)) return null
+        throw err
+      }
+      if ((results[0]?.meta.changes ?? 0) === 0) return null
+      return mapBooking(await first('SELECT * FROM bookings WHERE id = ?', bookingId))
+    },
+
     async dueBetween(from, to) {
       const rows = await all<Record<string, unknown>>(
         `SELECT * FROM bookings

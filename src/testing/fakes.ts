@@ -246,6 +246,17 @@ export function createFakeRepositories(): FakeRepositories {
       const existing = bookings.get(bookingId)
       if (existing) bookings.set(bookingId, { ...existing, externalEventIds: ids, conferenceUrl })
     },
+    // Host columns only. The fake keeps no slot_locks, so the bucket
+    // arguments are ignored and a conflict is never reported here — that
+    // invariant is exercised against the real D1 adapter in the Workers
+    // project, where a fake that faked the constraint would prove nothing.
+    async replaceHosts(bookingId: string, hostUserIds: string[], primaryHostId: string) {
+      const existing = bookings.get(bookingId)
+      if (!existing || existing.status !== 'confirmed') return null
+      const updated: Booking = { ...existing, hostUserIds, hostUserId: primaryHostId }
+      bookings.set(bookingId, updated)
+      return updated
+    },
     async claimConfirmation(bookingId: string, at: number) {
       // Mirrors the D1 guard's OUTCOME, which is what callers depend on: the
       // first caller wins, every later one is refused.
