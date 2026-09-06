@@ -6,6 +6,58 @@ still change interfaces.
 
 ## [Unreleased]
 
+Dashboard usability pass — every screen reviewed on desktop, dark and a
+390px phone, with the empty first-run state and validation errors.
+
+### Added
+
+- **A first-run checklist** on an empty dashboard: add your name, connect
+  a calendar, check your hours (naming the zone they are read in), create
+  an event type — with done marks, until the first event type exists.
+- **Timezone from the sign-in form.** The login page sends the browser's
+  zone (empty without JavaScript); a new account's default schedule and
+  profile zone use it instead of UTC. While a default schedule is still
+  UTC, the Availability page says so and links to the editor.
+- **Remove a range** in the weekly-hours editor with a button, on the same
+  no-JS round trip as adding one; one row per day on desktop.
+- **A confirm page before revoking an API key**, for the no-JS path, plus
+  a confirm dialog when scripts run.
+
+### Changed
+
+- The event-type form is grouped into Basics · Who hosts · When and how
+  long · Where · Questions; the slug help previews the real address (the
+  team's for a team event type); the slug may be left blank; the
+  scheduling and location-details controls hide when they do not apply,
+  with CSS alone; errors sit directly under their field with a summary at
+  the top and focus on the first; the custom-questions box shows an
+  example and names the line that failed to parse.
+- Home cards are about half as tall: actions in the header, the link row
+  smaller, no decorative dot.
+- The Hosts block and the team members table work on a phone (stacked
+  rows; a scrolling table); "Only admin" became a footnote; the signed-in
+  member is marked "(you)"; roles are badges.
+- A taken team slug says who holds it; a reserved one says it is
+  Punctual's; the error sits under the field.
+- On-behalf availability pages carry a persistent "Managing Bob Chen ·
+  Support Crew" strip; "set up by" is a neutral badge, not the green
+  Default one.
+- Settings: Name is required, the signed-in address is shown, the slug
+  caution is a warning rather than a danger box, with a "View your
+  booking page" link; the page title sits above the cards, as on
+  Calendars and API keys. Admin likewise.
+- API key scopes are two checkboxes (read, write) instead of free text;
+  the revealed key never clips; a Bearer hint links to the API docs.
+- Calendars: the empty-provider copy tells a host who can fix it; a
+  needs-reconnect card offers only Reconnect and Disconnect; Disconnect is
+  a ghost button; status badges use the status tokens and a dot.
+- Login carries the wordmark and, when sign-ups are open, says the link
+  also creates an account.
+- The mobile header is one row plus a horizontally scrolling nav with
+  44px targets; a blank profile name shows a one-line nudge on every page.
+- Native checkboxes and radios are brand green; the initials avatar uses
+  the badge pairing; status notices are neutral, not success-styled.
+
 ## [0.3.0] — 2026-09-02
 
 Host groups: a team event type now names its hosts. Team roles that mean
