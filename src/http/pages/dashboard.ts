@@ -1257,7 +1257,7 @@ export function teamsPage(d: TeamsPageData): string {
   <p class="pu-muted">A team owns round-robin and collective event types, booked at
     /&lt;team-slug&gt;/&lt;event&gt;. Team admins manage members and the team's event types, and can
     set up each member's availability on their behalf. Deleting a team is not supported here yet.</p>
-  <div style="display:grid;gap:1rem">${cards}</div>
+  <div style="display:grid;gap:1rem;grid-template-columns:minmax(0,1fr)">${cards}</div>
   <form class="pu-card" method="post" action="/dashboard/teams" style="margin-top:1.5rem">
     ${csrfField(d.csrf)}
     <h2>Create a team</h2>
@@ -1289,14 +1289,15 @@ function teamCard(d: TeamsPageData, view: TeamView): string {
 
   const rows = view.members
     .map((m) => {
-      const label = m.user ? m.user.name || m.user.slug : m.member.userId
+      const you = m.member.userId === d.user.id ? ' <span class="pu-muted">(you)</span>' : ''
+      const label = `${escapeHtml(m.user ? m.user.name || m.user.slug : m.member.userId)}${you}`
       const email = m.user?.email ?? ''
       const uid = encodeURIComponent(m.member.userId)
       const isAdmin = isManagingRole(m.member.role)
-      const role = isAdmin ? 'Admin' : 'Member'
+      const role = isAdmin ? '<span class="pu-badge">Admin</span>' : '<span class="pu-muted">Member</span>'
       if (!view.canManage) {
         return `<tr>
-        <td>${escapeHtml(label)}${email ? `<br><span class="pu-muted" style="font-size:.8125rem">${escapeHtml(email)}</span>` : ''}</td>
+        <td>${label}${email ? `<br><span class="pu-muted" style="font-size:.8125rem">${escapeHtml(email)}</span>` : ''}</td>
         <td>${role}</td>
         <td>${m.member.rrWeight}</td>
         <td></td>
@@ -1305,11 +1306,13 @@ function teamCard(d: TeamsPageData, view: TeamView): string {
       // Buttons that can only fail are not offered: the only member gets no
       // Remove, the only admin gets neither Remove nor "Make member". The
       // server refuses both anyway (removeMemberGuarded, setRole), so this
-      // is about not lying, same as the admin page's last-admin row.
+      // is about not lying, same as the admin page's last-admin row. The
+      // footnote under the table says why, once, instead of a label in
+      // every affected row.
       const onlyMember = view.members.length <= 1
       const onlyAdmin = isAdmin && adminCount <= 1
       const roleAction = onlyAdmin
-        ? '<span class="pu-muted" style="font-size:.8125rem">Only admin</span>'
+        ? ''
         : `<form method="post" style="margin:0" action="/dashboard/teams/${teamId}/members/${uid}/role">
             ${csrfField(d.csrf)}
             <input type="hidden" name="role" value="${isAdmin ? 'member' : 'admin'}">
@@ -1324,11 +1327,11 @@ function teamCard(d: TeamsPageData, view: TeamView): string {
             <button class="pu-btn pu-btn-ghost" type="submit" style="${small}">Remove</button>
           </form>`
       return `<tr>
-        <td>${escapeHtml(label)}${email ? `<br><span class="pu-muted" style="font-size:.8125rem">${escapeHtml(email)}</span>` : ''}</td>
+        <td>${label}${email ? `<br><span class="pu-muted" style="font-size:.8125rem">${escapeHtml(email)}</span>` : ''}</td>
         <td>${role}</td>
         <td>${m.member.rrWeight}</td>
         <td><div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
-          <a class="pu-btn pu-btn-ghost" style="${small}" href="/dashboard/teams/${teamId}/members/${uid}/availability">Availability</a>
+          <a class="pu-btn pu-btn-ghost" style="${small}" href="/dashboard/teams/${teamId}/members/${uid}/availability">Set availability</a>
           ${roleAction}
           ${removeAction}
         </div></td>
@@ -1362,18 +1365,21 @@ function teamCard(d: TeamsPageData, view: TeamView): string {
     Members, weights and the team's event types are managed by its admins. Your own availability is
     under <a href="/dashboard/availability">Availability</a>.</p>`
 
+  // The inline min-width duplicates .pu-dash-table on purpose: the table
+  // must not squeeze even before the stylesheet applies.
   return `<article class="pu-card">
-  <div style="display:flex;align-items:baseline;justify-content:space-between;gap:1rem;flex-wrap:wrap">
-    <h2 style="margin:0">${escapeHtml(team.name)}${view.viaInstanceAdmin ? ' <span class="pu-badge">Instance admin view</span>' : ''}</h2>
-    <span class="pu-time pu-muted">/${escapeHtml(team.slug)}</span>
+  <div class="pu-card-title">
+    <h2>${escapeHtml(team.name)}</h2>${view.viaInstanceAdmin ? '<span class="pu-badge pu-badge-neutral">Instance admin view</span>' : ''}
+    <span class="pu-time pu-muted pu-card-title-action" style="margin-left:auto">/${escapeHtml(team.slug)}</span>
   </div>
   ${fieldError(`members-${team.id}`, errors)}
-  <div class="pu-docs-table-wrap"><table style="width:100%">
-    <thead><tr><th scope="col" style="text-align:left">Member</th>
-      <th scope="col" style="text-align:left">Role</th>
-      <th scope="col" style="text-align:left">Weight</th><th scope="col" style="text-align:left"></th></tr></thead>
+  <div class="pu-docs-table-wrap"><table class="pu-dash-table pu-members" style="width:100%;min-width:34rem">
+    <thead><tr><th scope="col">Member</th>
+      <th scope="col">Role</th>
+      <th scope="col">Weight</th><th scope="col"></th></tr></thead>
     <tbody>${rows}</tbody>
   </table></div>
+  ${view.canManage ? `<p class="pu-muted" style="font-size:.8125rem;margin:.5rem 0 0">A team's last admin can't be demoted or removed.</p>` : ''}
   ${addForm}
 </article>`
 }

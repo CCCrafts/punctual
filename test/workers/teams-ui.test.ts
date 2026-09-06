@@ -298,6 +298,19 @@ describe('team members', () => {
     expect(member?.rr_weight).toBe(3)
   })
 
+  it('marks the signed-in member "(you)", badges the role, and explains the last-admin rule once under the table', async () => {
+    const cookie = await seedSession(ALICE_ID)
+    const html = await (await get('/dashboard/teams', cookie)).text()
+    expect(html).toContain('Alice Host <span class="pu-muted">(you)</span>')
+    expect(html).not.toContain('Bob Host <span class="pu-muted">(you)</span>')
+    expect(html).toContain('<span class="pu-badge">Admin</span>')
+    expect(html).toContain('<span class="pu-muted">Member</span>')
+    expect(html).toContain("A team's last admin can't be demoted or removed.")
+    expect(html).not.toContain('Only admin')
+    expect(html).toContain(`/members/${BOB_ID}/availability">Set availability</a>`)
+    expect(html).toContain('<table class="pu-dash-table pu-members"')
+  })
+
   it('refuses an email with no account on this instance', async () => {
     const cookie = await seedSession(ALICE_ID)
     const csrf = await csrfFrom('/dashboard/teams', cookie)

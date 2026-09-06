@@ -546,6 +546,23 @@ input:has(+ .pu-err),select:has(+ .pu-err),textarea:has(+ .pu-err){border-color:
     transition-duration:.01ms!important;scroll-behavior:auto!important}
   .pu-day:hover[data-has-slots="1"],.pu-slot-available:hover,.pu-slot-available:active{transform:none}
 }
+
+/* availability and teams */
+/* A card is a grid item; without min-width:0 a wide table inside it grows
+   the card past the viewport instead of scrolling inside .pu-docs-table-wrap
+   (the landing stylesheet's rule for that wrapper is not loaded here). */
+.pu-card{min-width:0}
+.pu-docs-table-wrap{overflow-x:auto}
+.pu-dash-table{width:100%;min-width:34rem}
+.pu-card-title{display:flex;flex-wrap:wrap;gap:.4rem;align-items:baseline}
+.pu-card-title h2{margin:0}
+.pu-card-title .pu-card-title-action{margin-left:auto}
+.pu-members{border-collapse:collapse;font-size:.9375rem}
+.pu-members th,.pu-members td{text-align:left;padding:.55rem .6rem;vertical-align:middle;
+  border-bottom:1px solid var(--pu-border-subtle)}
+.pu-members th{font-family:var(--pu-font-display);font-size:.8125rem;font-weight:600}
+.pu-members td:first-child{padding-left:0}
+.pu-members th:first-child{padding-left:0}
 `
 
 export function pageCss(): string {
