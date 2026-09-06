@@ -168,6 +168,16 @@ export const TOKENS = `
   --pu-status-info:var(--pu-text-secondary);
   --pu-status-info-bg:var(--pu-surface-sunken);
 
+  /* Field: a text input's resting border, and the surface of the read-only
+     .pu-url box. In light mode both are the ordinary line and sunken
+     surface. In dark mode the card, the input and the URL box all sat
+     within a few shades of each other, so an editable field and a
+     read-only box were told apart only by the Copy button — the dark
+     override lifts the input's border and drops the URL box below the
+     canvas so each reads as what it is. */
+  --pu-field-border:var(--pu-line);
+  --pu-url-bg:var(--pu-surface-sunken);
+
   /* Slot: the booking flow's own state machine (see src/core/slot-state.ts).
      Rule: held/booked are visually distinct from available
      WITHOUT the accent — the accent is the guest's own current pick
@@ -212,6 +222,7 @@ export const TOKENS = `
     --pu-surface-raised:#17201B;
     --pu-text-muted:rgba(154,165,160,.72); --pu-text-disabled:rgba(154,165,160,.45);
     --pu-surface-overlay:rgba(0,0,0,.6);
+    --pu-field-border:#3C4A42; --pu-url-bg:#0B100D;
   }
 }
 :root[data-theme=dark]{
@@ -223,6 +234,7 @@ export const TOKENS = `
   --pu-surface-raised:#17201B;
   --pu-text-muted:rgba(154,165,160,.72); --pu-text-disabled:rgba(154,165,160,.45);
   --pu-surface-overlay:rgba(0,0,0,.6);
+  --pu-field-border:#3C4A42; --pu-url-bg:#0B100D;
 }
 `
 
@@ -372,9 +384,14 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{
 .pu-btn-danger:hover{background:var(--pu-danger-800);border-color:var(--pu-danger-800)}
 
 label{display:block;font-size:.875rem;font-weight:600;margin:1rem 0 .35rem}
-input,select,textarea{width:100%;padding:.65rem .75rem;border:1px solid var(--pu-line);
+input,select,textarea{width:100%;padding:.65rem .75rem;border:1px solid var(--pu-field-border);
   border-radius:var(--pu-radius);background:var(--pu-paper);color:var(--pu-ink-950);
   font:inherit;transition:border-color .12s ease}
+/* Without this the browser paints ticks and radios in its own accent — a
+   blue that is the one hue the brand never uses. --pu-green-fill, not
+   --pu-green-700: the tick is white on the fill, same contrast rule as
+   .pu-btn. width:auto undoes the 100% every other input gets. */
+input[type=checkbox],input[type=radio]{accent-color:var(--pu-green-fill);width:auto}
 textarea{min-height:5rem;resize:vertical}
 input:has(+ .pu-err),select:has(+ .pu-err),textarea:has(+ .pu-err){border-color:var(--pu-status-danger)}
 .pu-err{display:flex;align-items:flex-start;gap:.4rem;color:var(--pu-status-danger);
@@ -472,7 +489,7 @@ input:has(+ .pu-err),select:has(+ .pu-err),textarea:has(+ .pu-err){border-color:
   .pu-nav .pu-nav-link:first-child{padding-left:0}
 }
 
-.pu-url{display:flex;align-items:center;gap:.5rem;background:var(--pu-surface-sunken);
+.pu-url{display:flex;align-items:center;gap:.5rem;background:var(--pu-url-bg);
   border:1px solid var(--pu-line);border-radius:var(--pu-radius);padding:.15rem .15rem .15rem .8rem}
 .pu-url-input{flex:1;min-width:0;border:0;background:none;padding:.5rem 0;
   font-family:var(--pu-font-mono);font-size:.8125rem;color:var(--pu-text-primary);cursor:pointer}
