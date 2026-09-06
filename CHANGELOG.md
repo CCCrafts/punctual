@@ -6,6 +6,13 @@ still change interfaces.
 
 ## [Unreleased]
 
+### Added
+
+- **Hosts editor**: reorder hosts with ▲/▼ (no JavaScript), select all or
+  none, a live "Guests will see" line built from the booking page's own
+  wording, each host's schedule summarised beside the select, round-robin
+  shares as percentages, and a preview link to the booking page.
+
 Dashboard usability pass — every screen reviewed on desktop, dark and a
 390px phone, with the empty first-run state and validation errors.
 

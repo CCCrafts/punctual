@@ -15,6 +15,7 @@ import { env } from 'cloudflare:test'
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
 import { buildDashboardRoutes } from '../../src/http/dashboard-routes.js'
+import { hostChangeFailureMessage } from '../../src/http/pages/dashboard.js'
 import { createD1Repositories } from '../../src/adapters/d1/repositories.js'
 import { createWebCrypto } from '../../src/adapters/crypto/webcrypto.js'
 import {
@@ -542,28 +543,34 @@ describe('co-hosts', () => {
     expect(html).not.toContain('/hosts/')
   })
 
-  // The placeholder refuses everything as `not_found`; seeing that sentence
-  // on a booking the page just rendered is the proof the route went through
-  // `changeBookingHosts` rather than writing the host list itself.
-  it('sends an add through changeBookingHosts and renders its refusal as a sentence', async () => {
+  // The real changeBookingHosts is behind these forms: an add claims the
+  // new host's locks and lands on the booking page with a notice; a
+  // team admin who is not attending may remove a co-host the same way.
+  it('adds a co-host through changeBookingHosts and comes back to the booking page', async () => {
     const cookie = await seedSession(ALICE_ID)
     const csrf = await csrfFrom(`/dashboard/bookings/${B_TEAM}`, cookie)
     const res = await post(`/dashboard/bookings/${B_TEAM}/hosts/add`, { csrf, userId: CAROL_ID }, cookie)
-    expect(res.status).toBe(400)
-    const html = await res.text()
-    expect(html).toContain('That booking no longer exists.')
-    // The page is re-rendered under the refusal, with the booking unchanged.
-    expect(html).toContain('Support call')
+    expect(res.status).toBe(302)
+    expect(res.headers.get('location')).toBe(`/dashboard/bookings/${B_TEAM}?hosts=1`)
     const row = await db.prepare('SELECT host_user_ids_json FROM bookings WHERE id = ?').bind(B_TEAM).first<{ host_user_ids_json: string }>()
-    expect(JSON.parse(row!.host_user_ids_json)).toEqual([ALICE_ID, BOB_ID])
+    expect(JSON.parse(row!.host_user_ids_json)).toEqual([ALICE_ID, BOB_ID, CAROL_ID])
+    const locks = await db.prepare('SELECT COUNT(*) AS n FROM slot_locks WHERE booking_id = ? AND host_user_id = ?').bind(B_TEAM, CAROL_ID).first<{ n: number }>()
+    expect(locks!.n).toBeGreaterThan(0)
+    // Adding her again is refused with the domain's own sentence.
+    const again = await post(`/dashboard/bookings/${B_TEAM}/hosts/add`, { csrf, userId: CAROL_ID }, cookie)
+    expect(again.status).toBe(400)
+    expect(await again.text()).toContain(hostChangeFailureMessage('already_host'))
   })
 
-  it('sends a remove through it too, for a team admin who is not on the booking', async () => {
+  it('removes a co-host through it too, for a team admin who is not on the booking', async () => {
     const cookie = await seedSession(CAROL_ID)
     const csrf = await csrfFrom(`/dashboard/bookings/${B_TEAM}`, cookie)
     const res = await post(`/dashboard/bookings/${B_TEAM}/hosts/${BOB_ID}/remove`, { csrf }, cookie)
-    expect(res.status).toBe(400)
-    expect(await res.text()).toContain('That booking no longer exists.')
+    expect(res.status).toBe(302)
+    const row = await db.prepare('SELECT host_user_ids_json FROM bookings WHERE id = ?').bind(B_TEAM).first<{ host_user_ids_json: string }>()
+    expect(JSON.parse(row!.host_user_ids_json)).not.toContain(BOB_ID)
+    const locks = await db.prepare('SELECT COUNT(*) AS n FROM slot_locks WHERE booking_id = ? AND host_user_id = ?').bind(B_TEAM, BOB_ID).first<{ n: number }>()
+    expect(locks!.n).toBe(0)
   })
 
   it('asks for a member when the select was submitted empty', async () => {
