@@ -718,6 +718,35 @@ form:has(#locationType option[value="google_meet"]:checked) .pu-loc-wrap{display
    "this is probably not what you meant" — a page that shouts at both
    teaches the host to scroll past both. */
 .pu-callout-warn{background:var(--pu-status-warning-bg);border-color:var(--pu-warn)}
+
+/* hosts editor */
+/* The Hosts block's second pass: a fourth column of move buttons, a share
+   beside a round-robin weight, a note under each schedule select and the
+   guest-facing preview line. Under 640px the row still stacks; the move
+   buttons share the name line, right-aligned, since a stacked row with
+   its arrows at the bottom reads as belonging to the row below. */
+.pu-host-row{grid-template-columns:minmax(10rem,1fr) 9rem 1fr auto}
+.pu-host-tools{display:flex;gap:.5rem;flex-wrap:wrap;margin:0 0 .5rem}
+.pu-host-tools .pu-btn{padding:.3rem .6rem;font-size:.8125rem}
+.pu-host-move{display:flex;gap:.25rem;justify-content:flex-end}
+.pu-host-move-btn{width:2rem;height:2rem;padding:0;display:inline-flex;align-items:center;justify-content:center;
+  background:none;border:1px solid var(--pu-border-subtle);border-radius:var(--pu-radius);
+  color:var(--pu-text-secondary);font-size:.625rem;line-height:1;cursor:pointer}
+.pu-host-move-btn:hover:not(:disabled){border-color:var(--pu-green-700);color:var(--pu-green-700)}
+.pu-host-move-btn:disabled{opacity:.35;cursor:default}
+.pu-host-weight{display:flex;align-items:center;gap:.5rem}
+.pu-host-weight input{flex:1;min-width:0;margin:0}
+.pu-host-share{flex:none;font-family:var(--pu-font-mono);font-size:.8125rem;color:var(--pu-text-secondary);white-space:nowrap}
+.pu-host-sched-note{display:block;margin-top:.2rem;font-size:.75rem;line-height:1.35;color:var(--pu-text-secondary);overflow-wrap:anywhere}
+.pu-host-sched-note:empty{display:none}
+.pu-host-preview{margin:.75rem 0 0;font-size:.9375rem;line-height:1.45;color:var(--pu-text-secondary);overflow-wrap:anywhere}
+.pu-host-preview strong{color:var(--pu-text-primary);font-weight:600}
+@media(max-width:640px){
+  .pu-host-row{grid-template-columns:1fr auto}
+  .pu-host-row>.pu-host-name{grid-column:1;grid-row:1}
+  .pu-host-row>.pu-host-move{grid-column:2;grid-row:1}
+  .pu-host-row>div:not(.pu-host-move){grid-column:1/-1}
+}
 `
 
 export function pageCss(): string {

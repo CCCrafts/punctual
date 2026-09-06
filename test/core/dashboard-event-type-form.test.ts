@@ -7,7 +7,9 @@
  */
 
 import { describe, expect, it } from 'vitest'
+import type { ResolvedHost } from '../../src/core/domain/hosts.js'
 import type { EventType, Schedule, Team, User } from '../../src/core/domain/types.js'
+import { hostsRow } from '../../src/http/pages/booking.js'
 import {
   type EventTypeFormData,
   type HostChoice,
@@ -229,6 +231,137 @@ describe('eventTypeForm — hosts block', () => {
     expect(html.match(/Manage member schedules/g)).toHaveLength(1)
     expect(html).toContain('<a href="/dashboard/teams" target="_blank" rel="noopener">Manage member schedules (opens in a new tab)</a>')
     expect(html).not.toContain('New schedule for')
+  })
+})
+
+describe('eventTypeForm — hosts editor', () => {
+  const roundRobin: EventType = { ...teamEvent, schedulingType: 'round_robin' }
+  const render = (et: EventType, choices: HostChoice[] = hostChoices) =>
+    eventTypeForm({ ...base, eventType: et, teams: [support], hostChoices: choices })
+  /** The "Guests will see" line's sentence, without the label. */
+  const preview = (html: string): string => /<p class="pu-host-preview">Guests will see: ([\s\S]*?)<\/p>/.exec(html)?.[1] ?? ''
+  /** What the booking page would print for the same hosts — the sentence inside its row. */
+  const bookingSentence = (et: EventType, hosts: ResolvedHost[]): string =>
+    /<p class="pu-hosts-text">([\s\S]*?)<\/p>/.exec(hostsRow({ eventType: et, hosts }))?.[1] ?? ''
+
+  it('previews the collective sentence with the booking page\'s own wording', () => {
+    const html = render(teamEvent)
+    expect(preview(html)).toBe("You'll meet <strong>Grace Hopper</strong>. <strong>Bob Chen</strong> joins when free")
+    expect(preview(html)).toBe(
+      bookingSentence(teamEvent, [
+        { user, required: true, scheduleId: null, rrWeight: 1 },
+        { user: bob, required: false, scheduleId: 'sch_b2', rrWeight: 2 },
+      ]),
+    )
+  })
+
+  it('previews the round-robin pool with "or", never a specific person', () => {
+    const html = render(roundRobin)
+    expect(preview(html)).toBe('With one of <strong>Grace Hopper or Bob Chen</strong>')
+    expect(preview(html)).toBe(
+      bookingSentence(roundRobin, [
+        { user, required: true, scheduleId: null, rrWeight: 1 },
+        { user: bob, required: true, scheduleId: 'sch_b2', rrWeight: 2 },
+      ]),
+    )
+  })
+
+  it('previews the submitted state on a round trip, and says so when nobody is ticked', () => {
+    const drafted = hostChoices.map((c) => ({
+      ...c,
+      draft: { selected: c.user.id === bob.id, required: true, scheduleId: null, weightText: '' },
+    }))
+    expect(preview(render(teamEvent, drafted))).toBe("You'll meet <strong>Bob Chen</strong>")
+    expect(render(teamEvent, drafted)).toContain(`name="host-${user.id}" value="on">`)
+    expect(render(teamEvent, drafted)).toContain(`name="host-${bob.id}" value="on" checked`)
+
+    const nobody = hostChoices.map((c) => ({ ...c, draft: { selected: false, required: true, scheduleId: null, weightText: '' } }))
+    expect(preview(render(teamEvent, nobody))).toBe('<em>nobody yet &mdash; tick at least one host</em>')
+  })
+
+  it('round robin: a share beside each weight, from the effective weights over the ticked hosts', () => {
+    // Team weights 1 and 2, no overrides: a third and two thirds.
+    const html = render(roundRobin)
+    expect(html.match(/<span class="pu-host-share">&asymp; (\d+)%<\/span>/g)).toEqual([
+      '<span class="pu-host-share">&asymp; 33%</span>',
+      '<span class="pu-host-share">&asymp; 67%</span>',
+    ])
+    expect(html).toContain('A higher weight takes a proportionally larger share')
+
+    // A typed override of 3 for Grace over Bob's team weight of 2: 60/40.
+    // An unticked host takes no share at all, so the line is left off.
+    const drafted = hostChoices.map((c) => ({
+      ...c,
+      draft: { selected: true, required: true, scheduleId: null, weightText: c.user.id === user.id ? '3' : '' },
+    }))
+    expect(render(roundRobin, drafted).match(/&asymp; \d+%/g)).toEqual(['&asymp; 60%', '&asymp; 40%'])
+    const one = drafted.map((c) => (c.user.id === bob.id ? { ...c, draft: { ...c.draft, selected: false } } : c))
+    expect(render(roundRobin, one).match(/&asymp; \d+%/g)).toEqual(['&asymp; 100%'])
+    // Collective has no shares.
+    expect(render(teamEvent)).not.toContain('<span class="pu-host-share">')
+  })
+
+  it('echoes a typed weight verbatim on a round trip, sharing by the team weight until it is valid', () => {
+    const drafted = hostChoices.map((c) => ({
+      ...c,
+      draft: { selected: true, required: true, scheduleId: null, weightText: c.user.id === user.id ? '250' : '' },
+    }))
+    const html = render(roundRobin, drafted)
+    expect(html).toContain(`name="host-${user.id}-weight" type="number" min="1" max="100" aria-label="Grace Hopper: round-robin weight"\n                 value="250"`)
+    expect(html.match(/&asymp; \d+%/g)).toEqual(['&asymp; 33%', '&asymp; 67%'])
+  })
+
+  it('summarises the selected schedule beside each select — the default when "Default" is chosen', () => {
+    const html = render(teamEvent)
+    const notes = [...html.matchAll(/<span class="pu-host-sched-note">([^<]*)<\/span>/g)].map((m) => m[1])
+    expect(notes).toEqual(['Mon\u2013Fri 09:00\u201317:00 \u00b7 UTC', 'Mon\u2013Fri 09:00\u201317:00 \u00b7 UTC'])
+
+    const evening = [{ startMinute: 18 * 60, endMinute: 21 * 60 }]
+    const varied: HostChoice[] = [
+      {
+        ...hostChoices[0]!,
+        schedules: [
+          { ...schedule('sch_g', user.id, 'Default', true), timezone: 'Europe/Kyiv', weekly: [[], workday, [], workday, [], workday, []] },
+          { ...schedule('sch_g2', user.id, 'Evenings', false), weekly: [[], workday, evening, workday, evening, [], []] },
+        ],
+        row: { eventTypeId: teamEvent.id, userId: user.id, required: true, scheduleId: 'sch_g2', rrWeight: null, position: 0 },
+      },
+    ]
+    // Same hours on non-adjacent days are listed; differing hours fall back to the count-and-total form.
+    expect(render(teamEvent, varied)).toContain('<span class="pu-host-sched-note">4 days/week &middot; ~22h total &middot; UTC</span>')
+    const asDefault = [{ ...varied[0]!, row: null }]
+    expect(render(teamEvent, asDefault)).toContain('<span class="pu-host-sched-note">Mon, Wed, Fri 09:00\u201317:00 \u00b7 Europe/Kyiv</span>')
+  })
+
+  it('offers move up/down per row as no-JS submits, with the ends disabled', () => {
+    const html = render(teamEvent)
+    expect(html).toContain(`name="host-move" value="${user.id}:up" formnovalidate class="pu-host-move-btn"\n                  aria-label="Move Grace Hopper up" title="Move up" disabled>`)
+    expect(html).toContain(`name="host-move" value="${user.id}:down" formnovalidate class="pu-host-move-btn"\n                  aria-label="Move Grace Hopper down" title="Move down">`)
+    expect(html).toContain(`name="host-move" value="${bob.id}:up" formnovalidate class="pu-host-move-btn"\n                  aria-label="Move Bob Chen up" title="Move up">`)
+    expect(html).toContain(`name="host-move" value="${bob.id}:down" formnovalidate class="pu-host-move-btn"\n                  aria-label="Move Bob Chen down" title="Move down" disabled>`)
+    // The rows render in the order of the choices, which the route controls.
+    const reversed = render(teamEvent, [hostChoices[1]!, hostChoices[0]!])
+    expect(reversed.indexOf(`name="host-${bob.id}"`)).toBeLessThan(reversed.indexOf(`name="host-${user.id}"`))
+    expect(reversed).toContain(`aria-label="Move Bob Chen up" title="Move up" disabled>`)
+    expect(preview(reversed)).toBe("You'll meet <strong>Grace Hopper</strong>. <strong>Bob Chen</strong> joins when free")
+  })
+
+  it('keeps Enter as "save": a hidden default submit precedes the first move button', () => {
+    const html = render(teamEvent)
+    const hidden = html.indexOf('<button type="submit" class="pu-sr" tabindex="-1">Save changes</button>')
+    expect(hidden).toBeGreaterThan(html.indexOf('<legend>Hosts</legend>'))
+    expect(hidden).toBeLessThan(html.indexOf('name="host-select"'))
+    expect(hidden).toBeLessThan(html.indexOf('name="host-move"'))
+    expect(html.slice(html.indexOf('class="pu-et-form"'), hidden)).not.toContain('<button')
+  })
+
+  it('offers select all / none on the same round trip, and a preview link to the team\'s booking page', () => {
+    const html = render(teamEvent)
+    expect(html).toContain('<button type="submit" name="host-select" value="all" formnovalidate class="pu-btn pu-btn-ghost">Select all</button>')
+    expect(html).toContain('<button type="submit" name="host-select" value="none" formnovalidate class="pu-btn pu-btn-ghost">Select none</button>')
+    expect(html).toContain('<a href="/support/support-call" target="_blank" rel="noopener">Preview booking page (opens in a new tab)</a>')
+    // A slug that failed validation is not linked: the page would only 404.
+    expect(render({ ...teamEvent, slug: 'Bad Slug!' })).not.toContain('Preview booking page')
   })
 })
 

@@ -46,7 +46,8 @@ import type { CalendarProviderName } from '../../ports.js'
 import { slotStateClassName } from '../../core/slot-state.js'
 import { slugify } from '../../core/domain/booking-service.js'
 import { formatInZone, localDateString, offsetLabel } from '../../core/time/zone.js'
-import { avatarHtml, escapeHtml, shellFoot, shellHead } from './booking.js'
+import type { ResolvedHost } from '../../core/domain/hosts.js'
+import { avatarHtml, escapeHtml, hostsSentence, shellFoot, shellHead } from './booking.js'
 
 // ---------------------------------------------------------------------------
 // Chrome
@@ -595,6 +596,21 @@ export interface HostChoice {
   selected: boolean
   /** Weight from the team, shown as the placeholder for a per-event override. */
   teamWeight: number
+  /**
+   * What the admin has on the form, unsaved — set on a re-render round trip
+   * (move up/down, select all/none) and shown in place of `row`/`selected`,
+   * so a reorder does not revert the attendance and schedules typed above it.
+   */
+  draft?: HostDraft
+}
+
+/** The Hosts block as submitted, echoed verbatim on a round trip that does not save. */
+export interface HostDraft {
+  selected: boolean
+  required: boolean
+  scheduleId: string | null
+  /** The weight as typed: a round trip is a preview, not a save, so a half-typed value is not validated yet. */
+  weightText: string
 }
 
 const LOCATION_OPTIONS: ReadonlyArray<{ value: EventType['locationType']; label: string }> = [
@@ -883,78 +899,204 @@ function ownershipFields(d: EventTypeFormData, teams: Team[], errors: Record<str
 }
 
 /**
- * The hosts of a team-owned event type: who, required or optional (collective)
- * or weighted (round-robin), and which of THEIR schedules this event type
- * draws from. Server-rendered checkboxes and selects, no client JS; the
- * route reads the whole block back and replaces the set atomically.
+ * The hosts of a team-owned event type: who, in what order, required or
+ * optional (collective) or weighted (round-robin), and which of THEIR
+ * schedules this event type draws from. Server-rendered checkboxes and
+ * selects, no client JS; the route reads the whole block back and replaces
+ * the set atomically.
  *
  * One `.pu-host-row` grid per host rather than a table: a table's columns
  * cannot stack, and on a phone three columns of controls squeeze each to a
  * few characters. The stylesheet collapses the row to one column under
  * 640px; the field names are the contract with `readHostsForm` and stay put.
  *
+ * Ordering, select all/none: `formnovalidate` submit buttons the route
+ * answers with a re-render of the same form, unsaved — the no-JS round trip
+ * the schedule editor's "+ Add range" established. The rendered order IS
+ * the stored order on save, so the rows carry no position field.
+ *
  * Rendered only with `hostChoices` — an edit of a team-owned event type. A
  * create has no saved team to list yet, so it lands on the edit page.
  */
 function hostsFields(d: EventTypeFormData, errors: Record<string, string>): string {
   const choices = d.hostChoices
-  if (!choices || choices.length === 0) return fieldError('hosts', errors)
-  const collective = d.eventType?.schedulingType === 'collective'
+  const et = d.eventType
+  if (!et || !choices || choices.length === 0) return fieldError('hosts', errors)
+  const collective = et.schedulingType === 'collective'
   const explicit = choices.some((c) => c.row !== null)
+  const views = choices.map(hostView)
+  const ticked = views.filter((v) => v.selected)
+  const weightTotal = ticked.reduce((sum, v) => sum + v.weight, 0)
 
-  const rows = choices
-    .map((c) => {
+  const rows = views
+    .map((v, i) => {
+      const c = v.choice
       const uid = escapeHtml(c.user.id)
       const name = c.user.name || c.user.slug
       const scheduleOptions = c.schedules
         .map(
           (sch) =>
-            `<option value="${escapeHtml(sch.id)}"${c.row?.scheduleId === sch.id ? ' selected' : ''}>${escapeHtml(sch.name)}${sch.isDefault ? ' (default)' : ''}</option>`,
+            `<option value="${escapeHtml(sch.id)}"${v.scheduleId === sch.id ? ' selected' : ''}>${escapeHtml(sch.name)}${sch.isDefault ? ' (default)' : ''}</option>`,
         )
         .join('')
+      // The share is of the ticked hosts only: an unticked row takes none,
+      // and saying "25%" beside it would promise a booking it never gets.
+      const share =
+        !collective && v.selected && weightTotal > 0
+          ? `<span class="pu-host-share">&asymp; ${Math.round((v.weight / weightTotal) * 100)}%</span>`
+          : ''
       const mode = collective
         ? `<select name="host-${uid}-mode" aria-label="${escapeHtml(name)}: required or optional">
-            <option value="required"${c.row?.required !== false ? ' selected' : ''}>Required</option>
-            <option value="optional"${c.row?.required === false ? ' selected' : ''}>Optional</option>
+            <option value="required"${v.required ? ' selected' : ''}>Required</option>
+            <option value="optional"${v.required ? '' : ' selected'}>Optional</option>
           </select>`
-        : `<input name="host-${uid}-weight" type="number" min="1" max="100" aria-label="${escapeHtml(name)}: round-robin weight"
-                 value="${c.row?.rrWeight == null ? '' : c.row.rrWeight}" placeholder="${c.teamWeight}">`
+        : `<span class="pu-host-weight"><input name="host-${uid}-weight" type="number" min="1" max="100" aria-label="${escapeHtml(name)}: round-robin weight"
+                 value="${escapeHtml(v.weightText)}" placeholder="${c.teamWeight}">${share}</span>`
+      // The first row cannot go up nor the last down: a disabled button says
+      // so where a no-op round trip would only reload the page.
+      const move = `<div class="pu-host-move">
+          <button type="submit" name="host-move" value="${uid}:up" formnovalidate class="pu-host-move-btn"
+                  aria-label="Move ${escapeHtml(name)} up" title="Move up"${i === 0 ? ' disabled' : ''}>&#9650;</button>
+          <button type="submit" name="host-move" value="${uid}:down" formnovalidate class="pu-host-move-btn"
+                  aria-label="Move ${escapeHtml(name)} down" title="Move down"${i === views.length - 1 ? ' disabled' : ''}>&#9660;</button>
+        </div>`
       return `<div class="pu-host-row">
         <label class="pu-host-name">
-          <input type="checkbox" name="host-${uid}" value="on"${c.selected ? ' checked' : ''}>
+          <input type="checkbox" name="host-${uid}" value="on"${v.selected ? ' checked' : ''}>
           ${avatarHtml({ key: c.user.avatarKey, name, size: 28 })}
           <span>${escapeHtml(name)}</span></label>
         <div>${mode}</div>
         <div><select name="host-${uid}-schedule" aria-label="${escapeHtml(name)}: schedule for this event type">
-            <option value=""${!c.row?.scheduleId ? ' selected' : ''}>Default</option>${scheduleOptions}
-          </select></div>
+            <option value=""${v.scheduleId === null ? ' selected' : ''}>Default</option>${scheduleOptions}
+          </select>
+          <span class="pu-host-sched-note">${hostScheduleNote(c, v.scheduleId)}</span></div>
+        ${move}
       </div>`
     })
     .join('\n')
 
-  // One link, in a new tab: navigating away mid-form would drop every
-  // unsaved edit above, and a per-host link four times over said nothing a
-  // single one does not.
+  // The same sentence the booking page prints, from the same function, over
+  // the hosts as they stand on THIS form — stored on a GET, as submitted on
+  // a round trip — so the admin reads what a guest will read before saving.
+  const previewHosts: ResolvedHost[] = ticked.map((v) => ({
+    user: v.choice.user,
+    required: v.required,
+    scheduleId: v.scheduleId,
+    rrWeight: v.weight,
+  }))
+  const sentence = hostsSentence({ eventType: et, hosts: previewHosts })
+  const preview = `<p class="pu-host-preview">Guests will see: ${
+    sentence === '' ? '<em>nobody yet &mdash; tick at least one host</em>' : sentence
+  }</p>`
+
+  // Links in a new tab: navigating away mid-form would drop every unsaved
+  // edit above. The booking page is the team's, so the address uses the
+  // team slug; a slug that failed validation gets no link, since the error
+  // above already quotes it and the page would only 404.
+  const teamSlug = (d.teams ?? []).find((t) => t.id === et.ownerTeamId)?.slug
+  const previewLink =
+    teamSlug && /^[a-z0-9-]+$/.test(et.slug)
+      ? ` &middot; <a href="/${escapeHtml(teamSlug)}/${escapeHtml(et.slug)}" target="_blank" rel="noopener">Preview booking page (opens in a new tab)</a>`
+      : ''
+
   return `<fieldset class="pu-fs">
       <legend>Hosts</legend>
+      <!-- Implicit submission (Enter in any field) activates the FIRST submit
+           button in tree order — without this it would be a host's "move up"
+           button, reordering instead of saving. Same device as the schedule
+           editor's "+ Add range". -->
+      <button type="submit" class="pu-sr" tabindex="-1">Save changes</button>
       <p class="pu-help" style="margin:0 0 .5rem">
         ${
           collective
             ? 'Slots are when every <strong>required</strong> host is free. An optional host joins a booking when free and is left out when not.'
-            : 'One of the ticked hosts takes each booking; a higher weight takes a proportionally larger share. Blank uses the team weight.'
+            : 'One of the ticked hosts takes each booking. A higher weight takes a proportionally larger share of them — weight 2 gets twice as many as weight 1; blank uses the team weight.'
         }
         ${
           explicit
             ? 'This event type has its own host list; new team members are not added to it automatically.'
             : 'Every team member hosts this event type until you change the list below; new members join it automatically.'
-        }</p>
+        }
+        Guests see the hosts in this order.</p>
+      <div class="pu-host-tools">
+        <button type="submit" name="host-select" value="all" formnovalidate class="pu-btn pu-btn-ghost">Select all</button>
+        <button type="submit" name="host-select" value="none" formnovalidate class="pu-btn pu-btn-ghost">Select none</button>
+      </div>
       <div class="pu-host-row pu-host-head" aria-hidden="true">
-        <span>Host</span><span>${collective ? 'Attendance' : 'Weight'}</span><span>Schedule for this event type</span>
+        <span>Host</span><span>${collective ? 'Attendance' : 'Weight'}</span><span>Schedule for this event type</span><span>Order</span>
       </div>
       ${rows}
       ${fieldError('hosts', errors)}
-      <p class="pu-help"><a href="/dashboard/teams" target="_blank" rel="noopener">Manage member schedules (opens in a new tab)</a></p>
+      ${preview}
+      <p class="pu-help"><a href="/dashboard/teams" target="_blank" rel="noopener">Manage member schedules (opens in a new tab)</a>${previewLink}</p>
     </fieldset>`
+}
+
+/** One host row's values as the form should show them: the unsaved draft when there is one, else the stored row. */
+interface HostView {
+  choice: HostChoice
+  selected: boolean
+  required: boolean
+  scheduleId: string | null
+  weightText: string
+  /** The weight the share is computed from: a valid typed override, else the team weight. */
+  weight: number
+}
+
+function hostView(choice: HostChoice): HostView {
+  const draft = choice.draft
+  const weightText = draft ? draft.weightText : choice.row?.rrWeight == null ? '' : String(choice.row.rrWeight)
+  const typed = Number(weightText.trim())
+  const weight = weightText.trim() !== '' && Number.isInteger(typed) && typed >= 1 && typed <= 100 ? typed : choice.teamWeight
+  return {
+    choice,
+    selected: draft ? draft.selected : choice.selected,
+    required: draft ? draft.required : choice.row?.required !== false,
+    scheduleId: draft ? draft.scheduleId : (choice.row?.scheduleId ?? null),
+    weightText,
+    weight,
+  }
+}
+
+/**
+ * What the selected schedule amounts to, beside the select: "Default" on
+ * its own says nothing about whose hours those are, and an admin assigning
+ * a schedule by name deserves to see what they are assigning. A choice the
+ * member's list no longer has (deleted since) falls back to their default,
+ * which is what the engine draws from in that case.
+ */
+function hostScheduleNote(choice: HostChoice, scheduleId: string | null): string {
+  const chosen =
+    (scheduleId !== null ? choice.schedules.find((s) => s.id === scheduleId) : undefined) ??
+    choice.schedules.find((s) => s.isDefault) ??
+    choice.schedules[0]
+  return chosen ? weeklyHoursSummary(chosen) : ''
+}
+
+const SHORT_DAYS: readonly string[] = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+/**
+ * "Mon–Fri 09:00–17:00 · Europe/Kyiv" when every working day keeps the same
+ * hours — the common case, and the one worth reading at a glance. Days
+ * with differing hours fall back to `scheduleSummary`'s count-and-total,
+ * which stays honest without listing seven lines beside one select.
+ */
+function weeklyHoursSummary(s: Schedule): string {
+  const active = s.weekly.map((windows, day) => ({ day, windows })).filter((d) => d.windows.length > 0)
+  if (active.length === 0) return 'No hours set'
+  const hours = (windows: DayWindow[]): string =>
+    windows.map((w) => `${minutesToTime(w.startMinute)}\u2013${minutesToTime(w.endMinute)}`).join(', ')
+  const first = hours(active[0]!.windows)
+  if (!active.every((d) => hours(d.windows) === first)) return scheduleSummary(s)
+  const days = active.map((d) => d.day)
+  const contiguous = days.every((day, i) => i === 0 || day === days[i - 1]! + 1)
+  const label =
+    days.length === 1
+      ? SHORT_DAYS[days[0]!]!
+      : contiguous
+        ? `${SHORT_DAYS[days[0]!]}\u2013${SHORT_DAYS[days[days.length - 1]!]}`
+        : days.map((day) => SHORT_DAYS[day]).join(', ')
+  return `${label} ${first} \u00b7 ${escapeHtml(s.timezone)}`
 }
 
 /**
