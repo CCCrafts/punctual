@@ -421,6 +421,72 @@ describe('a team-owned event type has a working public booking page', () => {
     expect(body).toContain('/sales-team/team-intro')
     expect(body).not.toContain('/team-member/team-intro')
   })
+
+  it('honours the team logo shape when the event type has no logo of its own', async () => {
+    // Caught by review: the booking-page context query selected the team's
+    // logo key but not its shape, so a team logo set to "natural" rendered
+    // as the round crop on every team-owned booking page.
+    const key = `${'ab'.repeat(32)}-thumb.webp`
+    await env.DB.prepare('UPDATE teams SET logo_key = ?, logo_shape = ? WHERE id = ?').bind(key, 'natural', 't_sales').run()
+    const { default: worker } = await import('../../src/index.js')
+    const res = await worker.fetch(new Request('https://punctual.sh/sales-team/team-intro'), env, createExecutionContext())
+    expect(res.status).toBe(200)
+    const body = await res.text()
+    expect(body).toContain(`/avatars/${'ab'.repeat(32)}-fit.webp`)
+    expect(body).not.toContain(`/avatars/${key}`)
+  })
+})
+
+/**
+ * Search engines index what they can reach, and every day link on the
+ * calendar, the embedded copy and the confirm step were reachable — so one
+ * booking page showed up as dozens of results, each with a `?date=…&tz=…`
+ * or `?start=…` of its own. One canonical URL per booking page; everything
+ * that is a step, a copy or a private surface says noindex.
+ */
+describe('only the bare booking page is indexable', () => {
+  const fetchPage = async (path: string) => {
+    const { default: worker } = await import('../../src/index.js')
+    const res = await worker.fetch(new Request(`https://punctual.sh${path}`), env, createExecutionContext())
+    return { status: res.status, body: await res.text() }
+  }
+
+  it('names the bare URL as canonical whatever query the crawler arrived with', async () => {
+    const { status, body } = await fetchPage('/sales-team/team-intro?date=2030-01-15&tz=Europe%2FKyiv')
+    expect(status).toBe(200)
+    expect(body).toContain('<link rel="canonical" href="https://punctual.test/sales-team/team-intro">')
+    expect(body).not.toContain('name="robots"')
+  })
+
+  it('keeps the embedded copy and the confirm step out of the index', async () => {
+    const embedded = await fetchPage('/sales-team/team-intro?embed=1')
+    expect(embedded.status).toBe(200)
+    expect(embedded.body).toContain('<meta name="robots" content="noindex">')
+    expect(embedded.body).not.toContain('rel="canonical"')
+
+    const start = Date.now() + 7 * 86_400_000
+    const confirm = await fetchPage(`/sales-team/team-intro/confirm?start=${start}&tz=UTC`)
+    expect(confirm.status).toBe(200)
+    expect(confirm.body).toContain('<meta name="robots" content="noindex">')
+  })
+
+  it('keeps sign-in and the dashboard out of the index', async () => {
+    const login = await fetchPage('/login')
+    expect(login.status).toBe(200)
+    expect(login.body).toContain('<meta name="robots" content="noindex">')
+  })
+
+  it('serves a robots.txt that keeps crawlers out of the private surfaces', async () => {
+    const { status, body } = await fetchPage('/robots.txt')
+    expect(status).toBe(200)
+    for (const line of ['Disallow: /dashboard', 'Disallow: /auth', 'Disallow: /api/', 'Disallow: /mcp', 'Disallow: /booking/']) {
+      expect(body).toContain(line)
+    }
+    // The confirm step and the embedded copy are deliberately NOT blocked:
+    // a crawler has to be able to fetch a page to read its noindex.
+    expect(body).not.toContain('confirm')
+    expect(body).not.toContain('embed')
+  })
 })
 
 /**

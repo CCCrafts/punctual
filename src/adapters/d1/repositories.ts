@@ -240,7 +240,7 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
            COALESCE(u.job_title, ru.job_title) AS u_job_title,
            COALESCE(u.company_url, ru.company_url) AS u_company_url,
            COALESCE(u.created_at, ru.created_at) AS u_created_at,
-           t.id AS t_id, t.name AS t_name, t.slug AS t_slug, t.logo_key AS t_logo_key, t.created_at AS t_created_at,
+           t.id AS t_id, t.name AS t_name, t.slug AS t_slug, t.logo_key AS t_logo_key, t.logo_shape AS t_logo_shape, t.created_at AS t_created_at,
            et.*
          FROM event_types et
          LEFT JOIN users u ON u.id = et.owner_user_id
@@ -281,6 +281,7 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
               name: row['t_name'],
               slug: row['t_slug'],
               logo_key: row['t_logo_key'],
+              logo_shape: row['t_logo_shape'],
               created_at: row['t_created_at'],
             })
       return host && eventType ? { host, eventType, team } : null
