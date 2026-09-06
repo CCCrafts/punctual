@@ -453,7 +453,7 @@ const webhookCreateBody = z.object({
   events: z
     .array(z.enum(['booking.created', 'booking.rescheduled', 'booking.cancelled', 'booking.hosts_changed']))
     .min(1)
-    .max(3),
+    .max(4),
 })
 
 // ---------------------------------------------------------------------------

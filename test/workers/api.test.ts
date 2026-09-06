@@ -1216,6 +1216,20 @@ describe('GET /bookings status filter', () => {
 // ---------------------------------------------------------------------------
 
 describe('webhooks', () => {
+  it('accepts a subscription to every event at once', async () => {
+    const ports = testPorts()
+    const app = buildApp(ports)
+    const seed = await seedHost(ports)
+    const events = ['booking.created', 'booking.rescheduled', 'booking.cancelled', 'booking.hosts_changed']
+    const res = await app.request('/api/v1/webhooks', {
+      method: 'POST',
+      headers: { ...auth(seed.apiKey), 'content-type': 'application/json' },
+      body: JSON.stringify({ url: 'https://hooks.example.com/all', events }),
+    })
+    expect(res.status).toBe(201)
+    expect(((await res.json()) as { data: { events: string[] } }).data.events).toEqual(events)
+  })
+
   it('accepts a subscription to booking.hosts_changed', async () => {
     const ports = testPorts()
     const app = buildApp(ports)
