@@ -72,7 +72,7 @@ describe('email-not-configured banner', () => {
    * named explicitly here.
    */
   it('rides the shared chrome, so every dashboard page shows it', () => {
-    expect(settingsPage({ ...base, emailDelivery: 'console' })).toContain('Email is not configured')
+    expect(settingsPage({ ...base, emailDelivery: 'console', baseUrl: 'https://punctual.test' })).toContain('Email is not configured')
     expect(dashboardHome({ ...home, emailDelivery: 'console' })).toContain('Email is not configured')
   })
 

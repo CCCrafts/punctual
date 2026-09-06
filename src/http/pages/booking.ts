@@ -199,8 +199,16 @@ export function avatarHtml(opts: { key: string | null; name: string; size?: numb
   if (opts.key) {
     return `<img src="/avatars/${encodeURIComponent(opts.key)}" alt="${escapeHtml(opts.alt ?? opts.name)}" width="${size}" height="${size}" style="width:${size}px;height:${size}px;border-radius:50%;object-fit:cover;display:block;flex:none" loading="lazy">`
   }
-  const initial = (opts.name.trim().charAt(0) || '?').toUpperCase()
-  return `<div aria-hidden="true" style="width:${size}px;height:${size}px;border-radius:50%;background:var(--pu-green-700);color:var(--pu-paper);display:flex;align-items:center;justify-content:center;font-family:var(--pu-font-mono);font-weight:600;font-size:${Math.round(size * 0.42)}px;flex:none">${escapeHtml(initial)}</div>`
+  const initial = opts.name.trim().charAt(0).toUpperCase()
+  const layout = `width:${size}px;height:${size}px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:var(--pu-font-mono);font-weight:600;font-size:${Math.round(size * 0.42)}px;flex:none`
+  // No name means no initial: a letter from the slug or the email would
+  // look like an identity the host never entered. The neutral ring is the
+  // open-slot shape — something still to be filled in — not a green badge
+  // claiming a name that isn't there.
+  if (!initial) {
+    return `<div aria-hidden="true" style="${layout};background:var(--pu-paper-dim);color:var(--pu-ink-500);border:2px solid var(--pu-line)">?</div>`
+  }
+  return `<div aria-hidden="true" style="${layout};background:var(--pu-green-700);color:var(--pu-paper)">${escapeHtml(initial)}</div>`
 }
 
 /**

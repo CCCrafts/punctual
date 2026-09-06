@@ -1765,6 +1765,8 @@ export interface SettingsPageData extends DashboardChrome {
   companyValue?: string
   /** Same reasoning as `slugValue`, for the profile form's Company link field. */
   companyUrlValue?: string
+  /** Public origin, so "View your booking page" opens the address a guest would use. */
+  baseUrl: string
   errors?: Record<string, string>
   notice?: string
 }
@@ -1780,18 +1782,26 @@ export function settingsPage(d: SettingsPageData): string {
   return (
     shellTop(d, 'Settings', 'settings') +
     (d.notice ? notice(d.notice) : '') +
-    // One panel, one identity: the photo IS part of the profile, and the
+    // The page title and its one-line lede sit above the cards, as on
+    // Calendars and API keys — inside the first card they read as that
+    // card's own heading, and the slug card below looked like a footnote.
+    //
+    // One profile panel, one identity: the photo IS part of the profile, and
     // split cards read as two unrelated features. Photo column left (the
     // file input is visually hidden — the styled label is the whole control,
     // and choosing a file submits immediately, so there is no separate
     // Upload step to explain), fields right.
-    `<section class="pu-card" aria-label="Your profile" style="margin-bottom:1.25rem">
+    `<section aria-label="Settings">
   <h1>Settings</h1>
+  <p class="pu-muted">Who guests see when they book with you, and the address your booking links start with.</p>
+<section class="pu-card" aria-label="Your profile" style="margin-bottom:1.25rem">
   <h2>Your profile</h2>
   <p class="pu-muted">Shown on your booking page and in confirmation emails.</p>
+  <p style="margin:.75rem 0 0">Signed in as <code>${escapeHtml(d.user.email)}</code><br>
+    <span class="pu-muted" style="font-size:.8125rem">The sign-in address can&rsquo;t be changed here.</span></p>
   <div class="pu-profile">
     <div class="pu-profile-photo">
-      ${avatarHtml({ key: d.user.avatarKey, name: d.user.name || d.user.slug, size: 88 })}
+      ${avatarHtml({ key: d.user.avatarKey, name: d.user.name, size: 88 })}
       <form method="post" action="/dashboard/settings/avatar" enctype="multipart/form-data">
         ${csrfField(d.csrf)}
         <label class="pu-btn pu-btn-ghost pu-file-btn">Upload photo
@@ -1815,6 +1825,7 @@ export function settingsPage(d: SettingsPageData): string {
       ${csrfField(d.csrf)}
       <label for="name">Name</label>
       <input id="name" name="name" required aria-required="true" maxlength="120"
+             placeholder="Your name, as guests will see it"
              value="${escapeHtml(nameValue)}"${describedBy('name', errors)}>
       ${fieldError('name', errors)}
       <label for="job_title">Position</label>
@@ -1838,14 +1849,11 @@ export function settingsPage(d: SettingsPageData): string {
   <h2>Your booking page slug</h2>
   <p class="pu-muted">Every one of your event types is published at
     <code>/${escapeHtml(d.user.slug)}/&lt;event&gt;</code>. Changing your slug moves the address of
-    <strong>every</strong> event type at once.</p>
-  <div role="alert" class="pu-callout" style="margin:.75rem 0">
-    <p style="margin:0">
-      Any link or QR code you have already shared &mdash; in an email signature, on a website, on a printed
-      flyer &mdash; will stop working the moment you save. There is no redirect from
-      <code>${escapeHtml(d.user.slug)}</code> to the new slug: a guest who kept the old link lands on a
-      &ldquo;not found&rdquo; page. Update every place you have posted your link, before or right after you
-      change it.</p>
+    <strong>every</strong> event type at once.
+    <a href="${escapeHtml(`${trimSlash(d.baseUrl)}/${encodeURIComponent(d.user.slug)}`)}">View your booking page</a></p>
+  <div class="pu-callout pu-callout-warn" role="note" style="margin:.75rem 0">
+    <p style="margin:0">Changing it breaks every link and QR code you have already shared &mdash; there is no
+      redirect from <code>/${escapeHtml(d.user.slug)}</code>.</p>
   </div>
   <form method="post" action="/dashboard/settings">
     ${csrfField(d.csrf)}
@@ -1858,6 +1866,7 @@ export function settingsPage(d: SettingsPageData): string {
     ${fieldError('slug', errors)}
     <div style="margin-top:1.25rem"><button class="pu-btn" type="submit">Save slug</button></div>
   </form>
+</section>
 </section>` +
     shellBottom(d.brandName)
   )

@@ -1804,7 +1804,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
   // ===========================================================================
 
   app.get('/dashboard/settings', requireSession, (c) =>
-    c.html(settingsPage({ brandName, user: c.get('user'), csrf: c.get('csrf'), emailDelivery })),
+    c.html(settingsPage({ brandName, baseUrl: ports.config.baseUrl, user: c.get('user'), csrf: c.get('csrf'), emailDelivery })),
   )
 
   app.post('/dashboard/settings', requireSession, async (c) => {
@@ -1850,7 +1850,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
 
     if (Object.keys(errors).length > 0) {
       return c.html(
-        settingsPage({ brandName, user, csrf: c.get('csrf'),
+        settingsPage({ brandName, baseUrl: ports.config.baseUrl, user, csrf: c.get('csrf'),
  emailDelivery, slugValue: raw, errors }),
         400,
       )
@@ -1873,6 +1873,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
         return c.html(
           settingsPage({
             brandName,
+            baseUrl: ports.config.baseUrl,
             user,
             csrf: c.get('csrf'),
             emailDelivery,
@@ -1888,6 +1889,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     return c.html(
       settingsPage({
         brandName,
+        baseUrl: ports.config.baseUrl,
         user: { ...user, slug: raw },
         csrf: c.get('csrf'),
         emailDelivery,
@@ -1928,6 +1930,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
       return c.html(
         settingsPage({
           brandName,
+          baseUrl: ports.config.baseUrl,
           user,
           csrf: c.get('csrf'),
           emailDelivery,
@@ -1952,6 +1955,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     return c.html(
       settingsPage({
         brandName,
+        baseUrl: ports.config.baseUrl,
         user: { ...user, name, company, jobTitle, companyUrl },
         csrf: c.get('csrf'),
         emailDelivery,
@@ -1975,7 +1979,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     const user = c.get('user')
     const file = form.get('avatar')
     const fail = (message: string) =>
-      c.html(settingsPage({ brandName, user, csrf: c.get('csrf'),
+      c.html(settingsPage({ brandName, baseUrl: ports.config.baseUrl, user, csrf: c.get('csrf'),
  emailDelivery, errors: { avatar: message } }), 400)
 
     if (!(file instanceof File) || file.size === 0) return fail('Choose an image to upload')
@@ -2013,6 +2017,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     return c.html(
       settingsPage({
         brandName,
+        baseUrl: ports.config.baseUrl,
         user: { ...user, avatarKey: thumbKey },
         csrf: c.get('csrf'),
         emailDelivery,
@@ -2036,6 +2041,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     return c.html(
       settingsPage({
         brandName,
+        baseUrl: ports.config.baseUrl,
         user: { ...user, avatarKey: null },
         csrf: c.get('csrf'),
         emailDelivery,
