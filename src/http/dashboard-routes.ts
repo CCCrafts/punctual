@@ -250,7 +250,18 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
   // Sign in
   // ===========================================================================
 
-  app.get('/login', (c) => c.html(loginPage({ brandName, providers: ports.calendars.available() })))
+  /**
+   * What every render of the sign-in page shares. The wording depends on
+   * the sign-up policy in force — an open instance says the link also
+   * creates an account — which is the instance's policy, not a fact about
+   * any address, so it is safe to state before the form is submitted.
+   */
+  async function loginChrome() {
+    const policy = await effectiveSignupPolicy(ports.repositories({ consistency: 'bookmark' }))
+    return { brandName, providers: ports.calendars.available(), signupsOpen: policy.mode === 'open' }
+  }
+
+  app.get('/login', async (c) => c.html(loginPage(await loginChrome())))
 
   /**
    * Request a magic link.
@@ -283,23 +294,23 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
       },
     )
 
-    const providers = ports.calendars.available()
+    const chrome = await loginChrome()
     if (result.status === 'malformed') {
       // Safe to distinguish: address SYNTAX is something the sender can compute
       // themselves. Account existence is not, and is never revealed.
       return c.html(
-        loginPage({ brandName, providers, email, error: 'That does not look like an email address' }),
+        loginPage({ ...chrome, email, error: 'That does not look like an email address' }),
         400,
       )
     }
     if (result.status === 'rate_limited') {
       return c.html(
-        loginPage({ brandName, providers, email, error: 'Too many attempts. Try again shortly.' }),
+        loginPage({ ...chrome, email, error: 'Too many attempts. Try again shortly.' }),
         429,
         { 'retry-after': String(result.retryAfterSeconds) },
       )
     }
-    return c.html(loginPage({ brandName, providers, sent: true }))
+    return c.html(loginPage({ ...chrome, sent: true }))
   })
 
   /**
@@ -320,8 +331,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     if (!result.ok) {
       return c.html(
         loginPage({
-          brandName,
-          providers: ports.calendars.available(),
+          ...(await loginChrome()),
           error:
             result.reason === 'signups_closed'
               ? 'Sign-ups are closed on this instance. Ask its operator for access.'

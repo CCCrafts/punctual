@@ -197,6 +197,13 @@ export interface LoginPageData {
   error?: string
   /** Echoed back only on a malformed address, never on the neutral "sent" state. */
   email?: string
+  /**
+   * True when anyone may create an account here. The page then says so:
+   * a magic link is sign-in and sign-up at once, and a stranger reading
+   * "Sign in" alone goes looking for a register button that does not exist.
+   * States the instance's policy, never anything about a given address.
+   */
+  signupsOpen?: boolean
 }
 
 /**
@@ -228,12 +235,19 @@ export function loginPage(d: LoginPageData): string {
     )
     .join('\n    ')
 
+  const mark = `<a class="pu-mark" href="/" style="display:inline-block;margin-bottom:1rem">${escapeHtml(d.brandName.toLowerCase())}<span>:</span></a>`
   const body = d.sent
-    ? `<h1>Check your inbox</h1>
+    ? `${mark}
+  <h1>Check your inbox</h1>
   <p class="pu-muted">If that address can sign in, a link is on its way. It works once and expires in 15 minutes.</p>
   <p style="margin-top:1.25rem"><a class="pu-btn pu-btn-ghost" href="/login">Back to sign in</a></p>`
-    : `<h1>Sign in</h1>
-  <p class="pu-muted">No password. We email you a link that works once.</p>
+    : `${mark}
+  <h1>${d.signupsOpen ? 'Sign in or create an account' : 'Sign in'}</h1>
+  <p class="pu-muted">${
+    d.signupsOpen
+      ? 'No password. Enter your email and we send a link that works once &mdash; the same link creates your account if you are new.'
+      : 'No password. We email you a link that works once.'
+  }</p>
   <form method="post" action="/login">
     <label for="email">Email</label>
     <input id="email" name="email" type="email" required aria-required="true" autocomplete="email"
@@ -1397,8 +1411,7 @@ export function teamsPage(d: TeamsPageData): string {
   const errors = d.errors ?? {}
   const cards =
     d.teams.length === 0
-      ? `<p class="pu-muted">No teams yet. A team owns round-robin and collective event types —
-       create one below, then pick it as the owner on an event type.</p>`
+      ? `<p class="pu-muted">No teams yet. Create one below, then pick it as the owner of an event type.</p>`
       : d.teams.map((view) => teamCard(d, view)).join('\n')
 
   return (

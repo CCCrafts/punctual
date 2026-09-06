@@ -1188,6 +1188,15 @@ describe('signup policy', () => {
     return token
   }
 
+  it('the sign-in page says the link also creates an account only while sign-ups are open', async () => {
+    // Instance policy, not account existence: the same wording for everyone
+    // who loads the page, before any address is entered.
+    expect(await (await get('/login')).text()).toContain('Sign in or create an account')
+    const closed = await (await closedApp.fetch(new Request(`${BASE}/login`))).text()
+    expect(closed).toContain('<h1>Sign in</h1>')
+    expect(closed).not.toContain('create an account')
+  })
+
   it('a closed instance answers identically for known and unknown addresses — and mails BOTH, so there is no timing branch either', async () => {
     // The request path must be byte- and work-identical regardless of policy:
     // an earlier version suppressed the stranger's email here, and the skipped
