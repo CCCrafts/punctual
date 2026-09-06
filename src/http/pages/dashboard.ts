@@ -210,6 +210,13 @@ export interface LoginPageData {
   error?: string
   /** Echoed back only on a malformed address, never on the neutral "sent" state. */
   email?: string
+  /**
+   * True when anyone may create an account here. The page then says so:
+   * a magic link is sign-in and sign-up at once, and a stranger reading
+   * "Sign in" alone goes looking for a register button that does not exist.
+   * States the instance's policy, never anything about a given address.
+   */
+  signupsOpen?: boolean
 }
 
 /**
@@ -225,6 +232,12 @@ export interface LoginPageData {
  *
  * The success state says nothing about whether the address has an account. Any
  * branch here is an enumeration oracle, so the copy carries no address at all.
+ *
+ * The one script on the page fills a hidden `tz` field from the browser's
+ * own zone, so a new account's default hours are 09:00–17:00 where the host
+ * actually is instead of UTC. It is an enhancement, not a dependency: with
+ * script off the field submits empty and the flow falls back exactly as
+ * before.
  */
 export function loginPage(d: LoginPageData): string {
   const buttons = d.providers
@@ -235,17 +248,26 @@ export function loginPage(d: LoginPageData): string {
     )
     .join('\n    ')
 
+  const mark = `<a class="pu-mark" href="/" style="display:inline-block;margin-bottom:1rem">${escapeHtml(d.brandName.toLowerCase())}<span>:</span></a>`
   const body = d.sent
-    ? `<h1>Check your inbox</h1>
+    ? `${mark}
+  <h1>Check your inbox</h1>
   <p class="pu-muted">If that address can sign in, a link is on its way. It works once and expires in 15 minutes.</p>
   <p style="margin-top:1.25rem"><a class="pu-btn pu-btn-ghost" href="/login">Back to sign in</a></p>`
-    : `<h1>Sign in</h1>
-  <p class="pu-muted">No password. We email you a link that works once.</p>
+    : `${mark}
+  <h1>${d.signupsOpen ? 'Sign in or create an account' : 'Sign in'}</h1>
+  <p class="pu-muted">${
+    d.signupsOpen
+      ? 'No password. Enter your email and we send a link that works once &mdash; the same link creates your account if you are new.'
+      : 'No password. We email you a link that works once.'
+  }</p>
   <form method="post" action="/login">
     <label for="email">Email</label>
     <input id="email" name="email" type="email" required aria-required="true" autocomplete="email"
            inputmode="email" value="${escapeHtml(d.email ?? '')}"${describedBy('email', d.error ? { email: d.error } : {})}>
     ${d.error ? `<p class="pu-err" id="err-email">${escapeHtml(d.error)}</p>` : ''}
+    <input type="hidden" name="tz" id="login-tz" value="">
+    <script>try{document.getElementById('login-tz').value=Intl.DateTimeFormat().resolvedOptions().timeZone||''}catch(e){}</script>
     <div style="margin-top:1.25rem"><button class="pu-btn" type="submit">Email me a link</button></div>
   </form>
   ${
@@ -305,12 +327,21 @@ export interface DashboardHomeData extends DashboardChrome {
   /** Public origin, so the copyable URL is the one a guest would receive. */
   baseUrl: string
   notice?: string
+  /**
+   * Inputs to the first-run checklist, which only renders while there are
+   * no event types. Required rather than optional for the same reason as
+   * `emailDelivery`: a route that forgets them would silently render every
+   * step as "to do" for a host who has already done them.
+   */
+  hasCalendarConnection: boolean
+  /** The host's default schedule — null only if the login backfill has not run yet. */
+  defaultSchedule: Schedule | null
 }
 
 export function dashboardHome(d: DashboardHomeData): string {
   const events =
     d.eventTypes.length === 0
-      ? `<p class="pu-muted">No event types yet. Create one and your booking page is live.</p>`
+      ? setupChecklist(d)
       : d.eventTypes.map((item) => eventTypeCard(d, item)).join('\n')
 
   const upcoming =
@@ -339,6 +370,93 @@ export function dashboardHome(d: DashboardHomeData): string {
 </div>` +
     shellBottom(d.brandName)
   )
+}
+
+/**
+ * The empty home: a checklist instead of a "nothing here" line.
+ *
+ * A muted "No event types yet" told a new host what was missing but not
+ * what to do first, and the two things that silently make a booking page
+ * wrong — hours read in the wrong timezone, no calendar checked for
+ * conflicts — live on other tabs they had no reason to visit. Each step is
+ * a link to the page that completes it; the ring/dot marks are the product's
+ * own slot vocabulary (open ring = still to do, filled dot = done).
+ *
+ * "Check your hours" counts as done once the default schedule is in any
+ * timezone but UTC: UTC is what the backfill falls back to when nothing told
+ * it where the host is, so anything else means someone actually chose it.
+ */
+function setupChecklist(d: DashboardHomeData): string {
+  const schedule = d.defaultSchedule
+  const steps: Array<{ href: string; label: string; detail: string; done: boolean }> = [
+    {
+      href: '/dashboard/settings',
+      label: 'Add your name',
+      detail: 'Guests see it on your booking page and in every email.',
+      done: d.user.name.trim().length > 0,
+    },
+    {
+      href: '/dashboard/connections',
+      label: 'Connect a calendar',
+      detail: 'So busy time is never offered, and bookings land where you look.',
+      done: d.hasCalendarConnection,
+    },
+    {
+      href: schedule ? `/dashboard/availability/${encodeURIComponent(schedule.id)}` : '/dashboard/availability',
+      label: 'Check your hours',
+      detail: schedule ? `Currently ${hoursSummary(schedule)}.` : 'Set the hours guests may book.',
+      done: schedule !== null && schedule.timezone !== 'UTC',
+    },
+    {
+      href: '/dashboard/event-types/new',
+      label: 'Create an event type',
+      detail: 'Your booking page goes live with the first one.',
+      done: false,
+    },
+  ]
+  const items = steps
+    .map(
+      (s) => `<li class="pu-setup-step${s.done ? ' pu-setup-done' : ''}">
+        <span class="pu-setup-mark" aria-hidden="true"></span>
+        <div><a href="${escapeHtml(s.href)}">${escapeHtml(s.label)}</a><span class="pu-sr">${s.done ? ' — done' : ' — to do'}</span><br>
+          <span class="pu-muted" style="font-size:.8125rem">${escapeHtml(s.detail)}</span></div>
+      </li>`,
+    )
+    .join('\n      ')
+  return `<section class="pu-card" aria-labelledby="setup-title">
+  <h2 id="setup-title" style="margin-top:0">Get set up</h2>
+  <p class="pu-muted">Four steps and your booking page is live.</p>
+  <ol class="pu-setup-steps">
+      ${items}
+  </ol>
+  <a class="pu-btn" href="/dashboard/event-types/new">Create an event type</a>
+</section>`
+}
+
+const DAY_ABBREVIATIONS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+/**
+ * "Mon–Fri 09:00–17:00 UTC" for the checklist. The timezone is the point of
+ * the line — a host reading their own hours next to a zone they never chose
+ * is what sends them to fix it — so it is always stated, even when the days
+ * and times are too irregular to compress into one range.
+ */
+function hoursSummary(s: Schedule): string {
+  const active = s.weekly.map((windows, day) => ({ day, windows })).filter((x) => x.windows.length > 0)
+  if (active.length === 0) return `no hours set, ${s.timezone}`
+  const first = active[0]!.windows[0]!
+  const uniform = active.every(
+    (x) => x.windows.length === 1 && x.windows[0]!.startMinute === first.startMinute && x.windows[0]!.endMinute === first.endMinute,
+  )
+  const contiguous = active.every((x, i) => i === 0 || x.day === active[i - 1]!.day + 1)
+  const days =
+    active.length === 1
+      ? DAY_ABBREVIATIONS[active[0]!.day]!
+      : contiguous
+        ? `${DAY_ABBREVIATIONS[active[0]!.day]}–${DAY_ABBREVIATIONS[active[active.length - 1]!.day]}`
+        : active.map((x) => DAY_ABBREVIATIONS[x.day]).join(', ')
+  const times = uniform ? ` ${minutesToTime(first.startMinute)}–${minutesToTime(first.endMinute)}` : ''
+  return `${days}${times} ${s.timezone}`
 }
 
 /**
@@ -1076,6 +1194,7 @@ export function schedulesPage(d: SchedulesPageData): string {
     (d.notice ? notice(d.notice) : '') +
     `<section aria-label="Availability schedules">
   ${heading}
+  ${d.scope ? '' : utcDefaultCallout(d.schedules, base)}
   <div style="display:grid;gap:1rem">${cards}</div>
   <form class="pu-card" method="post" action="${base}/new" style="margin-top:1.5rem">
     ${csrfField(d.csrf)}
@@ -1092,6 +1211,23 @@ export function schedulesPage(d: SchedulesPageData): string {
 </section>` +
     shellBottom(d.brandName)
   )
+}
+
+/**
+ * A default schedule still in UTC is almost never a choice — it is the
+ * backfill's fallback when nothing told it where the host is — and a host
+ * who reads "09:00–17:00" on this page has no way to see that those numbers
+ * mean something else where they live. Rendered only on the host's own
+ * page: a team admin managing a member's hours cannot know the member's
+ * zone either.
+ */
+function utcDefaultCallout(schedules: Schedule[], basePath: string): string {
+  const fallback = schedules.find((s) => s.isDefault && s.timezone === 'UTC')
+  if (!fallback) return ''
+  return `<div class="pu-callout pu-callout-warn" role="note" style="margin:0 0 1rem">
+    <p style="margin:0">Your hours are read in UTC. Set your timezone so 09:00 means 09:00 where you are
+      &mdash; edit <a href="${basePath}/${encodeURIComponent(fallback.id)}">${escapeHtml(fallback.name)}</a>.</p>
+  </div>`
 }
 
 export interface ScheduleFormData extends DashboardChrome {
@@ -1382,8 +1518,7 @@ export function teamsPage(d: TeamsPageData): string {
   const errors = d.errors ?? {}
   const cards =
     d.teams.length === 0
-      ? `<p class="pu-muted">No teams yet. A team owns round-robin and collective event types —
-       create one below, then pick it as the owner on an event type.</p>`
+      ? `<p class="pu-muted">No teams yet. Create one below, then pick it as the owner of an event type.</p>`
       : d.teams.map((view) => teamCard(d, view)).join('\n')
 
   return (
@@ -1847,6 +1982,8 @@ export interface SettingsPageData extends DashboardChrome {
   companyValue?: string
   /** Same reasoning as `slugValue`, for the profile form's Company link field. */
   companyUrlValue?: string
+  /** Public origin, so "View your booking page" opens the address a guest would use. */
+  baseUrl: string
   errors?: Record<string, string>
   notice?: string
 }
@@ -1862,18 +1999,26 @@ export function settingsPage(d: SettingsPageData): string {
   return (
     shellTop(d, 'Settings', 'settings') +
     (d.notice ? notice(d.notice) : '') +
-    // One panel, one identity: the photo IS part of the profile, and the
+    // The page title and its one-line lede sit above the cards, as on
+    // Calendars and API keys — inside the first card they read as that
+    // card's own heading, and the slug card below looked like a footnote.
+    //
+    // One profile panel, one identity: the photo IS part of the profile, and
     // split cards read as two unrelated features. Photo column left (the
     // file input is visually hidden — the styled label is the whole control,
     // and choosing a file submits immediately, so there is no separate
     // Upload step to explain), fields right.
-    `<section class="pu-card" aria-label="Your profile" style="margin-bottom:1.25rem">
+    `<section aria-label="Settings">
   <h1>Settings</h1>
+  <p class="pu-muted">Who guests see when they book with you, and the address your booking links start with.</p>
+<section class="pu-card" aria-label="Your profile" style="margin-bottom:1.25rem">
   <h2>Your profile</h2>
   <p class="pu-muted">Shown on your booking page and in confirmation emails.</p>
+  <p style="margin:.75rem 0 0">Signed in as <code>${escapeHtml(d.user.email)}</code><br>
+    <span class="pu-muted" style="font-size:.8125rem">The sign-in address can&rsquo;t be changed here.</span></p>
   <div class="pu-profile">
     <div class="pu-profile-photo">
-      ${avatarHtml({ key: d.user.avatarKey, name: d.user.name || d.user.slug, size: 88 })}
+      ${avatarHtml({ key: d.user.avatarKey, name: d.user.name, size: 88 })}
       <form method="post" action="/dashboard/settings/avatar" enctype="multipart/form-data">
         ${csrfField(d.csrf)}
         <label class="pu-btn pu-btn-ghost pu-file-btn">Upload photo
@@ -1897,6 +2042,7 @@ export function settingsPage(d: SettingsPageData): string {
       ${csrfField(d.csrf)}
       <label for="name">Name</label>
       <input id="name" name="name" required aria-required="true" maxlength="120"
+             placeholder="Your name, as guests will see it"
              value="${escapeHtml(nameValue)}"${describedBy('name', errors)}>
       ${fieldError('name', errors)}
       <label for="job_title">Position</label>
@@ -1920,14 +2066,11 @@ export function settingsPage(d: SettingsPageData): string {
   <h2>Your booking page slug</h2>
   <p class="pu-muted">Every one of your event types is published at
     <code>/${escapeHtml(d.user.slug)}/&lt;event&gt;</code>. Changing your slug moves the address of
-    <strong>every</strong> event type at once.</p>
-  <div role="alert" class="pu-callout" style="margin:.75rem 0">
-    <p style="margin:0">
-      Any link or QR code you have already shared &mdash; in an email signature, on a website, on a printed
-      flyer &mdash; will stop working the moment you save. There is no redirect from
-      <code>${escapeHtml(d.user.slug)}</code> to the new slug: a guest who kept the old link lands on a
-      &ldquo;not found&rdquo; page. Update every place you have posted your link, before or right after you
-      change it.</p>
+    <strong>every</strong> event type at once.
+    <a href="${escapeHtml(`${trimSlash(d.baseUrl)}/${encodeURIComponent(d.user.slug)}`)}">View your booking page</a></p>
+  <div class="pu-callout pu-callout-warn" role="note" style="margin:.75rem 0">
+    <p style="margin:0">Changing it breaks every link and QR code you have already shared &mdash; there is no
+      redirect from <code>/${escapeHtml(d.user.slug)}</code>.</p>
   </div>
   <form method="post" action="/dashboard/settings">
     ${csrfField(d.csrf)}
@@ -1940,6 +2083,7 @@ export function settingsPage(d: SettingsPageData): string {
     ${fieldError('slug', errors)}
     <div style="margin-top:1.25rem"><button class="pu-btn" type="submit">Save slug</button></div>
   </form>
+</section>
 </section>` +
     shellBottom(d.brandName)
   )
@@ -2336,13 +2480,13 @@ export function adminPage(d: AdminPageData): string {
         : `<form method="post" action="/dashboard/admin/users/${encodeURIComponent(u.id)}/role" style="margin:0">
             ${csrfField(d.csrf)}
             <input type="hidden" name="role" value="${u.role === 'admin' ? 'member' : 'admin'}">
-            <button class="pu-btn pu-btn-ghost" type="submit" style="padding:.3rem .6rem;font-size:.8125rem">
+            <button class="pu-btn pu-btn-ghost" type="submit" style="padding:.3rem .6rem;font-size:.8125rem;white-space:nowrap">
               ${u.role === 'admin' ? 'Remove admin' : 'Make admin'}</button>
           </form>`
       return `<tr>
         <td>${escapeHtml(u.name || u.slug)}${isSelf ? ' <span class="pu-muted">(you)</span>' : ''}<br>
           <span class="pu-muted" style="font-size:.8125rem">${escapeHtml(u.email)}</span></td>
-        <td class="pu-time">/${escapeHtml(u.slug)}</td>
+        <td class="pu-time" style="white-space:nowrap">/${escapeHtml(u.slug)}</td>
         <td>${u.role === 'admin' ? '<span class="pu-badge">Admin</span>' : '<span class="pu-muted">Member</span>'}</td>
         <td>${action}</td>
       </tr>`
@@ -2360,7 +2504,8 @@ export function adminPage(d: AdminPageData): string {
     </label>
     <label style="display:flex;align-items:baseline;gap:.5rem;font-weight:400;margin:.5rem 0 0">
       <input type="radio" name="mode" value="closed"${parsedMode === 'closed' ? ' checked' : ''} style="width:auto">
-      <span><strong>Closed</strong> — existing users only; nobody new can register</span>
+      <span><strong>Closed</strong> — existing users only; nobody new can register<br>
+        <span class="pu-muted" style="font-size:.8125rem">To add someone later, switch to Allowlist and enter their email.</span></span>
     </label>
     <label style="display:flex;align-items:baseline;gap:.5rem;font-weight:400;margin:.5rem 0 0">
       <input type="radio" name="mode" value="allowlist"${parsedMode === 'allowlist' ? ' checked' : ''} style="width:auto">
@@ -2375,8 +2520,15 @@ export function adminPage(d: AdminPageData): string {
   return (
     shellTop(d, 'Admin', 'admin') +
     (d.notice ? notice(d.notice) : '') +
-    `<section class="pu-card" aria-label="Sign-ups" style="margin-bottom:1.25rem">
+    // Title and lede above the cards, same shape as Settings, Calendars and
+    // API keys — an <h1> inside the sign-ups card made it read as that
+    // card's heading. The table keeps an inline width floor as a fallback
+    // for the shared .pu-dash-table rule: on a phone the wrapper scrolls
+    // rather than squeezing four columns into one-word-per-line cells.
+    `<section aria-label="Admin">
   <h1>Admin</h1>
+  <p class="pu-muted">Who may join this instance, and who runs it.</p>
+<section class="pu-card" aria-label="Sign-ups" style="margin-bottom:1.25rem">
   <h2>Sign-ups</h2>
   <p class="pu-muted">Who may create an account on this instance. Existing users always sign in.</p>
   ${signupsBody}
@@ -2384,11 +2536,12 @@ export function adminPage(d: AdminPageData): string {
 <section class="pu-card" aria-label="Users">
   <h2>Users</h2>
   ${fieldError('role', errors)}
-  <div class="pu-docs-table-wrap"><table style="width:100%">
+  <div class="pu-docs-table-wrap"><table class="pu-dash-table" style="width:100%;min-width:30rem">
     <thead><tr><th scope="col" style="text-align:left">User</th><th scope="col" style="text-align:left">Booking page</th>
-      <th scope="col" style="text-align:left">Role</th><th scope="col" style="text-align:left"></th></tr></thead>
+      <th scope="col" style="text-align:left">Role</th><th scope="col" style="text-align:left"><span class="pu-sr">Actions</span></th></tr></thead>
     <tbody>${rows}</tbody>
   </table></div>
+</section>
 </section>` +
     shellBottom(d.brandName)
   )

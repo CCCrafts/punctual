@@ -33,7 +33,14 @@ const user: User = {
 }
 
 const base = { brandName: 'Punctual', user, csrf: 'tok' }
-const home = { ...base, eventTypes: [], upcomingBookings: [], baseUrl: 'https://punctual.test' }
+const home = {
+  ...base,
+  eventTypes: [],
+  upcomingBookings: [],
+  baseUrl: 'https://punctual.test',
+  hasCalendarConnection: false,
+  defaultSchedule: null,
+}
 
 describe('email-not-configured banner', () => {
   it('warns when the deployment resolved to the console sender', () => {
@@ -65,7 +72,7 @@ describe('email-not-configured banner', () => {
    * named explicitly here.
    */
   it('rides the shared chrome, so every dashboard page shows it', () => {
-    expect(settingsPage({ ...base, emailDelivery: 'console' })).toContain('Email is not configured')
+    expect(settingsPage({ ...base, emailDelivery: 'console', baseUrl: 'https://punctual.test' })).toContain('Email is not configured')
     expect(dashboardHome({ ...home, emailDelivery: 'console' })).toContain('Email is not configured')
   })
 

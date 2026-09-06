@@ -235,6 +235,29 @@ describe('magic link request', () => {
     expect(recipients).toContain(HOST_EMAIL)
     expect(recipients).toContain('nobody-at-all@example.test')
   })
+
+  it('carries the sign-in form\'s timezone on the link, so a new account\'s default hours are in the host\'s own zone', async () => {
+    // Under Miniflare there is no `cf.timezone` on the redeeming request —
+    // exactly the self-hosted situation where every new host used to land on
+    // a 09:00–17:00 UTC schedule with nothing on screen to say so.
+    const address = 'kyiv-host@example.test'
+    const sent = await post('/login', { email: address, tz: 'Europe/Kyiv' })
+    expect(sent.status).toBe(200)
+    const mail = email.sent.find((m) => m.to === address)
+    const token = decodeURIComponent(/token=([A-Za-z0-9_%-]+)/.exec(mail?.text ?? '')?.[1] ?? '')
+    expect(token).not.toBe('')
+
+    const res = await get(`/auth/callback?token=${encodeURIComponent(token)}`)
+    expect(res.status).toBe(302)
+
+    const user = await db.prepare('SELECT id, tz FROM users WHERE email = ?').bind(address).first<{ id: string; tz: string }>()
+    expect(user?.tz).toBe('Europe/Kyiv')
+    const schedule = await db
+      .prepare('SELECT timezone FROM schedules WHERE user_id = ? AND is_default = 1')
+      .bind(user?.id ?? '')
+      .first<{ timezone: string }>()
+    expect(schedule?.timezone).toBe('Europe/Kyiv')
+  })
 })
 
 describe('CSRF', () => {
@@ -1199,6 +1222,15 @@ describe('signup policy', () => {
     })
     return token
   }
+
+  it('the sign-in page says the link also creates an account only while sign-ups are open', async () => {
+    // Instance policy, not account existence: the same wording for everyone
+    // who loads the page, before any address is entered.
+    expect(await (await get('/login')).text()).toContain('Sign in or create an account')
+    const closed = await (await closedApp.fetch(new Request(`${BASE}/login`))).text()
+    expect(closed).toContain('<h1>Sign in</h1>')
+    expect(closed).not.toContain('create an account')
+  })
 
   it('a closed instance answers identically for known and unknown addresses — and mails BOTH, so there is no timing branch either', async () => {
     // The request path must be byte- and work-identical regardless of policy:

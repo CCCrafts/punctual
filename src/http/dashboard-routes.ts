@@ -253,7 +253,18 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
   // Sign in
   // ===========================================================================
 
-  app.get('/login', (c) => c.html(loginPage({ brandName, providers: ports.calendars.available() })))
+  /**
+   * What every render of the sign-in page shares. The wording depends on
+   * the sign-up policy in force — an open instance says the link also
+   * creates an account — which is the instance's policy, not a fact about
+   * any address, so it is safe to state before the form is submitted.
+   */
+  async function loginChrome() {
+    const policy = await effectiveSignupPolicy(ports.repositories({ consistency: 'bookmark' }))
+    return { brandName, providers: ports.calendars.available(), signupsOpen: policy.mode === 'open' }
+  }
+
+  app.get('/login', async (c) => c.html(loginPage(await loginChrome())))
 
   /**
    * Request a magic link.
@@ -280,26 +291,29 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
         ip: c.req.header('cf-connecting-ip') ?? 'unknown',
         userAgent: c.req.header('user-agent') ?? '',
         now: ports.clock.now(),
+        // Empty without script — the flow then falls back to the redeeming
+        // request's network location, and after that to UTC.
+        timezone: String(form.get('tz') ?? '').trim(),
       },
     )
 
-    const providers = ports.calendars.available()
+    const chrome = await loginChrome()
     if (result.status === 'malformed') {
       // Safe to distinguish: address SYNTAX is something the sender can compute
       // themselves. Account existence is not, and is never revealed.
       return c.html(
-        loginPage({ brandName, providers, email, error: 'That does not look like an email address' }),
+        loginPage({ ...chrome, email, error: 'That does not look like an email address' }),
         400,
       )
     }
     if (result.status === 'rate_limited') {
       return c.html(
-        loginPage({ brandName, providers, email, error: 'Too many attempts. Try again shortly.' }),
+        loginPage({ ...chrome, email, error: 'Too many attempts. Try again shortly.' }),
         429,
         { 'retry-after': String(result.retryAfterSeconds) },
       )
     }
-    return c.html(loginPage({ brandName, providers, sent: true }))
+    return c.html(loginPage({ ...chrome, sent: true }))
   })
 
   /**
@@ -320,8 +334,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     if (!result.ok) {
       return c.html(
         loginPage({
-          brandName,
-          providers: ports.calendars.available(),
+          ...(await loginChrome()),
           error:
             result.reason === 'signups_closed'
               ? 'Sign-ups are closed on this instance. Ask its operator for access.'
@@ -585,6 +598,12 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
       .filter((b) => b.status === 'confirmed' && b.startUtc >= now)
       .map((booking) => ({ booking, eventTitle: titles.get(booking.eventTypeId) ?? 'Meeting' }))
 
+    // Only the empty home reads these — but they are cheap, and loading them
+    // conditionally is how the checklist would one day render against stale
+    // assumptions when the condition changes.
+    const hasCalendarConnection = (await repos.connections.listForUser(user.id)).length > 0
+    const defaultSchedule = await repos.availability.forUser(user.id)
+
     return c.html(
       dashboardHome({
         brandName,
@@ -594,6 +613,8 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
         eventTypes,
         upcomingBookings,
         baseUrl: ports.config.baseUrl,
+        hasCalendarConnection,
+        defaultSchedule,
       }),
     )
   })
@@ -1815,7 +1836,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
   // ===========================================================================
 
   app.get('/dashboard/settings', requireSession, (c) =>
-    c.html(settingsPage({ brandName, user: c.get('user'), csrf: c.get('csrf'), emailDelivery })),
+    c.html(settingsPage({ brandName, baseUrl: ports.config.baseUrl, user: c.get('user'), csrf: c.get('csrf'), emailDelivery })),
   )
 
   app.post('/dashboard/settings', requireSession, async (c) => {
@@ -1861,7 +1882,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
 
     if (Object.keys(errors).length > 0) {
       return c.html(
-        settingsPage({ brandName, user, csrf: c.get('csrf'),
+        settingsPage({ brandName, baseUrl: ports.config.baseUrl, user, csrf: c.get('csrf'),
  emailDelivery, slugValue: raw, errors }),
         400,
       )
@@ -1884,6 +1905,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
         return c.html(
           settingsPage({
             brandName,
+            baseUrl: ports.config.baseUrl,
             user,
             csrf: c.get('csrf'),
             emailDelivery,
@@ -1899,6 +1921,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     return c.html(
       settingsPage({
         brandName,
+        baseUrl: ports.config.baseUrl,
         user: { ...user, slug: raw },
         csrf: c.get('csrf'),
         emailDelivery,
@@ -1939,6 +1962,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
       return c.html(
         settingsPage({
           brandName,
+          baseUrl: ports.config.baseUrl,
           user,
           csrf: c.get('csrf'),
           emailDelivery,
@@ -1963,6 +1987,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     return c.html(
       settingsPage({
         brandName,
+        baseUrl: ports.config.baseUrl,
         user: { ...user, name, company, jobTitle, companyUrl },
         csrf: c.get('csrf'),
         emailDelivery,
@@ -1986,7 +2011,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     const user = c.get('user')
     const file = form.get('avatar')
     const fail = (message: string) =>
-      c.html(settingsPage({ brandName, user, csrf: c.get('csrf'),
+      c.html(settingsPage({ brandName, baseUrl: ports.config.baseUrl, user, csrf: c.get('csrf'),
  emailDelivery, errors: { avatar: message } }), 400)
 
     if (!(file instanceof File) || file.size === 0) return fail('Choose an image to upload')
@@ -2024,6 +2049,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     return c.html(
       settingsPage({
         brandName,
+        baseUrl: ports.config.baseUrl,
         user: { ...user, avatarKey: thumbKey },
         csrf: c.get('csrf'),
         emailDelivery,
@@ -2047,6 +2073,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     return c.html(
       settingsPage({
         brandName,
+        baseUrl: ports.config.baseUrl,
         user: { ...user, avatarKey: null },
         csrf: c.get('csrf'),
         emailDelivery,

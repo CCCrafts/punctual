@@ -699,6 +699,25 @@ form:has(#locationType option[value="google_meet"]:checked) .pu-loc-wrap{display
 .pu-key{display:block;margin:0;padding:.75rem .9rem;background:var(--pu-url-bg);border:1px solid var(--pu-line);
   border-radius:var(--pu-radius);font-family:var(--pu-font-mono);font-size:.8125rem;
   word-break:break-all;white-space:pre-wrap;user-select:all;-webkit-user-select:all}
+
+/* first-run, settings, admin */
+/* The empty-home checklist. Each step's mark is the slot vocabulary in
+   miniature: an open ring while the step is still to do, the filled green
+   dot once it is done — the same two states a guest sees on the booking
+   page, so the dashboard and the product share one language. */
+.pu-setup-steps{list-style:none;margin:1rem 0 1.25rem;padding:0;display:grid;gap:.85rem}
+.pu-setup-step{display:flex;align-items:flex-start;gap:.75rem}
+.pu-setup-step a{font-weight:600;color:var(--pu-text-primary);text-decoration:none}
+.pu-setup-step a:hover{color:var(--pu-green-700);text-decoration:underline}
+.pu-setup-mark{flex:none;width:.875rem;height:.875rem;margin-top:.3rem;border-radius:99px;
+  border:2px solid var(--pu-border-strong);background:transparent}
+.pu-setup-done .pu-setup-mark{background:var(--pu-green-700);border-color:var(--pu-green-700)}
+.pu-setup-done a{color:var(--pu-text-secondary);font-weight:500}
+/* A standing caution that is not an error: the base .pu-callout is the
+   danger tint, which is right for "this will break links" and wrong for
+   "this is probably not what you meant" — a page that shouts at both
+   teaches the host to scroll past both. */
+.pu-callout-warn{background:var(--pu-status-warning-bg);border-color:var(--pu-warn)}
 `
 
 export function pageCss(): string {

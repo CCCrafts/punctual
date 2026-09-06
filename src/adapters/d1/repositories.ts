@@ -1196,8 +1196,8 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
     },
     async createMagicLink(t) {
       await run(
-        'INSERT INTO magic_link_tokens (token_hash,email,expires_at,created_at) VALUES (?,?,?,?)',
-        t.tokenHash, t.email.toLowerCase(), t.expiresAt, t.createdAt,
+        'INSERT INTO magic_link_tokens (token_hash,email,expires_at,created_at,timezone) VALUES (?,?,?,?,?)',
+        t.tokenHash, t.email.toLowerCase(), t.expiresAt, t.createdAt, t.timezone ?? null,
       )
     },
     /**
@@ -1216,6 +1216,7 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
         email: String(row['email']),
         expiresAt: Number(row['expires_at']),
         createdAt: Number(row['created_at']),
+        timezone: row['timezone'] == null ? null : String(row['timezone']),
       }
     },
   }

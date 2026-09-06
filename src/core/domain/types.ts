@@ -292,6 +292,15 @@ export interface MagicLinkToken {
   email: string
   expiresAt: number
   createdAt: number
+  /**
+   * The IANA zone the sign-in form's browser reported, validated before it
+   * is stored, or null when the form was submitted without script. It
+   * travels on the token because the link is redeemed in a different
+   * request — often on a different device — and the redeeming request's
+   * network location is the only other signal, which is what left every
+   * self-hosted host on UTC.
+   */
+  timezone?: string | null
 }
 
 export interface ApiKey {
