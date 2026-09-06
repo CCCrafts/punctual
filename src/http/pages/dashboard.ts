@@ -292,12 +292,21 @@ export interface DashboardHomeData extends DashboardChrome {
   /** Public origin, so the copyable URL is the one a guest would receive. */
   baseUrl: string
   notice?: string
+  /**
+   * Inputs to the first-run checklist, which only renders while there are
+   * no event types. Required rather than optional for the same reason as
+   * `emailDelivery`: a route that forgets them would silently render every
+   * step as "to do" for a host who has already done them.
+   */
+  hasCalendarConnection: boolean
+  /** The host's default schedule — null only if the login backfill has not run yet. */
+  defaultSchedule: Schedule | null
 }
 
 export function dashboardHome(d: DashboardHomeData): string {
   const events =
     d.eventTypes.length === 0
-      ? `<p class="pu-muted">No event types yet. Create one and your booking page is live.</p>`
+      ? setupChecklist(d)
       : d.eventTypes.map((item) => eventTypeCard(d, item)).join('\n')
 
   const upcoming =
@@ -326,6 +335,93 @@ export function dashboardHome(d: DashboardHomeData): string {
 </div>` +
     shellBottom(d.brandName)
   )
+}
+
+/**
+ * The empty home: a checklist instead of a "nothing here" line.
+ *
+ * A muted "No event types yet" told a new host what was missing but not
+ * what to do first, and the two things that silently make a booking page
+ * wrong — hours read in the wrong timezone, no calendar checked for
+ * conflicts — live on other tabs they had no reason to visit. Each step is
+ * a link to the page that completes it; the ring/dot marks are the product's
+ * own slot vocabulary (open ring = still to do, filled dot = done).
+ *
+ * "Check your hours" counts as done once the default schedule is in any
+ * timezone but UTC: UTC is what the backfill falls back to when nothing told
+ * it where the host is, so anything else means someone actually chose it.
+ */
+function setupChecklist(d: DashboardHomeData): string {
+  const schedule = d.defaultSchedule
+  const steps: Array<{ href: string; label: string; detail: string; done: boolean }> = [
+    {
+      href: '/dashboard/settings',
+      label: 'Add your name',
+      detail: 'Guests see it on your booking page and in every email.',
+      done: d.user.name.trim().length > 0,
+    },
+    {
+      href: '/dashboard/connections',
+      label: 'Connect a calendar',
+      detail: 'So busy time is never offered, and bookings land where you look.',
+      done: d.hasCalendarConnection,
+    },
+    {
+      href: schedule ? `/dashboard/availability/${encodeURIComponent(schedule.id)}` : '/dashboard/availability',
+      label: 'Check your hours',
+      detail: schedule ? `Currently ${hoursSummary(schedule)}.` : 'Set the hours guests may book.',
+      done: schedule !== null && schedule.timezone !== 'UTC',
+    },
+    {
+      href: '/dashboard/event-types/new',
+      label: 'Create an event type',
+      detail: 'Your booking page goes live with the first one.',
+      done: false,
+    },
+  ]
+  const items = steps
+    .map(
+      (s) => `<li class="pu-setup-step${s.done ? ' pu-setup-done' : ''}">
+        <span class="pu-setup-mark" aria-hidden="true"></span>
+        <div><a href="${escapeHtml(s.href)}">${escapeHtml(s.label)}</a><span class="pu-sr">${s.done ? ' — done' : ' — to do'}</span><br>
+          <span class="pu-muted" style="font-size:.8125rem">${escapeHtml(s.detail)}</span></div>
+      </li>`,
+    )
+    .join('\n      ')
+  return `<section class="pu-card" aria-labelledby="setup-title">
+  <h2 id="setup-title" style="margin-top:0">Get set up</h2>
+  <p class="pu-muted">Four steps and your booking page is live.</p>
+  <ol class="pu-setup-steps">
+      ${items}
+  </ol>
+  <a class="pu-btn" href="/dashboard/event-types/new">Create an event type</a>
+</section>`
+}
+
+const DAY_ABBREVIATIONS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+/**
+ * "Mon–Fri 09:00–17:00 UTC" for the checklist. The timezone is the point of
+ * the line — a host reading their own hours next to a zone they never chose
+ * is what sends them to fix it — so it is always stated, even when the days
+ * and times are too irregular to compress into one range.
+ */
+function hoursSummary(s: Schedule): string {
+  const active = s.weekly.map((windows, day) => ({ day, windows })).filter((x) => x.windows.length > 0)
+  if (active.length === 0) return `no hours set, ${s.timezone}`
+  const first = active[0]!.windows[0]!
+  const uniform = active.every(
+    (x) => x.windows.length === 1 && x.windows[0]!.startMinute === first.startMinute && x.windows[0]!.endMinute === first.endMinute,
+  )
+  const contiguous = active.every((x, i) => i === 0 || x.day === active[i - 1]!.day + 1)
+  const days =
+    active.length === 1
+      ? DAY_ABBREVIATIONS[active[0]!.day]!
+      : contiguous
+        ? `${DAY_ABBREVIATIONS[active[0]!.day]}–${DAY_ABBREVIATIONS[active[active.length - 1]!.day]}`
+        : active.map((x) => DAY_ABBREVIATIONS[x.day]).join(', ')
+  const times = uniform ? ` ${minutesToTime(first.startMinute)}–${minutesToTime(first.endMinute)}` : ''
+  return `${days}${times} ${s.timezone}`
 }
 
 /**

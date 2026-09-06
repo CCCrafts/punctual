@@ -33,7 +33,14 @@ const user: User = {
 }
 
 const base = { brandName: 'Punctual', user, csrf: 'tok' }
-const home = { ...base, eventTypes: [], upcomingBookings: [], baseUrl: 'https://punctual.test' }
+const home = {
+  ...base,
+  eventTypes: [],
+  upcomingBookings: [],
+  baseUrl: 'https://punctual.test',
+  hasCalendarConnection: false,
+  defaultSchedule: null,
+}
 
 describe('email-not-configured banner', () => {
   it('warns when the deployment resolved to the console sender', () => {

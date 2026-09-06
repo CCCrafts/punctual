@@ -582,6 +582,12 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
       .filter((b) => b.status === 'confirmed' && b.startUtc >= now)
       .map((booking) => ({ booking, eventTitle: titles.get(booking.eventTypeId) ?? 'Meeting' }))
 
+    // Only the empty home reads these — but they are cheap, and loading them
+    // conditionally is how the checklist would one day render against stale
+    // assumptions when the condition changes.
+    const hasCalendarConnection = (await repos.connections.listForUser(user.id)).length > 0
+    const defaultSchedule = await repos.availability.forUser(user.id)
+
     return c.html(
       dashboardHome({
         brandName,
@@ -591,6 +597,8 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
         eventTypes,
         upcomingBookings,
         baseUrl: ports.config.baseUrl,
+        hasCalendarConnection,
+        defaultSchedule,
       }),
     )
   })
