@@ -255,6 +255,8 @@ describe('dashboardHome — event type cards', () => {
     ...base,
     baseUrl: 'https://punctual.test',
     upcomingBookings: [],
+    hasCalendarConnection: true,
+    defaultSchedule: null,
     eventTypes: [
       { eventType, ownerSlug: 'grace' },
       { eventType: { ...teamEvent, active: false }, ownerSlug: 'support', teamName: 'Support Crew', canEdit: false },

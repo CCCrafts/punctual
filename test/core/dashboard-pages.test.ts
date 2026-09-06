@@ -64,7 +64,7 @@ describe('dashboard chrome', () => {
   })
 
   it('does not nudge on Settings itself — the form there already asks', () => {
-    expect(settingsPage({ ...chrome, user: { ...user, name: '' } })).not.toContain('Add your name')
+    expect(settingsPage({ ...chrome, user: { ...user, name: '' }, baseUrl: 'https://punctual.test' })).not.toContain('Add your name')
   })
 
   it('renders a status notice as a neutral strip, not a success badge', () => {
