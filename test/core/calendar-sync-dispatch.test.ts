@@ -604,3 +604,75 @@ describe('confirmation dispatch', () => {
     expect(h.emails()).toHaveLength(0)
   })
 })
+
+describe('an update after a host change (booking-hosts.ts)', () => {
+  it('creates the missing provider event for a host added on a provider that had none', async () => {
+    // Grace (Google) booked alone; Bob (Microsoft) was added afterwards.
+    // Google's event is updated; Microsoft has no event yet and gets one.
+    const h = harness({
+      users: [bob],
+      connectionsByUser: {
+        u_host: [connection()],
+        u_bob: [connection({ id: 'conn_bob', userId: 'u_bob', provider: 'microsoft', providerAccountEmail: 'bob@example.com' })],
+      },
+      bookingPatch: { hostUserIds: ['u_host', 'u_bob'], externalEventIds: { conn_1: 'evt_g' }, conferenceUrl: MEET },
+      eventTypePatch: teamPatch,
+      createEvent: async () => ({ id: 'evt_m' }),
+    })
+    await handleOne({ ...h.sync, action: 'update' }, h.ports)
+
+    expect(h.updateEvent).toHaveBeenCalledTimes(1)
+    expect(((h.updateEvent.mock.calls[0] as unknown[])[2] as { attendees: Attendee[] }).attendees.map((a) => a.email)).toEqual([
+      'ada@example.com',
+      'grace@example.com',
+    ])
+    expect(h.createEvent).toHaveBeenCalledTimes(1)
+    const [conn, event] = h.createEvent.mock.calls[0] as unknown as [CalendarConnection, { attendees: Attendee[]; location?: string; createConference: boolean }]
+    expect(conn.id).toBe('conn_bob')
+    expect(event.attendees.map((a) => a.email)).toEqual(['ada@example.com', 'bob@example.com'])
+    // The room already exists; the new event points at it rather than minting another.
+    expect(event.createConference).toBe(false)
+    expect(event.location).toBe(MEET)
+    expect(h.store.booking.externalEventIds).toEqual({ conn_1: 'evt_g', conn_bob: 'evt_m' })
+  })
+
+  it("a departed organizer's event stays, gets the remaining hosts, and no second event is made", async () => {
+    // Grace organized the Google event, then left the booking. Bob (Google)
+    // is now the first host, but the provider already has its one event.
+    const h = harness({
+      users: [bob],
+      connectionsByUser: {
+        u_host: [connection()],
+        u_bob: [connection({ id: 'conn_bob', userId: 'u_bob', providerAccountEmail: 'bob@example.com' })],
+      },
+      bookingPatch: { hostUserId: 'u_bob', hostUserIds: ['u_bob'], externalEventIds: { conn_1: 'evt_g' } },
+      eventTypePatch: teamPatch,
+    })
+    await handleOne({ ...h.sync, action: 'update' }, h.ports)
+
+    expect(h.createEvent).not.toHaveBeenCalled()
+    expect(h.deleteEvent).not.toHaveBeenCalled()
+    expect(h.updateEvent).toHaveBeenCalledTimes(1)
+    const [conn, externalId, event] = h.updateEvent.mock.calls[0] as unknown as [CalendarConnection, string, { attendees: Attendee[] }]
+    expect(conn.id).toBe('conn_1')
+    expect(externalId).toBe('evt_g')
+    expect(event.attendees.map((a) => a.email)).toEqual(['ada@example.com', 'bob@example.com'])
+  })
+
+  it('a redelivered update creates nothing twice', async () => {
+    const h = harness({
+      users: [bob],
+      connectionsByUser: {
+        u_host: [connection()],
+        u_bob: [connection({ id: 'conn_bob', userId: 'u_bob', provider: 'microsoft', providerAccountEmail: 'bob@example.com' })],
+      },
+      bookingPatch: { hostUserIds: ['u_host', 'u_bob'], externalEventIds: { conn_1: 'evt_g' } },
+      eventTypePatch: teamPatch,
+      createEvent: async () => ({ id: 'evt_m' }),
+    })
+    await handleOne({ ...h.sync, action: 'update' }, h.ports)
+    await handleOne({ ...h.sync, action: 'update' }, h.ports)
+    expect(h.createEvent).toHaveBeenCalledTimes(1)
+    expect(h.updateEvent).toHaveBeenCalledTimes(3)
+  })
+})

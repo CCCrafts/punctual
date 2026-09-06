@@ -201,79 +201,125 @@ async function syncCalendar(
         : (conferenceUrl ?? undefined),
   })
 
-  if (msg.action === 'update') {
-    // The stored events, whatever shape. An event this plan would have
-    // created gets the plan's attendee list; a legacy per-host event keeps
-    // its own host and the guest, so an old booking's reschedule does not
-    // start multiplying invitations.
-    for (const [connId, externalId] of Object.entries(booking.externalEventIds)) {
-      const conn = await repos.connections.byId(connId)
-      if (!conn) continue
+  /**
+   * Create the events a plan calls for that do not exist yet, keeping their
+   * ids and the conference link. Shared by create and update: a host put
+   * on a booking after the fact (core/domain/booking-hosts.ts) can be the
+   * first host with a calendar on their provider, and that provider then
+   * needs its one event just as it would have at booking time.
+   */
+  const createMissing = async (targets: typeof plan.events): Promise<void> => {
+    for (const target of targets) {
+      const { conn, attendees } = target
+      // Queues is at-least-once, so this message can arrive twice. Without
+      // this guard a redelivery creates a SECOND real calendar event and
+      // overwrites the first id, leaving it unreachable by every delete
+      // path — a permanent phantom on the host's calendar.
+      if (booking.externalEventIds[conn.id]) continue
       try {
-        const planned = plan.byConnection.get(conn.id)
-        const attendees = planned ?? (await legacyAttendees(repos, booking, conn))
-        await ports.calendars.get(conn.provider).updateEvent(conn, externalId, externalFor(conn, attendees))
+        const external = externalFor(conn, attendees)
+        if (external.createConference === true) conferenceRequested = true
+        const result = await ports.calendars.get(conn.provider).createEvent(conn, external)
+        // Keep the id: reschedule and cancel need it, and without it a
+        // cancelled meeting stays on the host's real calendar forever.
+        createdIds[conn.id] = result.id
+        freshlyCreated.push({ conn, externalId: result.id })
+        // Captured on the first event that mints one; `createConference`
+        // above is false from here on, so nothing re-mints.
+        if (!conferenceUrl && result.conferenceUrl) conferenceUrl = result.conferenceUrl
       } catch (err) {
-        console.error(`[punctual] calendar update failed for connection ${connId}`, err)
+        console.error(`[punctual] calendar sync failed for connection ${conn.id}`, err)
+        // A revoked grant will fail every future sync too; record it so the
+        // host is prompted rather than quietly losing calendar writes.
         if (needsReconnect(err)) {
           await repos.connections.updateSyncStatus(conn.id, 'needs_reconnect').catch(() => {})
         }
       }
     }
+  }
+
+  /**
+   * Re-read before persisting: the booking may have been cancelled while
+   * this pass was talking to the provider. Persisting ids onto a cancelled
+   * booking is worse than useless — the delete sync has already run and
+   * found nothing, so nothing would ever remove these events. Removes what
+   * this pass created and reports true when that happened.
+   */
+  const abandonedIfCancelled = async (): Promise<boolean> => {
+    const current = await repos.bookings.byId(booking.id)
+    if (!current || current.status === 'confirmed') return false
+    for (const made of freshlyCreated) {
+      await ports.calendars
+        .get(made.conn.provider)
+        .deleteEvent(made.conn, made.externalId)
+        .catch((err) =>
+          console.error(`[punctual] could not remove event for cancelled booking ${booking.id}`, err),
+        )
+    }
+    return true
+  }
+
+  if (msg.action === 'update') {
+    const stored: Array<{ conn: CalendarConnection; externalId: string }> = []
+    for (const [connId, externalId] of Object.entries(booking.externalEventIds)) {
+      const conn = await repos.connections.byId(connId)
+      if (conn) stored.push({ conn, externalId })
+    }
+
+    // Which stored event is each provider's ONE event (ADR-0011). Normally
+    // the plan's organizer connection holds it. After a host change the
+    // organizer may have left the booking: their event STAYS — the guest and
+    // the remaining hosts are on it, and deleting it would pull the meeting
+    // off every calendar it reached — and is adopted as that provider's
+    // event, updated with the new attendee list through the departed host's
+    // connection, which is still theirs. They keep a copy on their own
+    // calendar and are told to decline it. Only a provider with no event at
+    // all gets one created, which is also what makes a redelivered update
+    // idempotent: the second pass finds the anchor and updates it.
+    //
+    // Any other stored event is a legacy per-host one (written before
+    // ADR-0011) and keeps its own host and the guest, so an old booking's
+    // reschedule does not start multiplying invitations.
+    const anchor = new Map<CalendarConnection['provider'], string>()
+    for (const target of plan.events) {
+      const own =
+        stored.find((s) => s.conn.id === target.conn.id) ??
+        stored.find((s) => s.conn.provider === target.conn.provider)
+      if (own) anchor.set(target.conn.provider, own.conn.id)
+    }
+    for (const { conn, externalId } of stored) {
+      try {
+        const planned =
+          anchor.get(conn.provider) === conn.id
+            ? plan.events.find((e) => e.conn.provider === conn.provider)?.attendees
+            : undefined
+        const attendees = planned ?? (await legacyAttendees(repos, booking, conn))
+        await ports.calendars.get(conn.provider).updateEvent(conn, externalId, externalFor(conn, attendees))
+      } catch (err) {
+        console.error(`[punctual] calendar update failed for connection ${conn.id}`, err)
+        if (needsReconnect(err)) {
+          await repos.connections.updateSyncStatus(conn.id, 'needs_reconnect').catch(() => {})
+        }
+      }
+    }
+
+    await createMissing(plan.events.filter((t) => !anchor.has(t.conn.provider)))
+    if (freshlyCreated.length === 0) return
+    if (await abandonedIfCancelled()) return
+    await repos.bookings.setSyncResult(booking.id, createdIds, conferenceUrl)
     return
   }
 
   // ---- create: one event per provider ----
-  for (const target of plan.events) {
-    const { conn, attendees } = target
-    // Queues is at-least-once, so this message can arrive twice. Without
-    // this guard a redelivery creates a SECOND real calendar event and
-    // overwrites the first id, leaving it unreachable by every delete
-    // path — a permanent phantom on the host's calendar.
-    if (booking.externalEventIds[conn.id]) continue
-    try {
-      const external = externalFor(conn, attendees)
-      if (external.createConference === true) conferenceRequested = true
-      const result = await ports.calendars.get(conn.provider).createEvent(conn, external)
-      // Keep the id: reschedule and cancel need it, and without it a
-      // cancelled meeting stays on the host's real calendar forever.
-      createdIds[conn.id] = result.id
-      freshlyCreated.push({ conn, externalId: result.id })
-      // Captured on the first event that mints one; `createConference`
-      // above is false from here on, so nothing re-mints.
-      if (!conferenceUrl && result.conferenceUrl) conferenceUrl = result.conferenceUrl
-    } catch (err) {
-      console.error(`[punctual] calendar sync failed for connection ${conn.id}`, err)
-      // A revoked grant will fail every future sync too; record it so the
-      // host is prompted rather than quietly losing calendar writes.
-      if (needsReconnect(err)) {
-        await repos.connections.updateSyncStatus(conn.id, 'needs_reconnect').catch(() => {})
-      }
-    }
-  }
+  await createMissing(plan.events)
   // Persist whatever succeeded. Partial success is normal — one host's expired
   // token must not discard another host's event id.
   if (msg.action === 'create') {
+    if (await abandonedIfCancelled()) return
+
     // Compare by VALUE, not key count. Counting keys meant a second create for
     // the same connection (same key, new id) looked unchanged, so the newer
     // event id was never stored and the event became undeletable.
-    // Re-read before persisting: the booking may have been cancelled while
-    // this pass was talking to the provider. Persisting the ids onto a
-    // cancelled booking is worse than useless — the delete sync has already
-    // run and found nothing, so nothing would ever remove these events.
-    const current = await repos.bookings.byId(booking.id)
-    if (current && current.status !== 'confirmed') {
-      for (const made of freshlyCreated) {
-        await ports.calendars
-          .get(made.conn.provider)
-          .deleteEvent(made.conn, made.externalId)
-          .catch((err) =>
-            console.error(`[punctual] could not remove event for cancelled booking ${booking.id}`, err),
-          )
-      }
-      return
-    }
-
     const changed =
       JSON.stringify(createdIds) !== JSON.stringify(booking.externalEventIds) ||
       conferenceUrl !== booking.conferenceUrl
@@ -307,10 +353,9 @@ async function syncCalendar(
  * host with no writable connection anywhere, by address. Optional hosts
  * carry the flag from `event_type_hosts` as it stands now.
  *
- * `byConnection` answers the (test-only today — reschedules create a new
- * booking rather than updating) update path: a stored event this plan
- * would organize on gets the plan's attendees, any other stored event is
- * treated as a legacy per-host one.
+ * The update path (a host change, or a test) matches stored events to
+ * this plan by provider — see `syncCalendar` for how an event whose
+ * organizer has left the booking is handled.
  */
 async function planInvites(
   repos: Repositories,
@@ -318,7 +363,6 @@ async function planInvites(
   eventType: EventType,
 ): Promise<{
   events: Array<{ conn: CalendarConnection; attendees: ExternalEvent['attendees'] }>
-  byConnection: Map<string, ExternalEvent['attendees']>
   organizerTz: Map<string, string>
 }> {
   const settings = await hostSettings(repos, eventType)
@@ -332,7 +376,6 @@ async function planInvites(
   const providers = [...new Set(hosts.flatMap((h) => h.writable.map((c) => c.provider)))]
   const unconnected = hosts.filter((h) => h.writable.length === 0)
   const events: Array<{ conn: CalendarConnection; attendees: ExternalEvent['attendees'] }> = []
-  const byConnection = new Map<string, ExternalEvent['attendees']>()
   const organizerTz = new Map<string, string>()
   providers.forEach((provider, index) => {
     const organizer = hosts.find((h) => h.writable.some((c) => c.provider === provider))
@@ -357,10 +400,9 @@ async function planInvites(
       }
     }
     events.push({ conn, attendees })
-    byConnection.set(conn.id, attendees)
     organizerTz.set(conn.id, organizer.user.tz)
   })
-  return { events, byConnection, organizerTz }
+  return { events, organizerTz }
 }
 
 /** A pre-ADR-0011 event's attendee list: the guest and the connection's own host. */
