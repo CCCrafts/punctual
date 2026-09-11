@@ -304,6 +304,11 @@ describe('toGraphEvent', () => {
     expect(body['subject']).toBe('Intro call')
   })
 
+  it('renders the plain-text description as HTML so its line breaks survive Outlook', () => {
+    const body = toGraphEvent({ ...base, description: 'Participants\n• Jane <jane@acme.com> & co' })
+    expect(body['body']).toEqual({ contentType: 'HTML', content: 'Participants<br>• Jane &lt;jane@acme.com&gt; &amp; co' })
+  })
+
   it('round-trips through parseGraphDateTime — the pair must agree', () => {
     const body = toGraphEvent(base)
     expect(parseGraphDateTime(body['start'])).toBe(base.start)

@@ -296,10 +296,20 @@ export function graphConferenceUrl(created: Record<string, unknown>): { conferen
   return null
 }
 
+export function textToHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\n/g, '<br>')
+}
+
 export function toGraphEvent(event: ExternalEvent, transactionId?: string): Record<string, unknown> {
   const body: Record<string, unknown> = {
     subject: event.title,
-    body: { contentType: 'HTML', content: event.description },
+    // The description is plain text with line breaks; as HTML those
+    // collapse into one paragraph unless made explicit.
+    body: { contentType: 'HTML', content: textToHtml(event.description) },
     // UTC rather than `event.timezone`: Outlook renders every event in the
     // viewer's own zone anyway, and Graph's IANA support varies by tenant, so
     // naming UTC is the reading that cannot be misinterpreted.

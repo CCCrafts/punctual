@@ -9,6 +9,7 @@
 
 import type { EnginePorts, ExternalEvent, QueueMessage, Repositories } from '../../ports.js'
 import type { Booking, CalendarConnection, EventType, User } from '../../core/domain/types.js'
+import { calendarDescription, calendarTitle, participantsFor, type Participant } from '../../core/domain/calendar-text.js'
 import { hostSettings } from '../../core/domain/hosts.js'
 import { needsReconnect } from '../oauth.js'
 import { notifyBookingCreated, notifyBookingRescheduled } from '../notify.js'
@@ -185,9 +186,13 @@ async function syncCalendar(
   // and leave a real calendar event nothing can ever remove.
   const freshlyCreated: Array<{ conn: CalendarConnection; externalId: string }> = []
 
+  // One title and one description for every copy of this meeting, naming
+  // the people and their companies (core/domain/calendar-text.ts).
+  const title = calendarTitle(eventType, plan.participants)
+  const description = calendarDescription(eventType, booking, plan.participants)
   const externalFor = (conn: CalendarConnection, attendees: ExternalEvent['attendees']): ExternalEvent => ({
-    title: eventType.title,
-    description: buildDescription(booking, eventType.description),
+    title,
+    description,
     start: booking.startUtc,
     end: booking.endUtc,
     attendees,
@@ -364,6 +369,8 @@ async function planInvites(
 ): Promise<{
   events: Array<{ conn: CalendarConnection; attendees: ExternalEvent['attendees'] }>
   organizerTz: Map<string, string>
+  /** Everyone on the meeting — the guest, then the hosts in booking order — for the event's title and description. */
+  participants: Participant[]
 }> {
   const settings = await hostSettings(repos, eventType)
   const hosts: Array<{ user: User; writable: CalendarConnection[] }> = []
@@ -373,6 +380,11 @@ async function planInvites(
     const writable = (await repos.connections.listForUser(id)).filter((c) => c.calendarIdWrite && c.syncStatus === 'ok')
     hosts.push({ user, writable })
   }
+  const participants = participantsFor(
+    eventType,
+    booking,
+    hosts.map((h) => ({ user: h.user, optional: settings.get(h.user.id)?.required === false })),
+  )
   const providers = [...new Set(hosts.flatMap((h) => h.writable.map((c) => c.provider)))]
   const unconnected = hosts.filter((h) => h.writable.length === 0)
   const events: Array<{ conn: CalendarConnection; attendees: ExternalEvent['attendees'] }> = []
@@ -402,7 +414,7 @@ async function planInvites(
     events.push({ conn, attendees })
     organizerTz.set(conn.id, organizer.user.tz)
   })
-  return { events, organizerTz }
+  return { events, organizerTz, participants }
 }
 
 /** A pre-ADR-0011 event's attendee list: the guest and the connection's own host. */
@@ -508,15 +520,4 @@ export async function dispatchConfirmation(
     await repos.bookings.releaseConfirmationClaim(bookingId).catch(() => {})
     throw err
   }
-}
-
-function buildDescription(
-  booking: { guestName: string; guestEmail: string; answers: Record<string, string> },
-  base: string,
-): string {
-  const lines = [base, '', `Booked by ${booking.guestName} (${booking.guestEmail})`]
-  for (const [k, v] of Object.entries(booking.answers)) {
-    if (v) lines.push(`${k}: ${v}`)
-  }
-  return lines.filter(Boolean).join('\n')
 }

@@ -13,6 +13,8 @@
 
 import type { Booking, EventType, User, WebhookEvent } from '../core/domain/types.js'
 import type { EnginePorts } from '../ports.js'
+import { calendarDescription, calendarTitle, participantsFor } from '../core/domain/calendar-text.js'
+import { hostSettings } from '../core/domain/hosts.js'
 import {
   bookingCancelled,
   bookingConfirmationForGuest,
@@ -77,6 +79,7 @@ export async function notifyBookingCreated(ctx: NotifyContext): Promise<void> {
         { email: booking.guestEmail, name: booking.guestName },
         ...(ctx.hosts ?? [host]).map((h) => ({ email: h.email, name: h.name || h.slug })),
       ],
+      ...(await invitationText(ports, booking, eventType, ctx.hosts ?? [host])),
       ...(manageUrl ? { url: manageUrl } : {}),
     })
   } catch (err) {
@@ -267,6 +270,7 @@ async function buildAttachment(
         { email: booking.guestEmail, name: booking.guestName },
         ...(hosts ?? [host]).map((h) => ({ email: h.email, name: h.name || h.slug })),
       ],
+      ...(await invitationText(ports, booking, eventType, hosts ?? [host])),
       ...(url ? { url } : {}),
     })
     const encoded = base64(ics)
@@ -454,4 +458,24 @@ export async function notifyBookingRescheduled(ctx: {
       .catch((err) => console.error('[punctual] host reschedule mail failed to queue', err)),
     notifyWebhooks(ports, 'booking.rescheduled', booking, eventType),
   ])
+}
+
+/**
+ * The same title and description the calendar sync writes to Google and
+ * Microsoft (core/domain/calendar-text.ts), so the guest's .ics and the
+ * hosts' calendar events describe one meeting the same way.
+ */
+async function invitationText(
+  ports: EnginePorts,
+  booking: Booking,
+  eventType: EventType,
+  hosts: User[],
+): Promise<{ summary: string; description: string }> {
+  const settings = await hostSettings(ports.repositories({ consistency: 'unconstrained' }), eventType)
+  const participants = participantsFor(
+    eventType,
+    booking,
+    hosts.map((user) => ({ user, optional: settings.get(user.id)?.required === false })),
+  )
+  return { summary: calendarTitle(eventType, participants), description: calendarDescription(eventType, booking, participants) }
 }

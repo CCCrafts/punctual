@@ -53,6 +53,8 @@ export interface IcsInput {
   dtstamp?: number
   /** Replaces the generated body of DESCRIPTION when supplied. */
   description?: string
+  /** Replaces the event type's title as SUMMARY when supplied — the calendar title naming the participants. */
+  summary?: string
 }
 
 const PRODID = '-//Punctual//Punctual Scheduling Engine//EN'
@@ -343,7 +345,7 @@ export function buildIcs(input: IcsInput): string {
     `DTSTAMP:${icsDateTimeUtc(dtstamp)}`,
     `DTSTART:${icsDateTimeUtc(booking.startUtc)}`,
     `DTEND:${icsDateTimeUtc(booking.endUtc)}`,
-    `SUMMARY:${escapeText(et.title)}`,
+    `SUMMARY:${escapeText(input.summary ?? et.title)}`,
     `DESCRIPTION:${escapeText(input.description ?? defaultDescription(booking, et))}`,
     `LOCATION:${escapeText(describeLocation(et, booking.conferenceUrl))}`,
     `STATUS:${status}`,

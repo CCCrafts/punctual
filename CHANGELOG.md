@@ -6,6 +6,17 @@ still change interfaces.
 
 ## [Unreleased]
 
+### Changed
+
+- **Calendar events say who the meeting is with.** The event on the hosts'
+  calendars and in the guest's invitation is now titled "Intro call: Jane
+  Doe (Acme) with Serge Bulaev (CCCrafts)", and its description lists every
+  participant with title, company, email and role — guest, host, optional
+  host — before the guest's answers. The guest's company is their answer to
+  a company-like question when the event type asks one, else their work
+  email's domain (never a mailbox provider's). Outlook now keeps the line
+  breaks.
+
 ### Added
 
 - **Company logo.** An admin sets one logo for the whole instance on the
