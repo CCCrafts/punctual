@@ -77,11 +77,20 @@ const alice = user({ id: 'u_alice', email: 'alice@cccrafts.ai', name: 'Alice Iva
 const bob = user({ id: 'u_bob', email: 'bob@partner.io', name: 'Bob Chen', slug: 'bob', company: 'Partner' })
 
 describe("the guest's company", () => {
-  it('is what they answered to a company-like question, whatever the language of the label', () => {
-    for (const label of ['Company', 'Your organisation', 'Organization name', 'Компанія', 'Компания', 'Организация']) {
+  it('is what they answered to a question that IS the company, whatever the language of the label', () => {
+    for (const label of ['Company', 'Company:', 'Your organisation', 'Organization name', 'Employer?', 'Компанія', 'Ваша компания', 'Организация', 'Название компании']) {
       const et = eventType({ questions: [{ id: 'q1', label, type: 'text', required: false }] })
-      expect(guestCompany(et, { guestEmail: 'jane@gmail.com', answers: { q1: ' Acme Inc ' } })).toBe('Acme Inc')
+      expect(guestCompany(et, { guestEmail: 'jane@gmail.com', answers: { q1: ' Acme\n Inc ' } }), label).toBe('Acme Inc')
     }
+  })
+
+  it('ignores a question that merely mentions the company, and any textarea (caught by review)', () => {
+    for (const label of ['Company size', 'How did you hear about our company?', 'Company website', 'Which firm referred you?']) {
+      const et = eventType({ questions: [{ id: 'q1', label, type: 'select', required: false, options: ['11-50'] }] })
+      expect(guestCompany(et, { guestEmail: 'jane@acme.com', answers: { q1: '11-50' } }), label).toBe('acme.com')
+    }
+    const essay = eventType({ questions: [{ id: 'q1', label: 'Company', type: 'textarea', required: false }] })
+    expect(guestCompany(essay, { guestEmail: 'jane@acme.com', answers: { q1: 'We are a 40-person\nshop in Kyiv' } })).toBe('acme.com')
   })
 
   it('falls back to a work email domain, never to a mailbox provider', () => {

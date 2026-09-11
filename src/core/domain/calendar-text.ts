@@ -21,12 +21,19 @@ export interface Participant {
 }
 
 /**
- * A question whose label asks for the guest's company. Matched by label, in
- * English, Ukrainian and Russian — the languages this engine's hosts write
- * their questions in today — so a host who already asks "Company" gets the
- * answer on the calendar without a new setting to find.
+ * A question whose label IS the guest's company — "Company", "Your
+ * organisation", "Company name", "Компанія", "Организация" — not one that
+ * merely mentions it: "Company size", "How did you hear about our
+ * company?" and "Tell us about your company" are ordinary booking-form
+ * questions whose answers must never become the company in a calendar
+ * title (caught by review). Matched by label, in English, Ukrainian and
+ * Russian — the languages this engine's hosts write their questions in
+ * today — so a host who already asks "Company" gets the answer on the
+ * calendar without a new setting to find. A textarea never qualifies: a
+ * paragraph is not a company name.
  */
-const COMPANY_QUESTION = /\b(company|organi[sz]ation|employer|firm)\b|компані|організаці|компани|организаци/i
+const COMPANY_QUESTION =
+  /^\s*(?:(?:your|the|ваша|твоя)\s+)?(?:(?:company|organi[sz]ation|employer|firm|компанія|організація|компания|организация)(?:\s+name)?|(?:назва|название)\s+(?:компанії|організації|компании|организации))\s*[:?]?\s*$/i
 
 /**
  * Mailbox providers whose domain says nothing about where a guest works.
@@ -48,7 +55,9 @@ const FREEMAIL = new Set([
  */
 export function guestCompany(eventType: EventType, booking: Pick<Booking, 'guestEmail' | 'answers'>): string | null {
   for (const { question, value } of answeredQuestions(eventType, booking.answers)) {
-    if (COMPANY_QUESTION.test(question.label) && value.trim() !== '') return value.trim()
+    if (question.type === 'textarea' || !COMPANY_QUESTION.test(question.label)) continue
+    const name = value.replace(/\s+/g, ' ').trim()
+    if (name !== '') return name
   }
   const domain = booking.guestEmail.split('@')[1]?.trim().toLowerCase() ?? ''
   if (domain === '' || !domain.includes('.')) return null
