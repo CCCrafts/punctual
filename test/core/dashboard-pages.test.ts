@@ -95,6 +95,38 @@ describe('calendars page', () => {
     expect(html).not.toContain("Set the provider's")
   })
 
+  it('explains an un-enabled calendar API instead of showing an empty picker', () => {
+    // The whole point of the message: the grant is fine, so the host's obvious
+    // move (reconnect) returns them right here. Say so, and say what does work.
+    const html = connectionsPage({
+      ...chrome,
+      connections: [
+        {
+          connection: connection(),
+          calendars: [],
+          problem: 'Enable the Google Calendar API for the Cloud project that owns your OAuth client: https://console.cloud.google.com/apis/library/calendar-json.googleapis.com',
+        },
+      ],
+      availableProviders: ['google'],
+    })
+    expect(html).toContain('Could not list calendars')
+    expect(html).toContain('Reconnecting will not help')
+    expect(html).toContain('console.cloud.google.com/apis/library/calendar-json.googleapis.com')
+    expect(html).toContain('role="alert"')
+  })
+
+  it('says nothing extra when the picker is simply empty', () => {
+    // No `problem` means we do not know why, and inventing a cause would send
+    // the host to a console setting that may be perfectly correct.
+    const html = connectionsPage({
+      ...chrome,
+      connections: [{ connection: connection(), calendars: [] }],
+      availableProviders: ['google'],
+    })
+    expect(html).not.toContain('Could not list calendars')
+    expect(html).not.toContain('Reconnecting will not help')
+  })
+
   it('offers only Reconnect and Disconnect on a connection that needs reconnecting', () => {
     const html = connectionsPage({
       ...chrome,

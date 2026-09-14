@@ -73,7 +73,7 @@ import {
   validateSession,
   verifyManageToken,
 } from '../core/domain/auth-flows.js'
-import { OAUTH_ENDPOINTS, scopesFor, type OAuthPurpose } from '../adapters/oauth.js'
+import { OAUTH_ENDPOINTS, needsSetup, scopesFor, type OAuthPurpose } from '../adapters/oauth.js'
 import { dayRange } from '../engine.js'
 import { isValidTimeZone, localDateString } from '../core/time/zone.js'
 import { validateSlug } from '../core/domain/slugs.js'
@@ -564,9 +564,19 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
         if (provider !== 'microsoft') connection.calendarIdsRead = [primary.id]
         connection.calendarIdWrite = primary.id
       }
-    } catch {
+    } catch (err) {
       // A provider having a bad minute must not lose a grant the host just
       // gave us. The connections page lets them pick calendars by hand.
+      //
+      // But swallowing the REASON is how a permanent misconfiguration — an
+      // un-enabled Calendar API, a scope the host declined on the granular
+      // consent screen — becomes an empty calendar picker with nothing
+      // anywhere to explain it. The grant still survives; the cause now
+      // reaches `wrangler tail`.
+      console.warn(
+        `[punctual] ${provider} listCalendars failed during connect; connection saved with no calendars selected:`,
+        err instanceof Error ? err.message : String(err),
+      )
     }
 
     await repos.connections.create(connection)
@@ -1879,7 +1889,8 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
 
     const views: ConnectionView[] = []
     for (const connection of connections) {
-      views.push({ connection, calendars: await listCalendarsSafely(connection) })
+      const { calendars, problem } = await listCalendarsSafely(connection)
+      views.push({ connection, calendars, ...(problem ? { problem } : {}) })
     }
 
     return c.html(
@@ -1941,11 +1952,20 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
    */
   async function listCalendarsSafely(
     connection: CalendarConnection,
-  ): Promise<Array<{ id: string; name: string; primary: boolean }>> {
+  ): Promise<{ calendars: Array<{ id: string; name: string; primary: boolean }>; problem?: string }> {
     try {
-      return await ports.calendars.get(connection.provider).listCalendars(connection)
-    } catch {
-      return []
+      return { calendars: await ports.calendars.get(connection.provider).listCalendars(connection) }
+    } catch (err) {
+      // The page must still render, but an empty picker with no cause given is
+      // indistinguishable from "this account genuinely has no calendars".
+      console.warn(
+        `[punctual] ${connection.provider} listCalendars failed for connection ${connection.id}:`,
+        err instanceof Error ? err.message : String(err),
+      )
+      // Only a setup failure is shown to the host, because only its `howToFix`
+      // is written for them and actionable by them. A raw provider body on the
+      // page would be noise they cannot do anything about, so it stays in the log.
+      return { calendars: [], ...(needsSetup(err) ? { problem: err.howToFix } : {}) }
     }
   }
 
