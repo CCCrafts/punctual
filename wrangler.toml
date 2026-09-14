@@ -16,6 +16,20 @@ compatibility_flags = ["nodejs_compat"]
 [assets]
 directory = "./assets"
 
+# Cloudflare Email Service — the option with no API key at all, since the
+# binding itself is the credential and this file scopes it. Commented out
+# because it is opt-in: uncommenting changes where every email goes, and it
+# takes precedence over RESEND_API_KEY and BREVO_API_KEY when bound.
+#
+# Sending to guests — rather than only to verified destination addresses in
+# your own account — needs your sending domain onboarded under
+# Compute > Email Service > Email Sending, and a Workers Paid plan. FROM_EMAIL
+# must be an address on that onboarded domain. Until it is, guest sends fail
+# while /health still reads healthy, because a provider IS configured and the
+# "email is not configured" banner only fires for the console sender.
+#[[send_email]]
+#name = "EMAIL"
+
 [observability]
 enabled = true
 

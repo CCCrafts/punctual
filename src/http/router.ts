@@ -60,7 +60,7 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
     const warnings: string[] = []
     if (ports.config.emailDelivery === 'console') {
       warnings.push(
-        'email_not_configured: no RESEND_API_KEY or BREVO_API_KEY — booking confirmations, ' +
+        'email_not_configured: no [[send_email]] binding, RESEND_API_KEY or BREVO_API_KEY — booking confirmations, ' +
           'reschedule and cancellation notices and reminders are logged, not delivered',
       )
     }

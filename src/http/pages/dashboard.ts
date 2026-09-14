@@ -43,7 +43,7 @@ import type { CompanyLogo,
   User,
   WeeklySchedule,
 } from '../../core/domain/types.js'
-import type { BookingListView, CalendarProviderName } from '../../ports.js'
+import type { BookingListView, CalendarProviderName, EmailDelivery } from '../../ports.js'
 import type { HostChangeFailure } from '../../core/domain/booking-hosts.js'
 import { slotStateClassName } from '../../core/slot-state.js'
 import { slugify } from '../../core/domain/booking-service.js'
@@ -95,7 +95,7 @@ export interface DashboardChrome {
    * unaffected: they do not carry `DashboardChrome` and must not show an
    * operator's config problems to a booker.
    */
-  emailDelivery: 'resend' | 'brevo' | 'console'
+  emailDelivery: EmailDelivery
 }
 
 /**
@@ -108,7 +108,8 @@ function emailWarningBanner(chrome: DashboardChrome): string {
   return `<div role="alert" class="pu-callout" style="margin:0 0 1.25rem">
   <p style="margin:0"><strong>Email is not configured — no one is receiving confirmations.</strong>
     Bookings are being saved and synced to calendars, but every confirmation, reschedule notice,
-    cancellation and reminder is written to the log instead of sent. Set
+    cancellation and reminder is written to the log instead of sent. Add a
+    <code>[[send_email]]</code> binding for Cloudflare Email Service, or set
     <code>RESEND_API_KEY</code> or <code>BREVO_API_KEY</code> as a secret, then redeploy
     &mdash; see <a href="/docs/self-hosting">self-hosting</a>.</p>
 </div>`

@@ -32,6 +32,26 @@ describe('/health surfaces silent degradation', () => {
     expect(body.warnings.join(' ')).toContain('email_not_configured')
   })
 
+  it('prefers the Cloudflare Email Service binding over a provider key', async () => {
+    // The binding is opt-in (`[[send_email]]` is commented out in
+    // wrangler.toml), so this is the only place the resolved mode can be
+    // exercised — and precedence is the part worth pinning: a deployment that
+    // binds Email Service AND carries an inherited key must not quietly keep
+    // sending through the key.
+    const { default: worker } = await import('../../src/index.js')
+    const binding = { send: async () => ({ messageId: 'msg_test' }) }
+    const res = await worker.fetch(
+      new Request('https://punctual.sh/health'),
+      { ...env, EMAIL: binding, RESEND_API_KEY: 're_inherited' },
+      createExecutionContext(),
+    )
+    const body = (await res.json()) as { emailDelivery: string; warnings: string[] }
+    expect(body.emailDelivery).toBe('cloudflare')
+    // A configured deployment must not warn: a banner that cries wolf is one
+    // operators learn to scroll past.
+    expect(body.warnings).toEqual([])
+  })
+
   it('never leaks the provider key itself, only the mode', async () => {
     const { default: worker } = await import('../../src/index.js')
     const res = await worker.fetch(

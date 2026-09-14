@@ -247,7 +247,17 @@ ${pre(`npx wrangler secret put MICROSOFT_CLIENT_ID\nnpx wrangler secret put MICR
 
 <h2>6. Email (optional, but you want it)</h2>
 <p>Without an email provider, Punctual logs emails instead of sending them.
-  To send for real, set <strong>either</strong> provider's key (Resend is
+  On Cloudflare the simplest option has no key at all &mdash; bind Cloudflare
+  Email Service in <code>wrangler.toml</code>, which takes precedence over
+  both API keys when present:</p>
+${pre(`[[send_email]]\nname = "EMAIL"`)}
+<p class="pu-muted">Sending to guests (rather than only to verified
+  destination addresses in your own account) requires onboarding your sending
+  domain under <strong>Compute &rarr; Email Service &rarr; Email Sending</strong>,
+  and a Workers Paid plan. Until the domain is onboarded, sends to guests fail
+  &mdash; and because a provider <em>is</em> configured, the banner below stays
+  silent, so onboard the domain before your first sign-in.</p>
+<p>Otherwise set <strong>either</strong> provider's key (Resend is
   tried first if both are set):</p>
 ${pre(`npx wrangler secret put RESEND_API_KEY\n# or\nnpx wrangler secret put BREVO_API_KEY`)}
 <p class="pu-muted">Then set <code>FROM_EMAIL</code> and <code>FROM_NAME</code>
@@ -321,6 +331,7 @@ ${pre(`git pull\nnpm run migrate\nnpm run deploy`)}
 <tr><td class="pu-time">SIGNING_KEY</td><td>secret</td><td>HMAC key for guest manage links</td></tr>
 <tr><td class="pu-time">GOOGLE_CLIENT_ID / _SECRET</td><td>secret</td><td>Your Google OAuth app</td></tr>
 <tr><td class="pu-time">MICROSOFT_CLIENT_ID / _SECRET</td><td>secret</td><td>Your Microsoft app</td></tr>
+<tr><td class="pu-time">[[send_email]]</td><td>binding</td><td>Cloudflare Email Service; no key. Wins over both API keys</td></tr>
 <tr><td class="pu-time">RESEND_API_KEY</td><td>secret</td><td>Omit to log emails instead of sending</td></tr>
 <tr><td class="pu-time">BREVO_API_KEY</td><td>secret</td><td>Alternative to Resend; Resend wins if both are set</td></tr>
 </tbody>
@@ -338,7 +349,9 @@ ${pre(`git pull\nnpm run migrate\nnpm run deploy`)}
   screen.</p>
 <p><strong>Emails are not arriving.</strong> With no
   <code>RESEND_API_KEY</code> they are logged, not sent. Check
-  <code>npx wrangler tail</code>.</p>
+  <code>npx wrangler tail</code>. If you bound Cloudflare Email Service
+  instead, the likeliest cause is a sending domain that is not onboarded yet:
+  the send fails rather than logging, and <code>tail</code> names it.</p>
 <p><strong>Times look wrong by an hour.</strong> Almost always a host
   timezone set incorrectly rather than a DST bug &mdash; the engine computes
   in UTC and converts at the edges.</p>

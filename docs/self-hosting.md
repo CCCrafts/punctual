@@ -241,6 +241,7 @@ Two features need a paid plan, and both degrade gracefully:
 | `SIGNING_KEY` | secret | HMAC key for guest manage links |
 | `GOOGLE_CLIENT_ID` / `_SECRET` | secret | Your Google OAuth app |
 | `MICROSOFT_CLIENT_ID` / `_SECRET` | secret | Your Microsoft app |
+| `[[send_email]]` | binding | Cloudflare Email Service — no key. Takes precedence over both API keys. Needs the sending domain onboarded (Compute → Email Service) and Workers Paid; until then guest sends fail while `/health` still reads healthy |
 | `RESEND_API_KEY` | secret | Omit to log emails instead of sending — `/health` and the dashboard both warn when neither key is set |
 | `BREVO_API_KEY` | secret | Alternative to Resend; Resend wins if both are set |
 

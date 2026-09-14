@@ -818,7 +818,7 @@ export interface RateLimitResult {
  * The email path in effect. Provider names are not secrets (the KEYS are), so
  * this is safe to expose on `/health` for external monitoring.
  */
-export type EmailDelivery = 'resend' | 'brevo' | 'console'
+export type EmailDelivery = 'cloudflare' | 'resend' | 'brevo' | 'console'
 
 export interface EngineConfig {
   /** Public origin, e.g. https://punctual.sh — used in links and .ics URLs. */

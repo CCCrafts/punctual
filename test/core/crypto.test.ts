@@ -340,3 +340,111 @@ describe('Resend sender', () => {
     expect(seen.body['to']).toEqual(['"Guest <attacker@evil.com>, Innocent" <g@example.com>'])
   })
 })
+
+describe('Cloudflare Email Service sender', () => {
+  type Builder = Parameters<SendEmail['send']>[0]
+
+  async function capture(
+    message: Parameters<import('../../src/ports.js').EmailSender['send']>[0],
+    // Not a defaulted parameter: `capture(msg, undefined)` would silently take
+    // the default and never exercise the no-display-name branch at all.
+    fromName: string | null = 'Punctual',
+  ) {
+    const { createCloudflareSender } = await import('../../src/adapters/email/index.js')
+    let seen: Builder | null = null
+    const binding = {
+      send: async (m: Builder) => {
+        seen = m
+        return { messageId: 'msg_1' }
+      },
+    } as unknown as SendEmail
+    const sender = createCloudflareSender({ binding, from: 'hello@punctual.sh', ...(fromName === null ? {} : { fromName }) })
+    await sender.send(message)
+    return seen! as Builder & Record<string, unknown>
+  }
+
+  it('sends through the binding, with no API key anywhere', async () => {
+    const seen = await capture({ to: 'g@example.com', toName: 'Guest', subject: 'Booked', html: '<p>x</p>', text: 'x' })
+    expect(seen.from).toEqual({ email: 'hello@punctual.sh', name: 'Punctual' })
+    expect(seen.to).toEqual({ email: 'g@example.com', name: 'Guest' })
+    expect(seen.subject).toBe('Booked')
+    expect(seen.html).toBe('<p>x</p>')
+    expect(seen.text).toBe('x')
+  })
+
+  it('sends a bare address when no display name is configured', async () => {
+    const seen = await capture({ to: 'g@example.com', subject: 's', html: 'h', text: 't' }, null)
+    expect(seen.from).toBe('hello@punctual.sh')
+    expect(seen.to).toBe('g@example.com')
+  })
+
+  it('uses {content, filename, type, disposition} for attachments', async () => {
+    // Same stakes as the Brevo case: every booking email carries the .ics, and
+    // `type`/`filename` here are named differently from both other providers.
+    // The base64 string crosses untouched — no decode/re-encode round trip.
+    const seen = await capture({
+      to: 'g@example.com',
+      subject: 'Booked',
+      html: '<p>x</p>',
+      text: 'x',
+      attachments: [{ filename: 'invite.ics', content: 'QkVHSU46VkNBTEVOREFS', contentType: 'text/calendar' }],
+    })
+    expect(seen.attachments).toEqual([
+      { content: 'QkVHSU46VkNBTEVOREFS', filename: 'invite.ics', type: 'text/calendar', disposition: 'attachment' },
+    ])
+  })
+
+  it('omits attachments and replyTo entirely when absent', async () => {
+    // `attachments: undefined` is not the same as the key being absent for a
+    // builder the platform validates field-by-field.
+    const seen = await capture({ to: 'g@example.com', subject: 's', html: 'h', text: 't' })
+    expect('attachments' in seen).toBe(false)
+    expect('replyTo' in seen).toBe(false)
+  })
+
+  it('sanitizes a guest name/email carrying header-injection characters', async () => {
+    const seen = await capture({
+      to: 'a@b.c\r\nBcc: victim@evil.com',
+      toName: 'Ada\r\nX-Evil: 1',
+      subject: 's',
+      html: 'h',
+      text: 't',
+      replyTo: 'host@x.y\r\nBcc: victim@evil.com',
+    })
+    // sanitizeHeader collapses CR/LF to a space rather than dropping the rest
+    // of the value, so `victim@evil.com` survives as inert text inside a single
+    // mangled address. That is the correct outcome — what must never survive is
+    // the line break that would make it a header of its own.
+    expect(JSON.stringify(seen)).not.toMatch(/\\r|\\n/)
+    expect(seen.to).toEqual({ email: 'a@b.c Bcc: victim@evil.com', name: 'Ada X-Evil: 1' })
+    expect(seen.replyTo).toBe('host@x.y Bcc: victim@evil.com')
+  })
+
+  it('explains the un-onboarded-domain failure rather than echoing it', async () => {
+    // The failure this translation exists for: until the sending domain is
+    // onboarded, the binding delivers only to verified destination addresses
+    // in the account — so the instance looks healthy and no guest ever hears
+    // from it. The operator must not have to go read the platform docs.
+    const { createCloudflareSender } = await import('../../src/adapters/email/index.js')
+    const binding = {
+      send: async () => {
+        const e = new Error('recipient is not a verified destination address')
+        ;(e as Error & { code: string }).code = 'E_UNVERIFIED_RECIPIENT'
+        throw e
+      },
+    } as unknown as SendEmail
+    const sender = createCloudflareSender({ binding, from: 'x@y.z', fromName: 'P' })
+    const err = await sender
+      .send({ to: 'a@b.c', subject: 's', html: 'h', text: 't' })
+      .then(() => null, (e: Error) => e)
+    expect(err?.message).toContain('E_UNVERIFIED_RECIPIENT')
+    expect(err?.message).toMatch(/onboarded to Email Service/)
+  })
+
+  it('still throws on an unrelated failure, so the queue retries', async () => {
+    const { createCloudflareSender } = await import('../../src/adapters/email/index.js')
+    const binding = { send: async () => { throw new Error('upstream 503') } } as unknown as SendEmail
+    const sender = createCloudflareSender({ binding, from: 'x@y.z', fromName: 'P' })
+    await expect(sender.send({ to: 'a@b.c', subject: 's', html: 'h', text: 't' })).rejects.toThrow(/upstream 503/)
+  })
+})

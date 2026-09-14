@@ -170,3 +170,93 @@ export function createBrevoSender(opts: BrevoOptions): EmailSender {
     },
   }
 }
+
+// ---------------------------------------------------------------------------
+// Cloudflare Email Service
+// ---------------------------------------------------------------------------
+
+export interface CloudflareOptions {
+  binding: SendEmail
+  from: string
+  fromName?: string
+}
+
+/**
+ * Cloudflare Email Service, through the `send_email` Worker binding.
+ *
+ * The third provider, and the only one with no API key: the binding is
+ * capability-scoped by wrangler.toml, so there is no secret to rotate, leak or
+ * forget to set. That is the whole reason to prefer it on a Cloudflare-hosted
+ * deployment — `EmailSender` exists (ADR-0003) so this is a choice, and this
+ * one removes a credential rather than adding one.
+ *
+ * Two facts about the platform decide the shape of everything below:
+ *
+ *   1. **Arbitrary recipients require an onboarded sending domain.** Before
+ *      the domain in `from` is onboarded to Email Service, the binding will
+ *      only deliver to *verified destination addresses* in the account — i.e.
+ *      to the operator, never to a guest. A deployment in that state looks
+ *      healthy (no key missing, no warning banner) while every guest
+ *      confirmation is rejected, which is the exact failure the console-sender
+ *      banner exists to prevent. Hence the error wrapping below: the platform
+ *      reports this as a specific, recognisable failure, and it must reach the
+ *      operator's log saying what to do, not as a bare 500.
+ *   2. **Attachment `content` is a base64 string.** Which is already how
+ *      `EmailMessage.attachments` carries the .ics, so it maps across
+ *      untouched — no decode/re-encode round trip that could corrupt a
+ *      calendar invite.
+ *
+ * Delivery failures throw, like the other two senders, so the queue consumer
+ * retries rather than a transient blip becoming a permanently missing
+ * confirmation.
+ */
+export function createCloudflareSender(opts: CloudflareOptions): EmailSender {
+  return {
+    async send(message) {
+      // sanitizeHeader for the same reason as Brevo: `to`/`toName`/`replyTo`
+      // are frequently guest-controlled from an unauthenticated booking form.
+      // The binding builds the MIME itself and rejects non-allowlisted
+      // headers, so this is defence in depth rather than the only guard — but
+      // a sender that behaves differently from its siblings on hostile input
+      // is a bug waiting for the one deployment that switches providers.
+      const to = sanitizeHeader(message.to)
+      const toName = message.toName ? sanitizeHeader(message.toName) : undefined
+
+      try {
+        await opts.binding.send({
+          from: opts.fromName
+            ? { email: sanitizeHeader(opts.from), name: sanitizeHeader(opts.fromName) }
+            : sanitizeHeader(opts.from),
+          to: toName ? { email: to, name: toName } : to,
+          subject: message.subject,
+          html: message.html,
+          text: message.text,
+          ...(message.replyTo ? { replyTo: sanitizeHeader(message.replyTo) } : {}),
+          ...(message.attachments?.length
+            ? {
+                attachments: message.attachments.map((a) => ({
+                  // Already base64 at the port boundary — see note 2 above.
+                  content: a.content,
+                  filename: a.filename,
+                  type: a.contentType,
+                  disposition: 'attachment' as const,
+                })),
+              }
+            : {}),
+        })
+      } catch (e) {
+        // The platform throws an Error carrying a `code`. Both halves matter
+        // and neither is useful alone: the code is what you search the docs
+        // for, the message is what names the offending address.
+        const code = typeof e === 'object' && e !== null && 'code' in e ? String((e as { code: unknown }).code) : ''
+        const detail = e instanceof Error ? e.message : String(e)
+        // The one failure worth translating rather than echoing: it is
+        // indistinguishable from "email works" until a guest tries to book.
+        const hint = /verified destination|not onboarded|domain/i.test(`${code} ${detail}`)
+          ? ' — is the sending domain onboarded to Email Service? Until it is, the binding only delivers to verified destination addresses in your own account, never to guests.'
+          : ''
+        throw new Error(`cloudflare email: ${code} ${detail}${hint}`.trim())
+      }
+    },
+  }
+}
