@@ -177,7 +177,8 @@ describe('the instance homepage', () => {
     form.append('csrf', csrf)
     form.append('home_mode', 'index')
     form.append('title', 'Acme Support')
-    form.append('intro', 'Pick a time.\n\nWe answer fast.')
+    // As a browser sends a textarea: CRLF line breaks, which must not count double against the limit.
+    form.append('intro', `Pick a time.\r\n\r\n${'x'.repeat(1970)}\r\nWe answer fast.`)
     form.append('event_types', ET_TEAM)
     form.append('event_types', ET)
     form.append('event_types', ET_OFF)
@@ -192,6 +193,7 @@ describe('the instance homepage', () => {
     expect(html).toContain('<title>Acme Support</title>')
     expect(html).toContain('<link rel="canonical" href="https://punctual.test/">')
     expect(html).toContain('<p>Pick a time.</p>')
+    expect((await db.prepare("SELECT value FROM instance_settings WHERE key = 'home_intro'").first<{ value: string }>())!.value).not.toContain('\r')
     expect(html.indexOf('href="/support-crew/support"')).toBeLessThan(html.indexOf('href="/ada/intro"'))
     expect(html).toContain('15 min · Support Crew')
     expect(html).toContain('30 min · Ada Admin')

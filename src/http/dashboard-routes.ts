@@ -2382,7 +2382,10 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     const repos = c.get('repos')
     const mode = form.get('home_mode') === 'index' ? 'index' : 'landing'
     const title = String(form.get('title') ?? '').trim()
-    const intro = String(form.get('intro') ?? '').trim()
+    // A browser submits a textarea's line breaks as \r\n while its maxlength
+    // counted each as one; normalised first, so what the browser accepted
+    // the server accepts too (caught by review).
+    const intro = String(form.get('intro') ?? '').replace(/\r\n?/g, '\n').trim()
     const errors: Record<string, string> = {}
     if (title.length > HOME_TITLE_MAX) errors['home-title'] = `Up to ${HOME_TITLE_MAX} characters`
     if (intro.length > HOME_INTRO_MAX) errors['home-intro'] = `Up to ${HOME_INTRO_MAX} characters`
