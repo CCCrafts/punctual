@@ -53,6 +53,8 @@ export interface MagicLinkDeps {
   email: EmailSender
   rateLimiter: RateLimiter
   config: EngineConfig
+  /** The instance's sign-up policy, so a stranger under a closed one is told so in the email rather than at the link (see below). */
+  signupPolicy?: SignupPolicy
 }
 
 // ---------------------------------------------------------------------------
@@ -134,15 +136,19 @@ export async function requestMagicLink(
   const ipCheck = await deps.rateLimiter.check('magic_link_ip', req.ip, perIp.limit, perIp.windowSeconds)
   if (!ipCheck.allowed) return rateLimited(ipCheck.resetAt, req.now)
 
-  // No existence check, on purpose — INCLUDING under a restrictive signup
-  // policy. A first version of the policy suppressed the email for unknown
-  // non-allowed addresses here; the response body was identical, but the
-  // refused path skipped the D1 insert and the awaited HTTPS send to the
-  // email provider, a 100–500 ms difference a stopwatch client reads as an
-  // account-existence oracle. So every plausible address takes exactly this
-  // same path, and the signup policy lives ONLY in `consumeMagicLink`'s
-  // create branch: a non-allowed stranger gets a real email whose link
-  // lands on "sign-ups are closed" — honest, and timing-silent.
+  // The same WORK for every plausible address, on purpose — including
+  // under a restrictive signup policy. A first version suppressed the email
+  // for unknown non-allowed addresses; the response body was identical, but
+  // the refused path skipped the D1 insert and the awaited HTTPS send to
+  // the email provider, a 100–500 ms difference a stopwatch client reads as
+  // an account-existence oracle. So every address gets the lookup, the
+  // insert and a sent email. What differs is only the email's CONTENT,
+  // which only the mailbox's owner sees: a stranger under a closed policy
+  // is told sign-ups are closed and whom to ask, instead of a link that
+  // dead-ends at the consume gate (asked for in #9). That gate stays the
+  // security boundary; this is the honest version of the same answer.
+  const existing = await deps.repos.users.byEmail(email)
+  const canSignIn = existing !== null || signupAllowed(email, deps.signupPolicy)
   const token = deps.crypto.randomToken(32)
   const record: MagicLinkToken = {
     tokenHash: await deps.crypto.hash(token),
@@ -154,12 +160,21 @@ export async function requestMagicLink(
   await deps.repos.sessions.createMagicLink(record)
 
   const link = `${trimTrailingSlash(deps.config.baseUrl)}/auth/callback?token=${encodeURIComponent(token)}`
-  await deps.email.send({
-    to: email,
-    subject: `Sign in to ${deps.config.brandName}`,
-    text: magicLinkText(deps.config, link, req),
-    html: magicLinkHtml(deps.config, link, req),
-  })
+  await deps.email.send(
+    canSignIn
+      ? {
+          to: email,
+          subject: `Sign in to ${deps.config.brandName}`,
+          text: magicLinkText(deps.config, link, req),
+          html: magicLinkHtml(deps.config, link, req),
+        }
+      : {
+          to: email,
+          subject: `No account for this address at ${deps.config.brandName}`,
+          text: noAccountText(deps.config, req),
+          html: noAccountHtml(deps.config, req),
+        },
+  )
 
   return { status: 'accepted' }
 }
@@ -623,6 +638,26 @@ function magicLinkHtml(config: EngineConfig, link: string, req: MagicLinkRequest
     `<p>Requested from ${escapeHtml(req.ip || 'an unknown address')} using ${escapeHtml(req.userAgent || 'an unknown browser')}.`,
     ` If that was not you, ignore this email — nothing has changed.</p>`,
     `<p>Questions: ${escapeHtml(config.supportEmail)}</p>`,
+  ].join('')
+}
+
+function noAccountText(config: EngineConfig, req: MagicLinkRequest): string {
+  return [
+    `Someone asked to sign in to ${config.brandName} with this address, but there is no account for it and this instance does not accept new sign-ups from it.`,
+    '',
+    `If you expected an account here, ask the person who runs ${config.brandName}: ${config.supportEmail}`,
+    '',
+    `Requested from ${req.ip || 'an unknown address'} using ${req.userAgent || 'an unknown browser'}.`,
+    'If that was not you, ignore this email — nothing has changed.',
+  ].join('\n')
+}
+
+function noAccountHtml(config: EngineConfig, req: MagicLinkRequest): string {
+  return [
+    `<p>Someone asked to sign in to ${escapeHtml(config.brandName)} with this address, but there is no account for it and this instance does not accept new sign-ups from it.</p>`,
+    `<p>If you expected an account here, ask the person who runs ${escapeHtml(config.brandName)}: ${escapeHtml(config.supportEmail)}</p>`,
+    `<p>Requested from ${escapeHtml(req.ip || 'an unknown address')} using ${escapeHtml(req.userAgent || 'an unknown browser')}.`,
+    ' If that was not you, ignore this email — nothing has changed.</p>',
   ].join('')
 }
 

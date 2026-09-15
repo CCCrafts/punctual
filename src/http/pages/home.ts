@@ -168,7 +168,7 @@ export function instanceHomePage(d: InstanceHomeData): string {
   ]
     .filter(Boolean)
     .join(' <span aria-hidden="true">·</span> ')}</p>
-  <p class="pu-home-foot-by">Scheduling by <a class="pu-mark" href="${PUNCTUAL_SITE_URL}" target="_blank" rel="noopener">punctual<span>:</span></a></p>
+  <p class="pu-home-foot-by">Scheduling by <a class="pu-mark" href="${PUNCTUAL_SITE_URL}" target="_blank" rel="noopener">punctual<span>:</span></a> <span aria-hidden="true">·</span> <a href="/login">Sign in</a></p>
 </footer>
 </body></html>`
   )

@@ -208,6 +208,8 @@ describe('magic link request (ADR-0005 §3)', () => {
     // effects do not leak existence either.
     expect(h.repos.state.magicLinks.size).toBe(2)
     expect(h.email.sent).toHaveLength(2)
+    // Open policy: both get a link.
+    expect(h.email.sent.every((m) => m.text.includes('/auth/callback?token='))).toBe(true)
   })
 
   it('rate-limits per email AND per IP', async () => {

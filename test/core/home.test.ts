@@ -140,6 +140,8 @@ describe('the instance homepage', () => {
     expect(html).toContain('with one of the team')
     expect(html).not.toContain('Calendly')
     expect(html).toContain('Scheduling by')
+    // The way to the dashboard, for the hosts, without a nav the guests do not need.
+    expect(html).toContain('<a href="/login">Sign in</a>')
   })
 
   it('heads with the company logo — the title beside a round one, alone as a wordmark — and escapes what the admin typed', () => {

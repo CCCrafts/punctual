@@ -289,13 +289,15 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     const form = await c.req.formData()
     const email = String(form.get('email') ?? '').trim()
 
+    const loginRepos = ports.repositories({ consistency: 'bookmark' })
     const result = await requestMagicLink(
       {
-        repos: ports.repositories({ consistency: 'bookmark' }),
+        repos: loginRepos,
         crypto: ports.crypto,
         email: ports.email,
         rateLimiter: ports.rateLimiter,
         config: ports.config,
+        signupPolicy: await effectiveSignupPolicy(loginRepos),
       },
       {
         email,

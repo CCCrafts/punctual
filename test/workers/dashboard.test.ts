@@ -1245,6 +1245,14 @@ describe('signup policy', () => {
     const recipients = email.sent.map((m) => m.to)
     expect(recipients).toContain(HOST_EMAIL)
     expect(recipients).toContain('stranger-closed@example.test')
+    // Same work, different words: the host's mail carries the link, the
+    // stranger's says there is no account and whom to ask — no dead-end link.
+    const hostMail = email.sent.find((m) => m.to === HOST_EMAIL)!
+    const strangerMail = email.sent.find((m) => m.to === 'stranger-closed@example.test')!
+    expect(hostMail.text).toContain('/auth/callback?token=')
+    expect(strangerMail.text).not.toContain('/auth/callback')
+    expect(strangerMail.subject).toContain('No account for this address')
+    expect(strangerMail.text).toContain('does not accept new sign-ups')
   })
 
   it('the consume gate refuses to CREATE a user on a closed instance, with a distinct message', async () => {

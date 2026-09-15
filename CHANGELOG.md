@@ -6,6 +6,15 @@ still change interfaces.
 
 ## [Unreleased]
 
+### Changed
+
+- **A stranger is told, not strung along.** With sign-ups closed or an
+  allowlist, an address that cannot sign in used to get a real magic link
+  that dead-ended on "sign-ups are closed". It now gets an email saying
+  there is no account for it here and whom to ask. Same work on the
+  server for every address, so nothing about who has an account leaks.
+  The instance homepage gained a *Sign in* link in its footer. Both from #9.
+
 ### Added
 
 - **`EMAIL_PROVIDER`.** Name the email sender — `cloudflare`, `resend`,
