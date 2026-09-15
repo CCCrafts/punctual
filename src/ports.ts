@@ -13,6 +13,7 @@
  * engine. See ADR-0003 §4.
  */
 
+import type { HomeOwner } from './core/domain/home.js'
 import type {
   ApiKey,
   CompanyLogo,
@@ -141,7 +142,7 @@ export interface EventTypeRepository {
    * booking link starts with — the user's or the team's. For the instance
    * homepage and the admin's picker for it (core/domain/home.ts).
    */
-  listActiveWithOwners(): Promise<Array<{ eventType: EventType; ownerSlug: string; ownerName: string }>>
+  listActiveWithOwners(): Promise<Array<{ eventType: EventType; owner: HomeOwner }>>
   create(et: Omit<EventType, 'createdAt'>): Promise<EventType>
   update(id: string, patch: Partial<EventType>): Promise<void>
   /**

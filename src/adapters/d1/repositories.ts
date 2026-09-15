@@ -17,6 +17,7 @@
  */
 
 import { companyLogoFrom } from '../../core/domain/media.js'
+import type { HomeOwner } from '../../core/domain/home.js'
 import type {
   ApiKey,
   Booking,
@@ -309,20 +310,37 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
     },
     async listActiveWithOwners() {
       const rows = await all<Record<string, unknown>>(
-        `SELECT et.*, u.slug AS owner_user_slug, u.name AS owner_user_name, t.slug AS owner_team_slug, t.name AS owner_team_name
+        `SELECT et.*,
+                u.id AS ou_id, u.slug AS ou_slug, u.name AS ou_name, u.avatar_key AS ou_avatar_key,
+                u.job_title AS ou_job_title, u.company AS ou_company, u.company_url AS ou_company_url,
+                t.id AS ot_id, t.slug AS ot_slug, t.name AS ot_name
          FROM event_types et
          LEFT JOIN users u ON u.id = et.owner_user_id
          LEFT JOIN teams t ON t.id = et.owner_team_id
          WHERE et.active = 1
          ORDER BY COALESCE(t.name, u.name), et.title`,
       )
-      const out: Array<{ eventType: EventType; ownerSlug: string; ownerName: string }> = []
+      const text = (v: unknown): string | null => (v == null || v === '' ? null : String(v))
+      const out: Array<{ eventType: EventType; owner: HomeOwner }> = []
       for (const r of rows) {
         const eventType = mapEventType(r)
-        const ownerSlug = r['owner_team_slug'] ?? r['owner_user_slug']
-        const ownerName = r['owner_team_name'] ?? r['owner_user_name'] ?? ownerSlug
-        if (!eventType || typeof ownerSlug !== 'string') continue
-        out.push({ eventType, ownerSlug, ownerName: String(ownerName) })
+        if (!eventType) continue
+        const owner: HomeOwner | null =
+          typeof r['ot_slug'] === 'string'
+            ? { kind: 'team', id: String(r['ot_id']), slug: r['ot_slug'], name: String(r['ot_name'] ?? r['ot_slug']), avatarKey: null, jobTitle: null, company: null, companyUrl: null }
+            : typeof r['ou_slug'] === 'string'
+              ? {
+                  kind: 'user',
+                  id: String(r['ou_id']),
+                  slug: r['ou_slug'],
+                  name: String(r['ou_name'] ?? '') || r['ou_slug'],
+                  avatarKey: text(r['ou_avatar_key']),
+                  jobTitle: text(r['ou_job_title']),
+                  company: text(r['ou_company']),
+                  companyUrl: text(r['ou_company_url']),
+                }
+              : null
+        if (owner) out.push({ eventType, owner })
       }
       return out
     },

@@ -81,7 +81,7 @@ import { canManageTeam, isManagingRole } from '../core/domain/teams.js'
 import { hostUsers, hostsForReschedule, resolveHosts as resolveEventTypeHosts } from '../core/domain/hosts.js'
 import { changeBookingHosts } from '../core/domain/booking-hosts.js'
 import { saveCalendarConnection } from './calendar-connect.js'
-import { HOME_EVENT_TYPES, HOME_INTRO, HOME_INTRO_MAX, HOME_KEYS, HOME_MODE, HOME_TITLE, HOME_TITLE_MAX, parseHomeSettings } from '../core/domain/home.js'
+import { HOME_CONTACT, HOME_EVENT_TYPES, HOME_FEATURED, HOME_INTRO, HOME_INTRO_MAX, HOME_KEYS, HOME_MODE, HOME_TITLE, HOME_TITLE_MAX, HOME_WEBSITE, isEmailAddress, parseHomeSettings } from '../core/domain/home.js'
 import { notifyNewHosts as notifyNewHostsShared } from './host-notifications.js'
 import { MAX_DECODED_PIXELS,
   MAX_UPLOAD_BYTES,
@@ -2322,8 +2322,8 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
         homeChoices: (await repos.eventTypes.listActiveWithOwners()).map((item) => ({
           id: item.eventType.id,
           title: item.eventType.title,
-          ownerName: item.ownerName,
-          path: `/${item.ownerSlug}/${item.eventType.slug}`,
+          ownerName: item.owner.name,
+          path: `/${item.owner.slug}/${item.eventType.slug}`,
         })),
         ...extra,
       }),
@@ -2386,17 +2386,26 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     // counted each as one; normalised first, so what the browser accepted
     // the server accepts too (caught by review).
     const intro = String(form.get('intro') ?? '').replace(/\r\n?/g, '\n').trim()
+    const website = String(form.get('website') ?? '').trim()
+    const contact = String(form.get('contact_email') ?? '').trim().toLowerCase()
     const errors: Record<string, string> = {}
     if (title.length > HOME_TITLE_MAX) errors['home-title'] = `Up to ${HOME_TITLE_MAX} characters`
     if (intro.length > HOME_INTRO_MAX) errors['home-intro'] = `Up to ${HOME_INTRO_MAX} characters`
+    if (website !== '' && (website.length > 200 || !isHttpUrl(website))) errors['home-website'] = 'A full address starting with https://'
+    if (contact !== '' && !isEmailAddress(contact)) errors['home-contact'] = 'Not an email address'
     if (Object.keys(errors).length > 0) return renderAdmin(c, { errors }, 400)
     const active = new Set((await repos.eventTypes.listActiveWithOwners()).map((item) => item.eventType.id))
     const picked = [...new Set(form.getAll('event_types').map(String))].filter((id) => active.has(id))
+    const featured = String(form.get('home_featured') ?? '')
     const now = ports.clock.now()
     await repos.settings.set(HOME_MODE, mode, now)
     await repos.settings.set(HOME_TITLE, title, now)
     await repos.settings.set(HOME_INTRO, intro, now)
+    await repos.settings.set(HOME_WEBSITE, website, now)
+    await repos.settings.set(HOME_CONTACT, contact, now)
     await repos.settings.set(HOME_EVENT_TYPES, JSON.stringify(picked), now)
+    // Only a picked link can be featured; anything else means none.
+    await repos.settings.set(HOME_FEATURED, picked.includes(featured) ? featured : '', now)
     await advanceBookmark(c)
     return renderAdmin(c, { notice: mode === 'index' ? 'Homepage saved — / now shows this instance.' : 'Homepage saved — / shows the landing.' })
   })

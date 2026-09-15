@@ -3167,31 +3167,54 @@ export interface AdminPageData extends DashboardChrome {
  */
 function homepageForm(d: AdminPageData, errors: Record<string, string>): string {
   const h = d.home
-  const picked = new Set(h.eventTypeIds)
+  const order = new Map(h.eventTypeIds.map((id, i) => [id, i + 1]))
+  const row = (style: string) => `display:flex;gap:.5rem;align-items:flex-start;font-weight:400;${style}`
   const choices = d.homeChoices
-    .map(
-      (c) => `<label style="display:flex;gap:.5rem;align-items:flex-start;font-weight:400;margin:.35rem 0">
-        <input type="checkbox" name="event_types" value="${escapeHtml(c.id)}"${picked.has(c.id) ? ' checked' : ''} style="margin-top:.2rem">
-        <span>${escapeHtml(c.title)} <span class="pu-muted">— ${escapeHtml(c.ownerName)} · <code>${escapeHtml(c.path)}</code></span></span>
-      </label>`,
-    )
+    .map((c) => {
+      const n = order.get(c.id)
+      return `<div style="display:grid;grid-template-columns:1.6rem 1fr auto;gap:.5rem;align-items:start;margin:.4rem 0">
+        <span class="pu-muted" style="font-size:.8125rem;line-height:1.5;text-align:right">${n ? `${n}.` : ''}</span>
+        <label style="${row('margin:0')}">
+          <input type="checkbox" name="event_types" value="${escapeHtml(c.id)}"${n ? ' checked' : ''} style="margin-top:.2rem">
+          <span>${escapeHtml(c.title)} <span class="pu-muted">— ${escapeHtml(c.ownerName)} · <code>${escapeHtml(c.path)}</code></span></span>
+        </label>
+        <label style="${row('margin:0;font-size:.8125rem;white-space:nowrap')}" title="Shown large at the top of the page">
+          <input type="radio" name="home_featured" value="${escapeHtml(c.id)}"${h.featuredId === c.id ? ' checked' : ''} style="margin-top:.15rem"> Featured
+        </label>
+      </div>`
+    })
     .join('')
   return `<form method="post" action="/dashboard/admin/homepage">
     ${csrfField(d.csrf)}
     <fieldset style="border:0;padding:0;margin:0 0 1rem">
       <legend style="font-weight:600;margin-bottom:.35rem">Show</legend>
-      <label style="display:flex;gap:.5rem;align-items:flex-start;font-weight:400;margin:.25rem 0"><input type="radio" name="home_mode" value="landing"${h.mode === 'landing' ? ' checked' : ''} style="margin-top:.2rem"><span><strong>The ${escapeHtml(d.brandName)} landing</strong> <span class="pu-muted">— what punctual.sh shows: the product, the pledge, the docs</span></span></label>
-      <label style="display:flex;gap:.5rem;align-items:flex-start;font-weight:400;margin:.25rem 0"><input type="radio" name="home_mode" value="index"${h.mode === 'index' ? ' checked' : ''} style="margin-top:.2rem"><span><strong>This instance</strong> <span class="pu-muted">— your company logo, a title and intro, and the booking links below</span></span></label>
+      <label style="${row('margin:.25rem 0')}"><input type="radio" name="home_mode" value="landing"${h.mode === 'landing' ? ' checked' : ''} style="margin-top:.2rem"><span><strong>The ${escapeHtml(d.brandName)} landing</strong> <span class="pu-muted">— what punctual.sh shows: the product, the pledge, the docs</span></span></label>
+      <label style="${row('margin:.25rem 0')}"><input type="radio" name="home_mode" value="index"${h.mode === 'index' ? ' checked' : ''} style="margin-top:.2rem"><span><strong>This instance</strong> <span class="pu-muted">— your company logo, a title and intro, your site and contact, and the booking links below</span></span></label>
     </fieldset>
-    <label for="home-title">Title</label>
-    <input id="home-title" name="title" maxlength="${HOME_TITLE_MAX}" value="${escapeHtml(h.title)}" placeholder="${escapeHtml(d.brandName)}"${describedBy('home-title', errors)}>
-    ${fieldError('home-title', errors)}
+    <div class="pu-grid" style="grid-template-columns:repeat(auto-fit,minmax(14rem,1fr));gap:0 1rem">
+      <div>
+        <label for="home-title">Title</label>
+        <input id="home-title" name="title" maxlength="${HOME_TITLE_MAX}" value="${escapeHtml(h.title)}" placeholder="${escapeHtml(d.brandName)}"${describedBy('home-title', errors)}>
+        ${fieldError('home-title', errors)}
+      </div>
+      <div>
+        <label for="home-website">Website</label>
+        <input id="home-website" name="website" type="url" inputmode="url" maxlength="200" value="${escapeHtml(h.website)}" placeholder="https://example.com"${describedBy('home-website', errors)}>
+        ${fieldError('home-website', errors)}
+      </div>
+      <div>
+        <label for="home-contact">Contact email</label>
+        <input id="home-contact" name="contact_email" type="email" maxlength="254" value="${escapeHtml(h.contactEmail)}" placeholder="hello@example.com"${describedBy('home-contact', errors)}>
+        ${fieldError('home-contact', errors)}
+      </div>
+    </div>
     <label for="home-intro" style="margin-top:.75rem">Intro</label>
-    <textarea id="home-intro" name="intro" rows="4" maxlength="${HOME_INTRO_MAX}" placeholder="A sentence or two about who you are and what these meetings are for. Blank line between paragraphs."${describedBy('home-intro', errors)}>${escapeHtml(h.intro)}</textarea>
+    <textarea id="home-intro" name="intro" rows="4" maxlength="${HOME_INTRO_MAX}" placeholder="A sentence or two about who you are and what these meetings are for. Blank line between paragraphs; links and addresses become clickable."${describedBy('home-intro', errors)}>${escapeHtml(h.intro)}</textarea>
     ${fieldError('home-intro', errors)}
-    <p style="font-weight:600;margin:1rem 0 .25rem">Booking links</p>
+    <p style="font-weight:600;margin:1rem 0 .25rem">Booking links <span class="pu-muted" style="font-weight:400">— shown in the order ticked; one can be featured at the top</span></p>
     ${choices || '<p class="pu-muted">No active event types on this instance yet.</p>'}
-    <div style="margin-top:.75rem"><button class="pu-btn" type="submit">Save homepage</button></div>
+    ${d.homeChoices.length > 0 ? `<label style="${row('margin:.4rem 0 0;font-size:.8125rem')}"><input type="radio" name="home_featured" value=""${h.featuredId === null ? ' checked' : ''} style="margin-top:.15rem"> No featured meeting</label>` : ''}
+    <div style="margin-top:.9rem"><button class="pu-btn" type="submit">Save homepage</button></div>
   </form>`
 }
 

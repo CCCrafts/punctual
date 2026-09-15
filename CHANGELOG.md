@@ -10,9 +10,11 @@ still change interfaces.
 
 - **Your own front page.** An instance chooses what `/` is: the Punctual
   landing (the default), or an index of the instance — the company logo, a
-  title and intro, and the booking links an admin picks from the event
-  types on the instance. Set on the Admin page under *Homepage*. Asked for
-  in #8.
+  title and an intro whose links are live, the company's site and a
+  contact address, one featured meeting in the hero, and the booking
+  links an admin picks, grouped under each team (with its members' faces)
+  and each person (with their title and company). Set on the Admin page
+  under *Homepage*. Asked for in #8.
 
 ### Fixed
 

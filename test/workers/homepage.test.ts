@@ -146,8 +146,10 @@ describe('the instance homepage', () => {
     await db.batch([
       db.prepare(insertUser).bind(ADMIN, 'home-admin@example.test', 'Ada Admin', 'UTC', 'ada', 'admin', NOW),
       db.prepare(insertUser).bind(MEMBER, 'home-member@example.test', 'Max Member', 'UTC', 'max', 'member', NOW),
+      db.prepare('UPDATE users SET job_title = ?, company = ? WHERE id = ?').bind('Founder', 'Acme', ADMIN),
       db.prepare('INSERT INTO teams (id,name,slug,created_at) VALUES (?,?,?,?)').bind('team_home', 'Support Crew', 'support-crew', NOW),
       db.prepare('INSERT INTO team_members (team_id,user_id,role,rr_weight) VALUES (?,?,?,?)').bind('team_home', ADMIN, 'admin', 1),
+      db.prepare('INSERT INTO team_members (team_id,user_id,role,rr_weight) VALUES (?,?,?,?)').bind('team_home', MEMBER, 'member', 1),
       db.prepare(insertEt).bind(ET, ADMIN, null, 'personal', 'intro', 'Intro call', 'A short chat.', 30, 1, NOW),
       db.prepare(insertEt).bind(ET_TEAM, null, 'team_home', 'round_robin', 'support', 'Support call', '', 15, 1, NOW),
       db.prepare(insertEt).bind(ET_OFF, ADMIN, null, 'personal', 'old', 'Old thing', '', 30, 0, NOW),
@@ -179,13 +181,20 @@ describe('the instance homepage', () => {
     form.append('title', 'Acme Support')
     // As a browser sends a textarea: CRLF line breaks, which must not count double against the limit.
     form.append('intro', `Pick a time.\r\n\r\n${'x'.repeat(1970)}\r\nWe answer fast.`)
+    form.append('website', 'https://acme.example')
+    form.append('contact_email', 'Hello@Acme.example')
     form.append('event_types', ET_TEAM)
     form.append('event_types', ET)
     form.append('event_types', ET_OFF)
     form.append('event_types', 'et_forged')
+    form.append('home_featured', ET_TEAM)
     const saved = await app.fetch(new Request(`${BASE}/dashboard/admin/homepage`, { method: 'POST', body: form, headers: { cookie } }))
     expect(saved.status).toBe(200)
-    expect(await saved.text()).toContain('/ now shows this instance')
+    const adminAfter = await saved.text()
+    expect(adminAfter).toContain('/ now shows this instance')
+    // The picker shows the order, and remembers the featured one.
+    expect(adminAfter).toMatch(new RegExp(`1\\.</span>[\\s\\S]{0,400}value="${ET_TEAM}" checked`))
+    expect(adminAfter).toContain(`name="home_featured" value="${ET_TEAM}" checked`)
     const stored = await db.prepare("SELECT value FROM instance_settings WHERE key = 'home_event_types'").first<{ value: string }>()
     expect(JSON.parse(stored!.value)).toEqual([ET_TEAM, ET])
 
@@ -194,11 +203,22 @@ describe('the instance homepage', () => {
     expect(html).toContain('<link rel="canonical" href="https://punctual.test/">')
     expect(html).toContain('<p>Pick a time.</p>')
     expect((await db.prepare("SELECT value FROM instance_settings WHERE key = 'home_intro'").first<{ value: string }>())!.value).not.toContain('\r')
-    expect(html.indexOf('href="/support-crew/support"')).toBeLessThan(html.indexOf('href="/ada/intro"'))
-    expect(html).toContain('15 min · Support Crew')
-    expect(html).toContain('30 min · Ada Admin')
+    // The featured team meeting is the hero, with the team's two faces; Ada's meeting sits under her name and title.
+    expect(html).toContain('class="pu-home-featured" href="/support-crew/support"')
+    expect(html).toContain('<strong>Support Crew</strong>')
+    expect(html).toContain('2 people')
+    expect(html).toContain('<h2>Ada Admin</h2><p class="pu-muted">Founder, Acme</p>')
+    expect(html).toContain('href="/ada/intro"')
+    expect(html).toContain('href="https://acme.example" target="_blank" rel="noopener">acme.example</a>')
+    expect(html).toContain('href="mailto:hello@acme.example"')
     expect(html).not.toContain('/ada/old')
     expect(html).not.toContain('Calendly')
+
+    // A website that is not an address is refused, and nothing changes.
+    const bad = await postForm('/dashboard/admin/homepage', cookie, { csrf, home_mode: 'index', website: 'acme dot example' })
+    expect(bad.status).toBe(400)
+    expect(await bad.text()).toContain('A full address starting with https://')
+    expect((await db.prepare("SELECT value FROM instance_settings WHERE key = 'home_website'").first<{ value: string }>())!.value).toBe('https://acme.example')
 
     // Back to the landing.
     expect((await postForm('/dashboard/admin/homepage', cookie, { csrf, home_mode: 'landing' })).status).toBe(200)

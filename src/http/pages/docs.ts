@@ -322,8 +322,10 @@ ${pre(`npx wrangler d1 execute punctual --remote \\\n  --command "UPDATE users S
 
 <p><strong>Your front page.</strong> By default <code>/</code> is the
   Punctual landing. On the Admin page, under <em>Homepage</em>, switch it to
-  <em>This instance</em>: your company logo, a title and intro, and the
-  booking links you pick from your event types. Docs stay at
+  <em>This instance</em>: your company logo, a title and an intro (links
+  and addresses become clickable), your website and a contact address, and
+  the booking links you pick from your event types &mdash; one featured at
+  the top, the rest grouped under each team and person. Docs stay at
   <code>/docs</code>.</p>
 
 <h2>Upgrading</h2>

@@ -244,8 +244,10 @@ starting with `Agenda |` to the event type's questions (e.g.
 
 **Your front page.** By default `/` is the Punctual landing. On the Admin
 page, under *Homepage*, switch it to *This instance*: your company logo, a
-title and intro, and the booking links you pick from your event types.
-Docs stay at `/docs`.
+title and an intro (links and addresses become clickable), your website
+and a contact address, and the booking links you pick from your event
+types — one of them featured at the top, the rest grouped under each team
+and person. Docs stay at `/docs`.
 
 ## Upgrading
 

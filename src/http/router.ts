@@ -22,7 +22,7 @@ import { buildAvatarRoutes } from './avatars/route.js'
 import { privacyPage, termsPage } from './pages/legal.js'
 import { calendlyAlternativePage, landingPage } from './pages/landing.js'
 import { instanceHomePage } from './pages/home.js'
-import { HOME_KEYS, homeItems, parseHomeSettings } from '../core/domain/home.js'
+import { HOME_KEYS, homeFeatured, homeGroups, homeItems, parseHomeSettings, withTeamPeople } from '../core/domain/home.js'
 import { COMPANY_LOGO_KEY, COMPANY_LOGO_SHAPE, companyLogoFrom } from '../core/domain/media.js'
 import { docsApiPage, docsIndexPage, docsMcpPage, docsSelfHostingPage } from './pages/docs.js'
 import type { EnginePorts, RequestScope } from '../ports.js'
@@ -85,14 +85,19 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
     const values = await repos.settings.getMany([...HOME_KEYS, COMPANY_LOGO_KEY, COMPANY_LOGO_SHAPE])
     const home = parseHomeSettings(values)
     if (home.mode === 'index') {
+      const items = await withTeamPeople(repos, homeItems(home, await repos.eventTypes.listActiveWithOwners()))
+      const featured = homeFeatured(home, items)
       return c.html(
         instanceHomePage({
           brandName: ports.config.brandName,
           baseUrl: ports.config.baseUrl,
           title: home.title,
           intro: home.intro,
+          website: home.website,
+          contactEmail: home.contactEmail,
           companyLogo: companyLogoFrom(values[COMPANY_LOGO_KEY], values[COMPANY_LOGO_SHAPE]),
-          items: homeItems(home, await repos.eventTypes.listActiveWithOwners()),
+          featured,
+          groups: homeGroups(items, featured),
           ...(ports.config.legalOperator ? { operator: ports.config.legalOperator } : {}),
         }),
       )
