@@ -1381,6 +1381,56 @@ describe('rescheduling keeps the booking\'s own hosts', () => {
     expect(replacement).toBeTruthy()
     expect((await repos.bookings.byId(replacement!))?.hostUserIds).toEqual([admin.user.id])
   })
+
+  it('a round robin re-picks from the pool, unless a person handed the booking to a colleague', async () => {
+    const ports = testPorts()
+    const app = buildApp(ports)
+    const admin = await seedHost(ports)
+    const helper = await seedHost(ports)
+    const repos = ports.repositories({ consistency: 'bookmark' })
+    const team = await repos.teams.createWithFirstMember(
+      { id: 'team_api_rr_resched', name: 'RR Team', slug: 'rr-resched-team', logoKey: null },
+      { userId: admin.user.id, role: 'admin', rrWeight: 1 },
+    )
+    await repos.teams.addMember({ teamId: team!.id, userId: helper.user.id, role: 'member', rrWeight: 1 })
+    await repos.eventTypes.create({ ...admin.eventType, id: 'evt_rr_resched', ownerUserId: null, ownerTeamId: team!.id, schedulingType: 'round_robin', slug: 'rr-resched', scheduleId: null })
+    const { from, to } = nextWeek()
+    const res = await app.request(`/api/v1/slots?eventTypeId=evt_rr_resched&from=${from}&to=${to}&tz=UTC`, { headers: auth(admin.apiKey) })
+    const [first, second, third] = ((await res.json()) as { data: Array<{ start: { iso: string } }> }).data
+    const booked = await app.request('/api/v1/bookings', {
+      method: 'POST',
+      headers: { ...auth(admin.apiKey), 'content-type': 'application/json' },
+      body: JSON.stringify({ eventTypeId: 'evt_rr_resched', start: first!.start.iso, guestName: 'Ada', guestEmail: 'ada@example.com', guestTimezone: 'UTC' }),
+    })
+    expect(booked.status).toBe(201)
+    const id = ((await booked.json()) as { data: { id: string } }).data.id
+    const assigned = (await repos.bookings.byId(id))!.hostUserId
+    const actor = assigned === admin.user.id ? admin : helper
+
+    // Untouched: a move may land on either host — the pool is offered.
+    const moved = await app.request(`/api/v1/bookings/${id}/reschedule`, {
+      method: 'POST',
+      headers: { ...auth(actor.apiKey), 'content-type': 'application/json' },
+      body: JSON.stringify({ start: second!.start.iso }),
+    })
+    expect(moved.status).toBe(201)
+    const movedId = ((await moved.json()) as { data: { id: string } }).data.id
+    expect((await repos.bookings.byId(movedId))?.hostUserIds).toHaveLength(1)
+
+    // Handed to a colleague: the move keeps the colleague.
+    const owner = (await repos.bookings.byId(movedId))!.hostUserId
+    const actor2 = owner === admin.user.id ? admin : helper
+    const other = owner === admin.user.id ? helper.user : admin.user
+    expect((await changeBookingHosts(ports, actor2.user, { bookingId: movedId, add: [other.id], remove: [owner] }, repos)).ok).toBe(true)
+    const again = await app.request(`/api/v1/bookings/${movedId}/reschedule`, {
+      method: 'POST',
+      headers: { ...auth(other.id === admin.user.id ? admin.apiKey : helper.apiKey), 'content-type': 'application/json' },
+      body: JSON.stringify({ start: third!.start.iso }),
+    })
+    expect(again.status).toBe(201)
+    const againId = ((await again.json()) as { data: { id: string } }).data.id
+    expect((await repos.bookings.byId(againId))?.hostUserIds).toEqual([other.id])
+  })
 })
 
 describe('JSON-RPC ids', () => {

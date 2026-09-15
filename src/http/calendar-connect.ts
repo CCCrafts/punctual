@@ -68,10 +68,12 @@ export async function saveCalendarConnection(
   // matching on nothing and then learning the address is how a second
   // account's tokens land on the first account's row.
   let primary: { id: string; accountEmail?: string } | undefined
+  let listFailed = false
   try {
     const calendars = await deps.listCalendars(probe)
     primary = calendars.find((cal) => cal.primary) ?? calendars[0]
   } catch (err) {
+    listFailed = true
     // A provider having a bad minute must not lose a grant the host just
     // gave us. The connections page lets them pick calendars by hand.
     //
@@ -87,7 +89,22 @@ export async function saveCalendarConnection(
   }
   const accountEmail = tokens.accountEmail || primary?.accountEmail || ''
   const existing = (await repos.connections.listForUser(userId)).filter((c) => c.provider === provider)
-  const reuse = matchConnection(existing, accountEmail)
+  let reuse = matchConnection(existing, accountEmail)
+  if (reuse && reuse.providerAccountEmail === '' && accountEmail !== '') {
+    // A row stored before addresses were recorded. Every connection made
+    // before this existed is one, so "the only row, and it has no address"
+    // is not enough to say it is the same account: ask the row itself.
+    const rowAddress = await addressOfStoredRow(deps, reuse)
+    if (rowAddress !== null && rowAddress !== accountEmail) reuse = null
+  }
+  if (listFailed && !reuse && existing.length === 1) {
+    // The provider would not say who this is. A host reconnecting the one
+    // account they have — the common reason to be here at all, after a
+    // revoked grant — must get their row repaired, not a second, empty
+    // row beside a broken one. The cost is that a second account added
+    // during a provider outage lands on the first; rare, and visible.
+    reuse = existing[0]!
+  }
 
   const connection: CalendarConnection = reuse
     ? { ...reuse, providerAccountEmail: accountEmail || reuse.providerAccountEmail, syncStatus: 'ok' }
@@ -127,4 +144,24 @@ export async function saveCalendarConnection(
     await repos.connections.updateCalendars(reuse.id, { read: connection.calendarIdsRead, write: connection.calendarIdWrite })
   }
   return { connection, reconnected: true }
+}
+
+/**
+ * The address a connection stored without one is for, as far as can be
+ * told: a Google row's calendar selection was filled with the primary
+ * calendar's id, which is the address; a Graph row's ids are opaque, so
+ * its calendar list is asked with the row's own tokens. Null when nothing
+ * can be learned — a revoked grant, an empty selection.
+ */
+async function addressOfStoredRow(deps: ConnectDeps, row: CalendarConnection): Promise<string | null> {
+  const fromIds = [row.calendarIdWrite, ...row.calendarIdsRead].find((id) => id !== null && id.includes('@'))
+  if (fromIds) return fromIds.toLowerCase()
+  if (row.provider !== 'microsoft') return null
+  try {
+    const calendars = await deps.listCalendars(row)
+    const primary = calendars.find((cal) => cal.primary) ?? calendars[0]
+    return primary?.accountEmail?.toLowerCase() ?? null
+  } catch {
+    return null
+  }
 }

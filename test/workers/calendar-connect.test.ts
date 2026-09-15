@@ -87,6 +87,40 @@ describe('saving a calendar grant', () => {
     expect(await repos.connections.listForUser(user!.id)).toHaveLength(2)
   })
 
+  it('a row stored before addresses were recorded is not overwritten by a different account (caught by review)', async () => {
+    const user = await repos.users.create({ id: 'u_cc_6', email: 'cc6@example.com', name: 'CC Six', tz: 'UTC', slug: 'cc-six', avatarKey: null, company: null, jobTitle: null, companyUrl: null, role: 'member' })
+    // A legacy Google row: no address, but its selection is the primary calendar — the address.
+    await repos.connections.create({
+      id: 'cal_legacy_6', userId: user!.id, provider: 'google', providerAccountEmail: '', encryptedTokens: 'x', keyVersion: 1,
+      calendarIdsRead: ['a@gmail.com'], calendarIdWrite: 'a@gmail.com', syncStatus: 'ok', createdAt: 0,
+    })
+    const other = await saveCalendarConnection(deps(primary('b@gmail.com')), user!.id, 'google', grant())
+    expect(other.reconnected).toBe(false)
+    const stored = await repos.connections.listForUser(user!.id)
+    expect(Object.fromEntries(stored.map((c) => [c.id, [c.providerAccountEmail, c.calendarIdWrite]]))).toEqual({
+      cal_legacy_6: ['', 'a@gmail.com'],
+      [other.connection.id]: ['b@gmail.com', 'b@gmail.com'],
+    })
+    // The same account reconnecting repairs the legacy row and gives it its address.
+    const same = await saveCalendarConnection(deps(primary('a@gmail.com')), user!.id, 'google', grant())
+    expect(same.reconnected).toBe(true)
+    expect(same.connection.id).toBe('cal_legacy_6')
+    expect((await repos.connections.byId('cal_legacy_6'))?.providerAccountEmail).toBe('a@gmail.com')
+  })
+
+  it('a provider error while reconnecting the only connection repairs that row instead of adding an empty one', async () => {
+    const user = await repos.users.create({ id: 'u_cc_7', email: 'cc7@example.com', name: 'CC Seven', tz: 'UTC', slug: 'cc-seven', avatarKey: null, company: null, jobTitle: null, companyUrl: null, role: 'member' })
+    const first = await saveCalendarConnection(deps(primary('me@acme.com')), user!.id, 'google', grant())
+    await repos.connections.updateSyncStatus(first.connection.id, 'needs_reconnect')
+    const repaired = await saveCalendarConnection(deps(async () => { throw new Error('429 rateLimitExceeded') }), user!.id, 'google', grant())
+    expect(repaired.reconnected).toBe(true)
+    expect(repaired.connection.id).toBe(first.connection.id)
+    const stored = await repos.connections.listForUser(user!.id)
+    expect(stored).toHaveLength(1)
+    expect(stored[0]!.syncStatus).toBe('ok')
+    expect(stored[0]!.calendarIdWrite).toBe('me@acme.com')
+  })
+
   it('a named connection is not reused when the new grant cannot be identified', async () => {
     const user = await repos.users.create({ id: 'u_cc_5', email: 'cc5@example.com', name: 'CC Five', tz: 'UTC', slug: 'cc-five', avatarKey: null, company: null, jobTitle: null, companyUrl: null, role: 'member' })
     await saveCalendarConnection(deps(primary('me@contoso.com')), user!.id, 'microsoft', grant({ accountEmail: 'me@contoso.com' }))

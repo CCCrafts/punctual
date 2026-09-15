@@ -31,6 +31,13 @@ describe('which connection a fresh grant belongs to', () => {
     expect(matchConnection([only], 'me@acme.com')).toBe(only)
   })
 
+  it('a row with no address on record whose calendar selection is the address (a legacy Google row)', () => {
+    const legacy = { ...conn('c_legacy', ''), calendarIdsRead: ['a@gmail.com'], calendarIdWrite: 'a@gmail.com' }
+    const other = conn('c_other', 'b@gmail.com')
+    expect(matchConnection([legacy, other], 'A@gmail.com')).toBe(legacy)
+    expect(matchConnection([legacy, other], 'c@gmail.com')).toBeNull()
+  })
+
   it('never a connection that names a DIFFERENT address, even when it is the only one (caught by review)', () => {
     const named = conn('c_named', 'work@acme.com')
     expect(matchConnection([named], 'me@gmail.com')).toBeNull()

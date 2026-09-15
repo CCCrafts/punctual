@@ -11,9 +11,9 @@ still change interfaces.
 - Rescheduling through the REST API or the MCP server moved a collective
   meeting with the event type's current hosts instead of the booking's own,
   dropping a co-host added after booking or bringing back one removed.
-  Dashboard, API and MCP now agree: a collective booking moves with the
-  people on it (plus the event type's optional hosts, who join when free),
-  a round robin is re-assigned from the pool at the new time.
+  Dashboard, API and MCP now agree: a booking someone has edited — a
+  handoff, a co-host added or removed — moves with the people on it; an
+  untouched round robin is re-assigned from the pool at the new time.
 - A retried calendar sync could create a second real event on the host's
   calendar when the first attempt died after the provider write. Each
   event's ids are now derived from the booking and connection, so Google

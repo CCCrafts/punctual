@@ -93,18 +93,19 @@ export async function hostSettings(
 }
 
 /**
- * Who a rescheduled booking is booked with. Not simply "the event type's
- * hosts" (which undid a co-host added or removed after booking) and not
- * simply "the booking's hosts" (which pinned a round-robin meeting to the
- * one host it happened to land on, and left out an optional host who was
- * merely busy the first time):
+ * Who a rescheduled booking is booked with.
  *
  * - personal: the owner, as always;
- * - round robin: the whole pool — the coordinator re-picks at commit time,
- *   so a slot the pool can serve is a slot the caller can move to;
- * - collective: the people on the booking now, plus the event type's
- *   optional hosts who are not — they join when free, and being busy at the
- *   first time is no reason to be left out of the second.
+ * - round robin, untouched since booking (one host, from the pool): the
+ *   whole pool — the coordinator re-picks at commit time, so a slot the
+ *   pool can serve is a slot the caller can move to;
+ * - anything a person has edited (a round-robin handoff to a colleague, a
+ *   co-host added, someone removed): the booking's own hosts. A human's
+ *   decision about who is on this meeting outlives a move. That includes
+ *   an optional host taken off a collective booking — they are not brought
+ *   back because the calendar happens to be free at the new time; nothing
+ *   distinguishes "removed" from "was busy", and the removal is the case
+ *   that was asked for.
  *
  * `fallback` stands in for a personal event type's owner, as in `resolveHosts`.
  */
@@ -115,14 +116,16 @@ export async function hostsForReschedule(
   fallback: User,
 ): Promise<User[]> {
   const resolved = await resolveHosts(repos, eventType, fallback)
-  if (eventType.schedulingType !== 'collective') return hostUsers(resolved)
+  const pool = hostUsers(resolved)
+  if (eventType.schedulingType === 'personal') return pool
+  const own = booking.hostUserIds.length > 0 ? booking.hostUserIds : [booking.hostUserId]
+  if (eventType.schedulingType === 'round_robin' && own.length === 1 && pool.some((u) => u.id === own[0])) return pool
+  const same = pool.length === own.length && pool.every((u) => own.includes(u.id))
+  if (same) return pool
   const users: User[] = []
-  for (const id of booking.hostUserIds) {
-    const u = resolved.find((h) => h.user.id === id)?.user ?? (await repos.users.byId(id))
+  for (const id of own) {
+    const u = pool.find((p) => p.id === id) ?? (await repos.users.byId(id))
     if (u) users.push(u)
   }
-  for (const h of resolved) {
-    if (!h.required && !users.some((u) => u.id === h.user.id)) users.push(h.user)
-  }
-  return users.length > 0 ? users : hostUsers(resolved)
+  return users.length > 0 ? users : pool
 }

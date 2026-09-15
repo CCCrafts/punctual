@@ -30,6 +30,13 @@ export function matchConnection(existing: CalendarConnection[], accountEmail: st
   if (email !== '') {
     const byEmail = existing.find((c) => c.providerAccountEmail.toLowerCase() === email)
     if (byEmail) return byEmail
+    // A row stored before addresses were recorded, whose calendar selection
+    // names the account anyway: Google's primary calendar id is the address,
+    // and the selection was filled with it at connect time.
+    const bySelection = existing.find(
+      (c) => c.providerAccountEmail === '' && [c.calendarIdWrite, ...c.calendarIdsRead].some((id) => id?.toLowerCase() === email),
+    )
+    if (bySelection) return bySelection
   }
   return existing.length === 1 && existing[0]!.providerAccountEmail === '' ? existing[0]! : null
 }
