@@ -433,6 +433,51 @@ describe('un-enabled Calendar API', () => {
   })
 })
 
+/**
+ * The queue is at-least-once: a create that wrote the event and then failed
+ * to persist its id is redelivered. With the event id chosen up front from
+ * the booking and connection, the repeat is answered 409 and the event read
+ * back — no twin on the host's calendar.
+ */
+describe('idempotent event creation', () => {
+  const event = {
+    title: 'Intro call: Ada with Grace',
+    description: 'Participants…',
+    start: Date.UTC(2026, 8, 14, 9),
+    end: Date.UTC(2026, 8, 14, 9, 30),
+    attendees: [{ email: 'ada@example.com', name: 'Ada' }],
+    timezone: 'UTC',
+    idempotencyKey: 'bk_1:cal_1',
+  }
+
+  it('chooses the event id from the booking and connection, and reads the event back on a repeat', async () => {
+    const { fetchImpl, calls } = scriptGoogle([
+      [/\/events\/pu[a-v0-9]+/, () => ({ json: { id: 'ignored-by-google-it-echoes-ours', hangoutLink: 'https://meet.google.com/abc' } })],
+      [/\/events\?/, () => ({ status: 409, json: { error: { code: 409, message: 'The requested identifier already exists.' } } })],
+    ])
+    const provider = createGoogleProvider(deps(fetchImpl) as never)
+    const created = await provider.createEvent(connection({ calendarIdWrite: 'primary' }), event)
+    const insert = calls.find((c) => c.method === 'POST')!
+    expect((insert.body as { id: string }).id).toMatch(/^pu[a-v0-9]+$/)
+    // The read-back is of the id we chose, and its conference link is kept.
+    expect(calls.some((c) => c.method === 'GET' && c.url.includes(`/events/${(insert.body as { id: string }).id}`))).toBe(true)
+    expect(created.conferenceUrl).toBe('https://meet.google.com/abc')
+  })
+
+  it('the same key yields the same id on the next attempt; no key keeps a random conference request', async () => {
+    const bodies: Array<Record<string, unknown>> = []
+    const { fetchImpl } = scriptGoogle([[/\/events\?/, (body) => { bodies.push(body as Record<string, unknown>); return { json: { id: 'evt_x' } } }]])
+    const provider = createGoogleProvider(deps(fetchImpl) as never)
+    await provider.createEvent(connection({ calendarIdWrite: 'primary' }), event)
+    await provider.createEvent(connection({ calendarIdWrite: 'primary' }), event)
+    expect(bodies[0]!['id']).toBe(bodies[1]!['id'])
+    const { idempotencyKey: _omit, ...anonymous } = event
+    await provider.createEvent(connection({ calendarIdWrite: 'primary' }), { ...anonymous, createConference: true })
+    expect(bodies[2]).not.toHaveProperty('id')
+    expect((bodies[2]!['conferenceData'] as { createRequest: { requestId: string } }).createRequest.requestId).toBe('punctual-rrrrrrrrrrrr')
+  })
+})
+
 describe('OAuth configuration', () => {
   it('separates identity from calendar consent (ADR-0005 §1)', () => {
     const oauth = createEnvOAuthCredentials(

@@ -37,7 +37,7 @@ import type { SlotService } from '../../engine.js'
 import type { Booking, EventType, User } from '../../core/domain/types.js'
 import { effectiveQuestions, pickDeclaredAnswers, validateAnswers } from '../../core/domain/booking-service.js'
 import { formatInZone, isValidTimeZone, localDateString } from '../../core/time/zone.js'
-import { resolveHosts as resolveEventTypeHosts } from '../../core/domain/hosts.js'
+import { hostsForBooking, resolveHosts as resolveEventTypeHosts } from '../../core/domain/hosts.js'
 import {
   API_SCOPE_READ,
   API_SCOPE_WRITE,
@@ -371,7 +371,8 @@ export function buildMcpRoutes(ports: EnginePorts, slots: SlotService): Hono<{ B
 
     // A notification carries no id and expects no body — including
     // `notifications/initialized`, which is the only one a client sends us.
-    if (message.id === undefined || message.id === null) {
+    // `id: null` is NOT a notification (see `asRequest`).
+    if (message.id === undefined) {
       return new Response(null, { status: 202 })
     }
     const id = message.id
@@ -454,9 +455,14 @@ function asRequest(value: unknown): JsonRpcRequest | null {
   const record = value as Record<string, unknown>
   if (record['jsonrpc'] !== '2.0') return null
   if (typeof record['method'] !== 'string') return null
+  // JSON-RPC 2.0: an id is a string, a number or null; an object or array
+  // is not a request at all. Absent is a notification; an explicit null is
+  // a (discouraged, but valid) request id that must come back on the
+  // response — folding it into "absent" answered `initialize` with 202 and
+  // no body.
   const rawId = record['id']
-  const id: JsonRpcId | undefined =
-    rawId === undefined ? undefined : typeof rawId === 'string' || typeof rawId === 'number' ? rawId : null
+  if (rawId !== undefined && rawId !== null && typeof rawId !== 'string' && typeof rawId !== 'number') return null
+  const id = rawId as JsonRpcId | undefined
   const params = typeof record['params'] === 'object' && record['params'] !== null
     ? (record['params'] as Record<string, unknown>)
     : undefined
@@ -731,7 +737,9 @@ async function rescheduleBooking(
   const eventType = await repos.eventTypes.byId(original.eventTypeId)
   if (!eventType) return toolError('The event type for that booking no longer exists.')
 
-  const hostUsers = await resolveHosts(repos, eventType, user)
+  // The people on THIS booking, not the event type's current host set — see
+  // the REST reschedule handler.
+  const hostUsers = await hostsForBooking(repos, eventType, original, user)
   // New time first, old time released only once it succeeded — see the same
   // reasoning in the REST reschedule handler.
   const outcome = await deps.ports.coordinator.book(hostUsers[0]?.id ?? user.id, {

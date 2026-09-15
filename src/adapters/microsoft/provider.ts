@@ -19,6 +19,7 @@
 
 import type { Interval } from '../../core/domain/types.js'
 import type { CalendarProvider, ExternalEvent } from '../../ports.js'
+import { stableEventIds } from '../calendar-ids.js'
 import {
   CalendarApiError,
   type CalendarProviderDeps,
@@ -102,7 +103,10 @@ export function createMicrosoftProvider(deps: CalendarProviderDeps): CalendarPro
       const path = writeEventsPath(conn.calendarIdWrite, conn.id)
       // Graph's own idempotency key: a retried POST carrying the same
       // transactionId returns the original event instead of creating a twin.
-      const transactionId = `punctual-${deps.crypto.randomToken(12)}`
+      // Derived from the event's identity when the caller gives one, so the
+      // retry that matters — a redelivered queue message — carries the same
+      // key as the first attempt (adapters/calendar-ids.ts).
+      const transactionId = `punctual-${event.idempotencyKey ? (await stableEventIds(event.idempotencyKey)).short : deps.crypto.randomToken(12)}`
 
       const res = await providerFetch(deps, conn, `${GRAPH}${path}`, {
         method: 'POST',

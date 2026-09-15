@@ -452,6 +452,8 @@ export interface CalendarConnectionRepository {
   create(conn: CalendarConnection): Promise<CalendarConnection>
   updateTokens(id: string, encryptedTokens: string, keyVersion: number): Promise<void>
   updateSyncStatus(id: string, status: CalendarConnection['syncStatus']): Promise<void>
+  /** Set the provider's account address on a connection stored before it was known. */
+  updateAccountEmail(id: string, providerAccountEmail: string): Promise<void>
   /**
    * Rewrite only the calendar selection — never tokens, key version, sync
    * status or provider account email. A single `UPDATE`, not delete+create,
@@ -558,6 +560,12 @@ export interface ExternalEvent {
   /** Ask the provider to mint a conference link (Google Meet). */
   createConference?: boolean
   timezone: string
+  /**
+   * Identity of this event across retries — booking id + connection id.
+   * Providers derive their idempotency keys from it (adapters/calendar-ids.ts)
+   * so a redelivered create returns the original event instead of a twin.
+   */
+  idempotencyKey?: string
 }
 
 export interface CalendarProviders {

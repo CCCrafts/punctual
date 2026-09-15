@@ -13,7 +13,7 @@
  */
 
 import type { Repositories } from '../../ports.js'
-import type { EventType, EventTypeHost, User } from './types.js'
+import type { Booking, EventType, EventTypeHost, User } from './types.js'
 
 export interface ResolvedHost {
   user: User
@@ -90,4 +90,30 @@ export async function hostSettings(
   if (!eventType.ownerTeamId) return new Map()
   const rows = await repos.eventTypeHosts.forEventType(eventType.id)
   return new Map(rows.map((h) => [h.userId, { required: h.required, scheduleId: h.scheduleId, rrWeight: h.rrWeight }]))
+}
+
+/**
+ * The hosts a booking has NOW, as users — for a reschedule, which must move
+ * the meeting with the people on it, not with whoever the event type would
+ * assign today. A co-host added after booking stays; one removed stays
+ * removed. When the booking's list is the event type's current host set
+ * (the common case), the resolved hosts are returned as-is, so nothing
+ * changes for a booking nobody edited. `fallback` stands in for a personal
+ * event type's owner, as in `resolveHosts`.
+ */
+export async function hostsForBooking(
+  repos: Repositories,
+  eventType: EventType,
+  booking: Booking,
+  fallback: User,
+): Promise<User[]> {
+  const resolved = hostUsers(await resolveHosts(repos, eventType, fallback))
+  const same = resolved.length === booking.hostUserIds.length && resolved.every((u) => booking.hostUserIds.includes(u.id))
+  if (same) return resolved
+  const users: User[] = []
+  for (const id of booking.hostUserIds) {
+    const u = await repos.users.byId(id)
+    if (u) users.push(u)
+  }
+  return users.length > 0 ? users : resolved
 }

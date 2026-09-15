@@ -1263,6 +1263,9 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
       )
       return conn
     },
+    async updateAccountEmail(id, providerAccountEmail) {
+      await run('UPDATE calendar_connections SET provider_account_email = ? WHERE id = ?', providerAccountEmail, id)
+    },
     async updateTokens(id, encryptedTokens, keyVersion) {
       await run(
         'UPDATE calendar_connections SET encrypted_tokens = ?, key_version = ? WHERE id = ?',

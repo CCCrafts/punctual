@@ -193,6 +193,10 @@ async function syncCalendar(
   const externalFor = (conn: CalendarConnection, attendees: ExternalEvent['attendees']): ExternalEvent => ({
     title,
     description,
+    // One event per booking per connection (ADR-0011) is the identity the
+    // providers key their idempotent creates on, so a redelivery of this
+    // message after a failed `setSyncResult` finds the event, not a twin.
+    idempotencyKey: `${booking.id}:${conn.id}`,
     start: booking.startUtc,
     end: booking.endUtc,
     attendees,

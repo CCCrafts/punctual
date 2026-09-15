@@ -78,8 +78,9 @@ import { dayRange } from '../engine.js'
 import { isValidTimeZone, localDateString } from '../core/time/zone.js'
 import { validateSlug } from '../core/domain/slugs.js'
 import { canManageTeam, isManagingRole } from '../core/domain/teams.js'
-import { hostUsers, resolveHosts as resolveEventTypeHosts } from '../core/domain/hosts.js'
+import { hostUsers, hostsForBooking, resolveHosts as resolveEventTypeHosts } from '../core/domain/hosts.js'
 import { changeBookingHosts } from '../core/domain/booking-hosts.js'
+import { saveCalendarConnection } from './calendar-connect.js'
 import { notifyNewHosts as notifyNewHostsShared } from './host-notifications.js'
 import { MAX_DECODED_PIXELS,
   MAX_UPLOAD_BYTES,
@@ -525,61 +526,19 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     if (!auth) return c.redirect('/login', 302)
 
     const repos = ports.repositories(sessionScope(auth.session))
-    const now = ports.clock.now()
-    const id = `cal_${ports.crypto.randomToken(12)}`
-    const { ciphertext, keyVersion } = await ports.crypto.encrypt(
-      JSON.stringify({
-        accessToken: tokens.accessToken,
-        refreshToken: tokens.refreshToken,
-        expiresAt: now + tokens.expiresInMs,
-        scope: tokens.scope,
-      }),
-      // AAD binds the ciphertext to this row (ADR-0005 §6).
-      `${auth.user.id}|${provider}|${id}`,
-    )
-
-    const connection: CalendarConnection = {
-      id,
-      userId: auth.user.id,
+    // Onto the existing connection for this account when there is one — a
+    // reconnect — else a new row (http/calendar-connect.ts).
+    await saveCalendarConnection(
+      {
+        repos,
+        crypto: ports.crypto,
+        clock: ports.clock,
+        listCalendars: (conn) => ports.calendars.get(provider).listCalendars(conn),
+      },
+      auth.user.id,
       provider,
-      providerAccountEmail: emailFromIdToken(tokens.idToken, provider) ?? '',
-      encryptedTokens: ciphertext,
-      keyVersion,
-      calendarIdsRead: [],
-      calendarIdWrite: null,
-      syncStatus: 'ok',
-      createdAt: now,
-    }
-
-    try {
-      const calendars = await ports.calendars.get(provider).listCalendars(connection)
-      const primary = calendars.find((cal) => cal.primary) ?? calendars[0]
-      if (primary) {
-        // Microsoft's `getBusy` keys on the mailbox SMTP address, not a
-        // calendar id (see adapters/microsoft/provider.ts) — it falls back to
-        // `providerAccountEmail` only when `calendarIdsRead` is empty.
-        // Filling it with a calendar id here defeated that fallback and made
-        // every Microsoft conflict check silently see an empty schedule,
-        // i.e. treat busy time as free.
-        if (provider !== 'microsoft') connection.calendarIdsRead = [primary.id]
-        connection.calendarIdWrite = primary.id
-      }
-    } catch (err) {
-      // A provider having a bad minute must not lose a grant the host just
-      // gave us. The connections page lets them pick calendars by hand.
-      //
-      // But swallowing the REASON is how a permanent misconfiguration — an
-      // un-enabled Calendar API, a scope the host declined on the granular
-      // consent screen — becomes an empty calendar picker with nothing
-      // anywhere to explain it. The grant still survives; the cause now
-      // reaches `wrangler tail`.
-      console.warn(
-        `[punctual] ${provider} listCalendars failed during connect; connection saved with no calendars selected:`,
-        err instanceof Error ? err.message : String(err),
-      )
-    }
-
-    await repos.connections.create(connection)
+      { ...tokens, accountEmail: emailFromIdToken(tokens.idToken, provider) ?? '' },
+    )
     await repos.sessions.touch(auth.session.idHash, auth.session.expiresAt, repos.bookmark())
     return c.redirect('/dashboard/connections?connected=1', 302)
   }
@@ -2925,18 +2884,6 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
    * nothing was changed the two lists agree and this is the resolver's
    * answer.
    */
-  async function hostsForBooking(repos: Repositories, eventType: EventType, booking: Booking, fallback: User): Promise<User[]> {
-    const resolved = await resolveHosts(repos, eventType, fallback)
-    const same =
-      resolved.length === booking.hostUserIds.length && resolved.every((u) => booking.hostUserIds.includes(u.id))
-    if (same) return resolved
-    const users: User[] = []
-    for (const id of booking.hostUserIds) {
-      const u = await repos.users.byId(id)
-      if (u) users.push(u)
-    }
-    return users.length > 0 ? users : resolved
-  }
 
   async function rescheduleBooking(
     repos: Repositories,

@@ -37,7 +37,7 @@ import type {
 } from '../../core/domain/types.js'
 import { canManageTeam } from '../../core/domain/teams.js'
 import { currentHostIds, notifyNewHosts } from '../host-notifications.js'
-import { hostUsers, resolveHosts as resolveEventTypeHosts, type ResolvedHost } from '../../core/domain/hosts.js'
+import { hostUsers, hostsForBooking, resolveHosts as resolveEventTypeHosts, type ResolvedHost } from '../../core/domain/hosts.js'
 import type { EnginePorts, Repositories, RequestScope } from '../../ports.js'
 import type { SlotService } from '../../engine.js'
 import { authenticateApiKey } from '../../core/domain/auth-flows.js'
@@ -1131,7 +1131,9 @@ export function buildApiRoutes(ports: EnginePorts, slots: SlotService): Hono<Api
     const eventType = await repos.eventTypes.byId(original.eventTypeId)
     if (!eventType) return notFound('event type')
 
-    const hostUsers = await resolveHosts(repos, eventType, user)
+    // The people on THIS booking, not the event type's current host set: a
+    // co-host added after booking moves with it, one removed stays off.
+    const hostUsers = await hostsForBooking(repos, eventType, original, user)
     // Book the new time BEFORE releasing the old one. The invariant worth
     // protecting is that a confirmed booking always holds its `slot_locks`
     // rows; releasing first would open a window where the old meeting exists

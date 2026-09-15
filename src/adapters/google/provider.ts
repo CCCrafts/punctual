@@ -19,6 +19,7 @@
 
 import type { CalendarConnection, Interval } from '../../core/domain/types.js'
 import type { CalendarProvider, ExternalEvent } from '../../ports.js'
+import { stableEventIds } from '../calendar-ids.js'
 import {
   CalendarApiError,
   type CalendarProviderDeps,
@@ -68,9 +69,14 @@ export function createGoogleProvider(deps: CalendarProviderDeps): CalendarProvid
 
     async createEvent(conn, event) {
       const calendarId = writeCalendar(conn.calendarIdWrite, conn.id)
-      // A fresh requestId per event: reusing one returns the SAME conference,
-      // which would put unrelated guests into each other's meeting.
-      const requestId = event.createConference ? `punctual-${deps.crypto.randomToken(12)}` : undefined
+      // Ids derived from the event's identity when the caller gives one
+      // (adapters/calendar-ids.ts): the event id itself, so a retried insert
+      // is answered 409 rather than creating a twin, and the conference
+      // requestId, which then returns the SAME room for the same event —
+      // which is what a retry wants, and what two different events must
+      // never share. Without an identity, fresh random ids as before.
+      const stable = event.idempotencyKey ? await stableEventIds(event.idempotencyKey) : null
+      const requestId = event.createConference ? `punctual-${stable ? stable.short : deps.crypto.randomToken(12)}` : undefined
 
       const url = new URL(`${API}/calendars/${encodeURIComponent(calendarId)}/events`)
       url.searchParams.set('conferenceDataVersion', '1')
@@ -78,11 +84,23 @@ export function createGoogleProvider(deps: CalendarProviderDeps): CalendarProvid
       // too gives the guest two invitations that disagree about branding.
       url.searchParams.set('sendUpdates', 'none')
 
-      const res = await providerFetch(deps, conn, url.toString(), {
+      const body = toGoogleEvent(event, requestId)
+      if (stable) body['id'] = stable.googleEventId
+      let res = await providerFetch(deps, conn, url.toString(), {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(toGoogleEvent(event, requestId)),
+        body: JSON.stringify(body),
       })
+      if (res.status === 409 && stable) {
+        // "The requested identifier already exists": an earlier attempt of
+        // this same sync created it and died before recording the id. The
+        // event on the calendar is the one wanted — read it back.
+        res = await providerFetch(
+          deps,
+          conn,
+          `${API}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(stable.googleEventId)}?conferenceDataVersion=1`,
+        )
+      }
       const created = await readJson<unknown>(conn, res, 'events.insert')
       if (!isRecord(created) || typeof created['id'] !== 'string') {
         throw new CalendarApiError('google', 'events.insert returned no event id', {

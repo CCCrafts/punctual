@@ -6,6 +6,25 @@ still change interfaces.
 
 ## [Unreleased]
 
+### Fixed
+
+- Rescheduling through the REST API or the MCP server moved a meeting with
+  the event type's current hosts instead of the booking's own, dropping a
+  co-host added after booking or bringing back one removed. All three
+  entry points now move the booking with the people on it.
+- A retried calendar sync could create a second real event on the host's
+  calendar when the first attempt died after the provider write. Each
+  event's ids are now derived from the booking and connection, so Google
+  and Microsoft answer a repeat with the original event.
+- Connecting a calendar that was already connected created a second,
+  indistinguishable connection. A grant for a connected account now
+  refreshes that connection's tokens and keeps its calendar selection;
+  Google connections also record the account address from the primary
+  calendar, so two accounts on one provider can be told apart.
+- MCP: a JSON-RPC request with `id: null` was treated as a notification
+  and answered with an empty 202. It is a request; an object or array id
+  is now rejected as an invalid request.
+
 ### Added
 
 - **Cloudflare Email Service** as a third email provider, through the

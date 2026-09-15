@@ -19,6 +19,7 @@ import { buildApiRoutes, toInstant } from '../../src/http/api/rest.js'
 import { buildMcpRoutes } from '../../src/http/mcp/server.js'
 import { buildEmbedRoutes, embedScript } from '../../src/http/embed.js'
 import { createApiKey } from '../../src/core/domain/auth-flows.js'
+import { changeBookingHosts } from '../../src/core/domain/booking-hosts.js'
 import type { EnginePorts } from '../../src/ports.js'
 import type { EventType, User } from '../../src/core/domain/types.js'
 
@@ -1306,6 +1307,107 @@ async function rpc(
   })
   return { status: res.status, body: (await res.json()) as RpcResponse }
 }
+
+/**
+ * A reschedule moves the meeting with the people on it. A co-host added
+ * after booking (booking.hosts_changed) moves with it, one removed stays
+ * off — the dashboard already did this; the REST and MCP entry points
+ * re-resolved the event type's hosts and silently undid the change.
+ */
+describe('rescheduling keeps the booking\'s own hosts', () => {
+  it('through REST and through MCP', async () => {
+    const ports = testPorts()
+    const app = buildApp(ports)
+    const admin = await seedHost(ports)
+    const helper = await seedHost(ports)
+    const repos = ports.repositories({ consistency: 'bookmark' })
+    const team = await repos.teams.createWithFirstMember(
+      { id: 'team_api_resched', name: 'Resched Team', slug: 'resched-team', logoKey: null },
+      { userId: admin.user.id, role: 'admin', rrWeight: 1 },
+    )
+    await repos.teams.addMember({ teamId: team!.id, userId: helper.user.id, role: 'member', rrWeight: 1 })
+    await repos.eventTypes.create({
+      ...admin.eventType,
+      id: 'evt_resched_collective',
+      ownerUserId: null,
+      ownerTeamId: team!.id,
+      schedulingType: 'collective',
+      slug: 'resched',
+      scheduleId: null,
+    })
+    expect(
+      await repos.eventTypeHosts.replace('evt_resched_collective', [
+        { userId: admin.user.id, required: true, scheduleId: null, rrWeight: null },
+        { userId: helper.user.id, required: true, scheduleId: null, rrWeight: null },
+      ]),
+    ).toBe(true)
+
+    const { from, to } = nextWeek()
+    const slots = async () => {
+      const res = await app.request(`/api/v1/slots?eventTypeId=evt_resched_collective&from=${from}&to=${to}&tz=UTC`, { headers: auth(admin.apiKey) })
+      return ((await res.json()) as { data: Array<{ start: { iso: string; epochMs: number } }> }).data
+    }
+    const [first, second, third] = await slots()
+    const booked = await app.request('/api/v1/bookings', {
+      method: 'POST',
+      headers: { ...auth(admin.apiKey), 'content-type': 'application/json' },
+      body: JSON.stringify({ eventTypeId: 'evt_resched_collective', start: first!.start.iso, guestName: 'Ada', guestEmail: 'ada@example.com', guestTimezone: 'UTC' }),
+    })
+    expect(booked.status).toBe(201)
+    const id = ((await booked.json()) as { data: { id: string } }).data.id
+    expect((await repos.bookings.byId(id))?.hostUserIds.sort()).toEqual([admin.user.id, helper.user.id].sort())
+
+    // The helper leaves this one meeting.
+    const changed = await changeBookingHosts(ports, admin.user, { bookingId: id, remove: [helper.user.id] }, repos)
+    expect(changed.ok).toBe(true)
+
+    // REST: the moved booking has the admin alone, as the original did.
+    const moved = await app.request(`/api/v1/bookings/${id}/reschedule`, {
+      method: 'POST',
+      headers: { ...auth(admin.apiKey), 'content-type': 'application/json' },
+      body: JSON.stringify({ start: second!.start.iso }),
+    })
+    expect(moved.status).toBe(201)
+    const movedId = ((await moved.json()) as { data: { id: string } }).data.id
+    expect((await repos.bookings.byId(movedId))?.hostUserIds).toEqual([admin.user.id])
+
+    // MCP: the same.
+    const viaMcp = await rpc(app, admin.apiKey, 'tools/call', {
+      name: 'reschedule_booking',
+      arguments: { bookingId: movedId, newStart: third!.start.iso },
+    })
+    expect(viaMcp.status).toBe(200)
+    const replacement = (await repos.bookings.byId(movedId))?.rescheduledTo
+    expect(replacement).toBeTruthy()
+    expect((await repos.bookings.byId(replacement!))?.hostUserIds).toEqual([admin.user.id])
+  })
+})
+
+describe('JSON-RPC ids', () => {
+  it('answers a request whose id is null, and rejects an id that is an object', async () => {
+    const ports = testPorts()
+    const app = buildApp(ports)
+    const seed = await seedHost(ports)
+    const post = (body: unknown) =>
+      app.request('/mcp', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', ...auth(seed.apiKey) },
+        body: JSON.stringify(body),
+      })
+    const nullId = await post({ jsonrpc: '2.0', id: null, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 't', version: '1' } } })
+    expect(nullId.status).toBe(200)
+    const body = (await nullId.json()) as { id: unknown; result?: unknown }
+    expect(body.id).toBeNull()
+    expect(body.result).toBeDefined()
+
+    const objectId = await post({ jsonrpc: '2.0', id: { nested: true }, method: 'initialize' })
+    expect(objectId.status).toBe(400)
+
+    // Absent id: a notification, no body.
+    const notification = await post({ jsonrpc: '2.0', method: 'notifications/initialized' })
+    expect(notification.status).toBe(202)
+  })
+})
 
 describe('MCP server', () => {
   it('requires an API key, as a JSON-RPC error', async () => {
