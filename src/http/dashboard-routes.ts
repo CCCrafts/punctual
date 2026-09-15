@@ -78,7 +78,7 @@ import { dayRange } from '../engine.js'
 import { isValidTimeZone, localDateString } from '../core/time/zone.js'
 import { validateSlug } from '../core/domain/slugs.js'
 import { canManageTeam, isManagingRole } from '../core/domain/teams.js'
-import { hostUsers, hostsForBooking, resolveHosts as resolveEventTypeHosts } from '../core/domain/hosts.js'
+import { hostUsers, hostsForReschedule, resolveHosts as resolveEventTypeHosts } from '../core/domain/hosts.js'
 import { changeBookingHosts } from '../core/domain/booking-hosts.js'
 import { saveCalendarConnection } from './calendar-connect.js'
 import { notifyNewHosts as notifyNewHostsShared } from './host-notifications.js'
@@ -2727,7 +2727,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     // the guest's route, not the signed-in user (who may be a team admin
     // who is not on the booking at all).
     const primary = (await repos.users.byId(access.booking.hostUserId)) ?? user
-    const hosts = await hostsForBooking(repos, eventType, access.booking, primary)
+    const hosts = await hostsForReschedule(repos, eventType, access.booking, primary)
     const moved = await rescheduleBooking(repos, access.booking, eventType, primary, hosts, start)
     if (!moved.ok) {
       return c.html(
@@ -3017,7 +3017,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
       const hostDayRange = dayRange(selectedDate, host.tz)
       const daySlots = await slots.forEventType({
         eventType,
-        hostUsers: await hostsForBooking(repos, eventType, booking, host),
+        hostUsers: await hostsForReschedule(repos, eventType, booking, host),
         range: { start: hostDayRange.start - DAY_MS, end: hostDayRange.end + DAY_MS },
         scope: { consistency: 'unconstrained' },
       })
@@ -3098,7 +3098,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     const host = await repos.users.byId(old.hostUserId)
     if (!eventType || !host) return manageError(c, 'This booking can no longer be moved.')
 
-    const hosts = await hostsForBooking(repos, eventType, old, host)
+    const hosts = await hostsForReschedule(repos, eventType, old, host)
     const moved = await rescheduleBooking(repos, old, eventType, host, hosts, start)
     if (!moved.ok) {
       return c.html(

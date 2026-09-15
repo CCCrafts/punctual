@@ -29,7 +29,8 @@ describe('saving a calendar grant', () => {
     accountEmail: '',
     ...over,
   })
-  const primary = (id: string) => async () => [{ id, name: 'Primary', primary: true }]
+  // As the providers report it: the primary calendar carries the account's address.
+  const primary = (id: string) => async () => [{ id, name: 'Primary', primary: true, accountEmail: id }]
   const deps = (list: (c: CalendarConnection) => Promise<Array<{ id: string; name: string; primary: boolean }>>) => ({
     repos,
     crypto: ports.crypto,
@@ -66,17 +67,34 @@ describe('saving a calendar grant', () => {
     expect(stored[0]!.encryptedTokens).not.toBe(first.connection.encryptedTokens)
   })
 
-  it('a grant for a different account on the same provider is a second connection', async () => {
+  it('a grant for a different account on the same provider is a second connection, never the first one overwritten', async () => {
     const user = await repos.users.create({ id: 'u_cc_3', email: 'cc3@example.com', name: 'CC Three', tz: 'UTC', slug: 'cc-three', avatarKey: null, company: null, jobTitle: null, companyUrl: null, role: 'member' })
-    await saveCalendarConnection(deps(primary('work@acme.com')), user!.id, 'google', grant({ accountEmail: 'work@acme.com' }))
-    const personal = await saveCalendarConnection(deps(primary('me@gmail.com')), user!.id, 'google', grant({ accountEmail: 'me@gmail.com' }))
+    // The token names no account (the calendar flow's never does); the
+    // calendar list is what says who this is.
+    const work = await saveCalendarConnection(deps(primary('work@acme.com')), user!.id, 'google', grant())
+    const personal = await saveCalendarConnection(deps(primary('me@gmail.com')), user!.id, 'google', grant())
     expect(personal.reconnected).toBe(false)
+    expect(personal.connection.id).not.toBe(work.connection.id)
     const stored = await repos.connections.listForUser(user!.id)
-    expect(stored.map((c) => c.providerAccountEmail).sort()).toEqual(['me@gmail.com', 'work@acme.com'])
-    // And with two, a token that names neither becomes a third rather than a guess.
-    const third = await saveCalendarConnection(deps(primary('x@other.com')), user!.id, 'google', grant())
-    expect(third.reconnected).toBe(false)
-    expect(await repos.connections.listForUser(user!.id)).toHaveLength(3)
+    expect(stored.map((c) => [c.providerAccountEmail, c.calendarIdWrite]).sort()).toEqual([
+      ['me@gmail.com', 'me@gmail.com'],
+      ['work@acme.com', 'work@acme.com'],
+    ])
+    // Each reconnects onto its own row.
+    const workAgain = await saveCalendarConnection(deps(primary('work@acme.com')), user!.id, 'google', grant())
+    expect(workAgain.reconnected).toBe(true)
+    expect(workAgain.connection.id).toBe(work.connection.id)
+    expect(await repos.connections.listForUser(user!.id)).toHaveLength(2)
+  })
+
+  it('a named connection is not reused when the new grant cannot be identified', async () => {
+    const user = await repos.users.create({ id: 'u_cc_5', email: 'cc5@example.com', name: 'CC Five', tz: 'UTC', slug: 'cc-five', avatarKey: null, company: null, jobTitle: null, companyUrl: null, role: 'member' })
+    await saveCalendarConnection(deps(primary('me@contoso.com')), user!.id, 'microsoft', grant({ accountEmail: 'me@contoso.com' }))
+    // The list came back without an owner and the token said nothing: a
+    // duplicate is the lesser evil next to overwriting a different account.
+    const unknown = await saveCalendarConnection(deps(async () => [{ id: 'AAMk', name: 'Calendar', primary: true }]), user!.id, 'microsoft', grant())
+    expect(unknown.reconnected).toBe(false)
+    expect(await repos.connections.listForUser(user!.id)).toHaveLength(2)
   })
 
   it('survives a provider that cannot list calendars, saving the grant with nothing selected', async () => {

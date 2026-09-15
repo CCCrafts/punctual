@@ -13,13 +13,16 @@ import type { CalendarConnection } from './types.js'
 
 /**
  * `existing` is the user's connections for this one provider. `accountEmail`
- * is what the provider said about the account, or '' when it said nothing.
+ * is the address the grant turned out to be for — learned from the
+ * provider's calendar list BEFORE this is called — or '' when nothing said.
  *
- * - An email that matches a stored one: that connection.
- * - No usable email match, and exactly one connection for the provider: that
- *   one — a second grant for the only account connected is a reconnect, not
- *   a new account. (A host with a work and a personal account on the same
- *   provider has two, and then the email decides or nothing does.)
+ * - An address that matches a stored one: that connection.
+ * - Otherwise, exactly one connection and it has no address on record (a
+ *   row stored before addresses were learned): that one — the only account
+ *   ever connected, most likely the same one. A row that names a DIFFERENT
+ *   address is never overwritten: that grant is a second account, and
+ *   taking its tokens onto the first would disconnect the first while
+ *   never adding the second (caught by review).
  * - Otherwise null: a new connection.
  */
 export function matchConnection(existing: CalendarConnection[], accountEmail: string): CalendarConnection | null {
@@ -27,9 +30,6 @@ export function matchConnection(existing: CalendarConnection[], accountEmail: st
   if (email !== '') {
     const byEmail = existing.find((c) => c.providerAccountEmail.toLowerCase() === email)
     if (byEmail) return byEmail
-    const unnamed = existing.filter((c) => c.providerAccountEmail === '')
-    if (existing.length === 1 && unnamed.length === 1) return unnamed[0]!
-    return null
   }
-  return existing.length === 1 ? existing[0]! : null
+  return existing.length === 1 && existing[0]!.providerAccountEmail === '' ? existing[0]! : null
 }

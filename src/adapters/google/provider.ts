@@ -168,13 +168,15 @@ export function createGoogleProvider(deps: CalendarProviderDeps): CalendarProvid
       const json = await readJson<unknown>(conn, res, 'calendarList.list')
       const items = isRecord(json) && Array.isArray(json['items']) ? json['items'] : []
 
-      const out: Array<{ id: string; name: string; primary: boolean }> = []
+      const out: Array<{ id: string; name: string; primary: boolean; accountEmail?: string }> = []
       for (const item of items) {
         if (!isRecord(item) || typeof item['id'] !== 'string') continue
         out.push({
           id: item['id'],
           name: typeof item['summary'] === 'string' ? item['summary'] : item['id'],
           primary: item['primary'] === true,
+          // The primary calendar's id is the account's address.
+          ...(item['primary'] === true && item['id'].includes('@') ? { accountEmail: item['id'].toLowerCase() } : {}),
         })
       }
       return out

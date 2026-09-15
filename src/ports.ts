@@ -531,7 +531,13 @@ export interface CalendarProvider {
   createEvent(conn: CalendarConnection, event: ExternalEvent): Promise<CreatedEvent>
   updateEvent(conn: CalendarConnection, externalId: string, event: ExternalEvent): Promise<void>
   deleteEvent(conn: CalendarConnection, externalId: string): Promise<void>
-  listCalendars(conn: CalendarConnection): Promise<Array<{ id: string; name: string; primary: boolean }>>
+  /**
+   * The account's calendars. `accountEmail` is the address the provider
+   * shows as the calendar's owner where it does — Google's primary calendar
+   * id, Graph's `owner.address` — and is how a connection learns which
+   * account it is for, since the calendar flow asks for no identity scope.
+   */
+  listCalendars(conn: CalendarConnection): Promise<Array<{ id: string; name: string; primary: boolean; accountEmail?: string }>>
 }
 
 /**

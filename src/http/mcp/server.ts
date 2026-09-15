@@ -37,7 +37,7 @@ import type { SlotService } from '../../engine.js'
 import type { Booking, EventType, User } from '../../core/domain/types.js'
 import { effectiveQuestions, pickDeclaredAnswers, validateAnswers } from '../../core/domain/booking-service.js'
 import { formatInZone, isValidTimeZone, localDateString } from '../../core/time/zone.js'
-import { hostsForBooking, resolveHosts as resolveEventTypeHosts } from '../../core/domain/hosts.js'
+import { hostsForReschedule, resolveHosts as resolveEventTypeHosts } from '../../core/domain/hosts.js'
 import {
   API_SCOPE_READ,
   API_SCOPE_WRITE,
@@ -737,9 +737,8 @@ async function rescheduleBooking(
   const eventType = await repos.eventTypes.byId(original.eventTypeId)
   if (!eventType) return toolError('The event type for that booking no longer exists.')
 
-  // The people on THIS booking, not the event type's current host set — see
-  // the REST reschedule handler.
-  const hostUsers = await hostsForBooking(repos, eventType, original, user)
+  // Who the moved meeting is with — see `hostsForReschedule`.
+  const hostUsers = await hostsForReschedule(repos, eventType, original, user)
   // New time first, old time released only once it succeeded — see the same
   // reasoning in the REST reschedule handler.
   const outcome = await deps.ports.coordinator.book(hostUsers[0]?.id ?? user.id, {

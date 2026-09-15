@@ -25,12 +25,17 @@ describe('which connection a fresh grant belongs to', () => {
     expect(matchConnection([work, personal], 'me@gmail.com')).toBe(personal)
   })
 
-  it('the only connection of the provider when the address is unknown, or when it is the one without an address', () => {
+  it('the only connection of the provider when that one has no address on record', () => {
     const only = conn('c_only', '')
     expect(matchConnection([only], '')).toBe(only)
     expect(matchConnection([only], 'me@acme.com')).toBe(only)
-    const named = conn('c_named', 'me@acme.com')
-    expect(matchConnection([named], '')).toBe(named)
+  })
+
+  it('never a connection that names a DIFFERENT address, even when it is the only one (caught by review)', () => {
+    const named = conn('c_named', 'work@acme.com')
+    expect(matchConnection([named], 'me@gmail.com')).toBeNull()
+    // And with nothing learned about the new grant, a named row is not assumed either.
+    expect(matchConnection([named], '')).toBeNull()
   })
 
   it('a new connection when the address matches nothing and there is more than one, or none', () => {

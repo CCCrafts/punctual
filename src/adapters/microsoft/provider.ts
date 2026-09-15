@@ -145,19 +145,22 @@ export function createMicrosoftProvider(deps: CalendarProviderDeps): CalendarPro
     },
 
     async listCalendars(conn) {
-      const res = await providerFetch(deps, conn, `${GRAPH}/me/calendars?$top=100&$select=id,name,isDefaultCalendar`, {
+      const res = await providerFetch(deps, conn, `${GRAPH}/me/calendars?$top=100&$select=id,name,isDefaultCalendar,owner`, {
         method: 'GET',
       })
       const json = await readJson<unknown>(conn, res, 'calendars.list')
       const items = isRecord(json) && Array.isArray(json['value']) ? json['value'] : []
 
-      const out: Array<{ id: string; name: string; primary: boolean }> = []
+      const out: Array<{ id: string; name: string; primary: boolean; accountEmail?: string }> = []
       for (const item of items) {
         if (!isRecord(item) || typeof item['id'] !== 'string') continue
         out.push({
           id: item['id'],
           name: typeof item['name'] === 'string' ? item['name'] : item['id'],
           primary: item['isDefaultCalendar'] === true,
+          ...(isRecord(item['owner']) && typeof item['owner']['address'] === 'string' && item['owner']['address'] !== ''
+            ? { accountEmail: item['owner']['address'].toLowerCase() }
+            : {}),
         })
       }
       return out
