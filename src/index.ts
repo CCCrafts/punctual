@@ -15,7 +15,7 @@ import { createWebCrypto } from './adapters/crypto/webcrypto.js'
 import { createKvCache } from './adapters/cache/kv.js'
 import { createKvBlobCache } from './adapters/cache/kv-blob.js'
 import { createR2BlobStorage } from './adapters/storage/r2-blob.js'
-import { createBrevoSender, createConsoleSender, createResendSender } from './adapters/email/index.js'
+import { createBrevoSender, createCloudflareSender, createConsoleSender, createResendSender } from './adapters/email/index.js'
 import { createEnvOAuthCredentials } from './adapters/oauth.js'
 import { createCalendarProviders } from './adapters/providers.js'
 import { createCoordinator } from './adapters/coordinator.js'
@@ -52,6 +52,8 @@ export interface Env {
   ENCRYPTION_KEY_V1?: string
   ENCRYPTION_KEY_V2?: string
   SIGNING_KEY?: string
+  /** Cloudflare Email Service. Bound by `[[send_email]]` in wrangler.toml — no key, no secret. */
+  EMAIL?: SendEmail
   RESEND_API_KEY?: string
   BREVO_API_KEY?: string
   GOOGLE_CLIENT_ID?: string
@@ -127,13 +129,27 @@ export function buildPorts(env: Env): EnginePorts {
   // Resolved ONCE, next to the sender it describes, so the two cannot drift:
   // a mode that claimed 'brevo' while the console sender was actually wired
   // would be worse than no signal at all.
-  const emailDelivery: EmailDelivery = env.RESEND_API_KEY ? 'resend' : env.BREVO_API_KEY ? 'brevo' : 'console'
+  // The binding outranks both keys deliberately. A `[[send_email]]` block is
+  // an edit to wrangler.toml — the most explicit configuration act available,
+  // and the only one of the three that cannot arrive by accident from a stray
+  // secret inherited off another deployment. Swapping to Resend or Brevo is
+  // therefore "remove the binding", not "set a key and hope the precedence
+  // falls your way".
+  const emailDelivery: EmailDelivery = env.EMAIL
+    ? 'cloudflare'
+    : env.RESEND_API_KEY
+      ? 'resend'
+      : env.BREVO_API_KEY
+        ? 'brevo'
+        : 'console'
   const email =
-    emailDelivery === 'resend'
-      ? createResendSender({ apiKey: env.RESEND_API_KEY!, from: emailFrom, fromName: emailFromName })
-      : emailDelivery === 'brevo'
-        ? createBrevoSender({ apiKey: env.BREVO_API_KEY!, from: emailFrom, fromName: emailFromName })
-        : createConsoleSender()
+    emailDelivery === 'cloudflare'
+      ? createCloudflareSender({ binding: env.EMAIL!, from: emailFrom, fromName: emailFromName })
+      : emailDelivery === 'resend'
+        ? createResendSender({ apiKey: env.RESEND_API_KEY!, from: emailFrom, fromName: emailFromName })
+        : emailDelivery === 'brevo'
+          ? createBrevoSender({ apiKey: env.BREVO_API_KEY!, from: emailFrom, fromName: emailFromName })
+          : createConsoleSender()
 
   if (emailDelivery === 'console') {
     // Loud, once, at boot. On its own this catches nothing (nobody tails a
@@ -141,7 +157,7 @@ export function buildPorts(env: Env): EnginePorts {
     // signal — but it costs nothing and it is the first place someone
     // debugging "where did my confirmation go" will look.
     console.warn(
-      '[punctual] No RESEND_API_KEY or BREVO_API_KEY is set. Emails are being LOGGED, NOT SENT — ' +
+      '[punctual] No email provider is configured (no [[send_email]] binding, RESEND_API_KEY or BREVO_API_KEY). Emails are being LOGGED, NOT SENT — ' +
         'guests will receive no booking confirmations. See /health and docs/self-hosting.md.',
     )
   }

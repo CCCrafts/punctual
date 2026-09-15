@@ -140,8 +140,52 @@ Without an email provider, Punctual logs emails instead of sending them —
 useful for local testing, not for real bookings. This is a real trap: nothing
 in the product looks broken, because only the recipients can tell. If you skip
 this step, the dashboard and `/health` will both keep saying so (see
-Troubleshooting). To send for real, set **either** provider's key (Resend is
-tried first if both are set):
+Troubleshooting).
+
+There are three ways to send. On Cloudflare the first needs no API key at all.
+
+### Cloudflare Email Service
+
+The `send_email` binding is itself the credential, scoped by `wrangler.toml` —
+nothing to rotate, leak, or forget to set. Your domain must be on Cloudflare
+DNS, and sending to guests needs a Workers Paid plan.
+
+Do these in order:
+
+1. **Onboard the sending domain.** Cloudflare dashboard → **Compute → Email
+   Service → Email Sending → Onboard Domain**. Cloudflare adds MX, SPF and
+   DKIM records under `cf-bounce.<your-domain>`, plus DMARC at
+   `_dmarc.<your-domain>`; allow 5–15 minutes.
+
+   It does not touch your apex MX, so an existing mailbox provider on the same
+   domain (Google Workspace, Microsoft 365) keeps working — different DKIM
+   selectors, and the return path lives on the `cf-bounce` subdomain. Email
+   *Routing* is the feature that would conflict there; this is not that.
+
+2. **Set `FROM_EMAIL` to an address on the domain you onboarded.** Onboarding
+   `mail.example.com` does not authorise `you@example.com`: the sender address
+   must belong to an onboarded domain, or every send is rejected.
+
+3. **Uncomment the binding** in `wrangler.toml`:
+
+   ```toml
+   [[send_email]]
+   name = "EMAIL"
+   ```
+
+4. **Deploy, then sign in.** The sign-in link is the one email Punctual sends
+   on the request path rather than through the queue, so a sender that is not
+   authorised fails immediately and visibly — before a guest ever books.
+
+The order matters. Do 3 and 4 before 1 and you get a window where the
+dashboard and `/health` both read healthy while no mail arrives, because the
+"email is not configured" warning only fires for the console sender — and with
+a binding present, a provider *is* configured.
+
+### Resend or Brevo
+
+Set **either** provider's key (Resend is tried first if both are set, and a
+`send_email` binding takes precedence over both):
 
 ```bash
 npx wrangler secret put RESEND_API_KEY
@@ -241,6 +285,7 @@ Two features need a paid plan, and both degrade gracefully:
 | `SIGNING_KEY` | secret | HMAC key for guest manage links |
 | `GOOGLE_CLIENT_ID` / `_SECRET` | secret | Your Google OAuth app |
 | `MICROSOFT_CLIENT_ID` / `_SECRET` | secret | Your Microsoft app |
+| `[[send_email]]` | binding | Cloudflare Email Service — no key. Takes precedence over both API keys. Needs the sending domain onboarded (Compute → Email Service) and Workers Paid; until then guest sends fail while `/health` still reads healthy |
 | `RESEND_API_KEY` | secret | Omit to log emails instead of sending — `/health` and the dashboard both warn when neither key is set |
 | `BREVO_API_KEY` | secret | Alternative to Resend; Resend wins if both are set |
 
@@ -258,6 +303,11 @@ rather than take our word for it.
 
 **"unverified app" on Google sign-in.** Expected until Google finishes
 verification. Add yourself as a test user on the consent screen.
+
+**Emails are not arriving, and you bound Cloudflare Email Service.** They are
+not being logged — they are being rejected. Two usual causes: the sending
+domain is not onboarded yet, or `FROM_EMAIL` is on a different domain than the
+one you onboarded. `npx wrangler tail` names which.
 
 **Emails are not arriving.** With no `RESEND_API_KEY` or `BREVO_API_KEY` they
 are logged, not sent — bookings still commit and calendars still sync, so
