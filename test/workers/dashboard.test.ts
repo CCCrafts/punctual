@@ -1232,11 +1232,11 @@ describe('signup policy', () => {
     expect(closed).not.toContain('create an account')
   })
 
-  it('a closed instance answers identically for known and unknown addresses — and mails BOTH, so there is no timing branch either', async () => {
-    // The request path must be byte- and work-identical regardless of policy:
-    // an earlier version suppressed the stranger's email here, and the skipped
-    // D1 insert + awaited provider send was a measurable existence oracle.
-    // The stranger's link simply dead-ends at the consume gate below.
+  it('a closed instance answers identically for known and unknown addresses — and mails only the one that can sign in', async () => {
+    // The page says the same thing to everyone. But a stranger is sent
+    // nothing: mailing any address a form is fed makes the instance a spam
+    // relay on the operator's domain (#9), and that outweighs the timing
+    // oracle an earlier version guarded against by mailing everyone.
     const known = await closedPost('/login', { email: HOST_EMAIL })
     const unknown = await closedPost('/login', { email: 'stranger-closed@example.test' })
     expect(known.status).toBe(200)
@@ -1244,15 +1244,11 @@ describe('signup policy', () => {
 
     const recipients = email.sent.map((m) => m.to)
     expect(recipients).toContain(HOST_EMAIL)
-    expect(recipients).toContain('stranger-closed@example.test')
-    // Same work, different words: the host's mail carries the link, the
-    // stranger's says there is no account and whom to ask — no dead-end link.
-    const hostMail = email.sent.find((m) => m.to === HOST_EMAIL)!
-    const strangerMail = email.sent.find((m) => m.to === 'stranger-closed@example.test')!
-    expect(hostMail.text).toContain('/auth/callback?token=')
-    expect(strangerMail.text).not.toContain('/auth/callback')
-    expect(strangerMail.subject).toContain('No account for this address')
-    expect(strangerMail.text).toContain('does not accept new sign-ups')
+    expect(recipients).not.toContain('stranger-closed@example.test')
+    expect(email.sent.find((m) => m.to === HOST_EMAIL)!.text).toContain('/auth/callback?token=')
+    // And no token row was minted for the stranger either.
+    const rows = await db.prepare('SELECT COUNT(*) AS n FROM magic_link_tokens WHERE email = ?').bind('stranger-closed@example.test').first<{ n: number }>()
+    expect(rows?.n).toBe(0)
   })
 
   it('the consume gate refuses to CREATE a user on a closed instance, with a distinct message', async () => {

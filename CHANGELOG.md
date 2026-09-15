@@ -8,12 +8,12 @@ still change interfaces.
 
 ### Changed
 
-- **A stranger is told, not strung along.** With sign-ups closed or an
-  allowlist, an address that cannot sign in used to get a real magic link
-  that dead-ended on "sign-ups are closed". It now gets an email saying
-  there is no account for it here and whom to ask. Same work on the
-  server for every address, so nothing about who has an account leaks.
-  The instance homepage gained a *Sign in* link in its footer. Both from #9.
+- **No email to an address that cannot sign in.** With sign-ups closed
+  or an allowlist, the sign-in form used to email any address it was
+  given — a link that dead-ended on "sign-ups are closed" — which made a
+  closed instance a spam relay for whoever fed the form. Such an address
+  is now sent nothing; the page answers everyone the same way. The
+  instance homepage gained a *Sign in* link in its footer. Both from #9.
 
 ### Added
 
