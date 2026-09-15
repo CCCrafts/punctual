@@ -172,6 +172,66 @@ export class CalendarReconnectRequiredError extends Error {
   }
 }
 
+/**
+ * The provider's calendar API is not enabled for the operator's own cloud
+ * project. Deliberately NOT a `CalendarReconnectRequiredError`: the grant is
+ * valid and reconnecting cannot fix it, so offering "Reconnect" is worse than
+ * offering nothing — the host reconnects, lands back on an empty calendar
+ * list, and has no reason to suspect a console setting they have never seen.
+ * Google returns this as a 403 whose body names `accessNotConfigured`, which
+ * otherwise falls through to a generic `CalendarApiError` and gets logged as
+ * one more opaque failure.
+ *
+ * `howToFix` is part of the error because the fix is neither guessable from
+ * the status code nor performable inside this product.
+ */
+export class CalendarSetupRequiredError extends Error {
+  readonly provider: CalendarProviderName
+  /** Brand, so a cross-bundle `instanceof` miss cannot turn this into a 500. */
+  readonly needsSetup = true as const
+  readonly howToFix: string
+
+  constructor(provider: CalendarProviderName, detail: string) {
+    const howToFix = SETUP_HINTS[provider]
+    super(`[${provider}] calendar API is not enabled: ${detail}. ${howToFix}`)
+    this.name = 'CalendarSetupRequiredError'
+    this.provider = provider
+    this.howToFix = howToFix
+  }
+}
+
+const SETUP_HINTS: Record<CalendarProviderName, string> = {
+  google:
+    'Enable the Google Calendar API for the Cloud project that owns your OAuth client: ' +
+    'https://console.cloud.google.com/apis/library/calendar-json.googleapis.com',
+  microsoft:
+    'Grant the Calendars.ReadWrite application permission to your Entra app registration, ' +
+    'then have a tenant admin consent to it.',
+}
+
+/**
+ * Does this 403 mean "the API is switched off", rather than "this grant is not
+ * allowed to do that"? Pure, so the body shapes below are pinned by tests
+ * rather than discovered in production.
+ *
+ * Google phrases the same condition three ways depending on which surface
+ * answers — a `reason` of `accessNotConfigured`, a `SERVICE_DISABLED` status,
+ * or prose naming the project — and matching only one of them is how this
+ * reaches a host as a blank page. Deliberately not matching a bare "is
+ * disabled": that appears in unrelated 403s, and a false positive here tells
+ * a host to go change a console setting that was never the problem.
+ */
+export function isApiNotEnabled(body: string): boolean {
+  return /accessNotConfigured|SERVICE_DISABLED|has not been used in project/i.test(body)
+}
+
+export function needsSetup(err: unknown): err is CalendarSetupRequiredError {
+  return (
+    err instanceof CalendarSetupRequiredError ||
+    (typeof err === 'object' && err !== null && (err as { needsSetup?: unknown }).needsSetup === true)
+  )
+}
+
 /** Everything else. Carries status and body because "calendar sync failed" is not a bug report. */
 export class CalendarApiError extends Error {
   readonly provider: CalendarProviderName
@@ -412,6 +472,12 @@ export async function expectOk(
   // A 401 that survived the forced refresh means the credential itself is dead.
   if (res.status === 401) {
     throw new CalendarReconnectRequiredError(conn.provider, conn.id, `${what} returned 401: ${body}`)
+  }
+  // Checked before the scope branch below because it is the more specific
+  // reading of a 403, and because the two call for opposite advice: this one
+  // must never tell the host to reconnect.
+  if (res.status === 403 && isApiNotEnabled(body)) {
+    throw new CalendarSetupRequiredError(conn.provider, `${what} returned 403: ${body}`)
   }
   // Scopes were revoked or narrowed after the fact — also only the user can fix it.
   if (res.status === 403 && /insufficientPermissions|insufficient_scope|ErrorAccessDenied/i.test(body)) {

@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { createGoogleProvider } from '../../src/adapters/google/provider.js'
-import { createEnvOAuthCredentials } from '../../src/adapters/oauth.js'
+import {
+  createEnvOAuthCredentials,
+  isApiNotEnabled,
+  needsReconnect,
+  needsSetup,
+  type CalendarSetupRequiredError,
+} from '../../src/adapters/oauth.js'
 import { computeSlots } from '../../src/core/slots/engine.js'
 import { combineBusy } from '../../src/core/domain/booking-service.js'
 import { localTimeToInstant } from '../../src/core/time/zone.js'
@@ -353,6 +359,77 @@ describe('token lifecycle', () => {
     await expect(provider.getBusy(connection(), { start, end: start + DAY })).rejects.toMatchObject({
       needsReconnect: true,
     })
+  })
+})
+
+/**
+ * The Calendar API being switched off in the operator's own Cloud project is a
+ * first-run failure, not an exotic one: creating OAuth credentials does not
+ * enable any API, so the very first deployment hits it. It matters that it is
+ * told apart from a revoked grant, because the two call for opposite advice —
+ * and "Reconnect" on a valid grant is a loop the host cannot escape or even
+ * diagnose.
+ *
+ * Body taken from Google's documented `accessNotConfigured` response.
+ */
+describe('un-enabled Calendar API', () => {
+  const ACCESS_NOT_CONFIGURED = {
+    error: {
+      code: 403,
+      message:
+        'Google Calendar API has not been used in project 123456 before or it is disabled. ' +
+        'Enable it by visiting https://console.developers.google.com/apis/api/calendar-json.googleapis.com/overview?project=123456 then retry.',
+      errors: [{ message: 'Access Not Configured.', domain: 'usageLimits', reason: 'accessNotConfigured' }],
+      status: 'PERMISSION_DENIED',
+      details: [{ '@type': 'type.googleapis.com/google.rpc.ErrorInfo', reason: 'SERVICE_DISABLED' }],
+    },
+  }
+
+  it('surfaces as needs-setup rather than needs-reconnect', async () => {
+    const { fetchImpl } = scriptGoogle([
+      [/calendarList/, () => ({ status: 403, json: ACCESS_NOT_CONFIGURED })],
+    ])
+    const provider = createGoogleProvider(deps(fetchImpl) as never)
+
+    const err = await provider.listCalendars(connection()).then(() => null, (e: unknown) => e)
+    expect(needsSetup(err)).toBe(true)
+    // The distinction IS the fix: classify this as needs-reconnect and the host
+    // is sent to re-grant access that was never the problem.
+    expect(needsReconnect(err)).toBe(false)
+  })
+
+  it('carries a fix the host can actually act on', async () => {
+    const { fetchImpl } = scriptGoogle([
+      [/calendarList/, () => ({ status: 403, json: ACCESS_NOT_CONFIGURED })],
+    ])
+    const provider = createGoogleProvider(deps(fetchImpl) as never)
+
+    const err = await provider.listCalendars(connection()).then(() => null, (e: unknown) => e)
+    // Not a status code and not a provider body — the console page to open.
+    expect((err as CalendarSetupRequiredError).howToFix).toContain(
+      'console.cloud.google.com/apis/library/calendar-json.googleapis.com',
+    )
+  })
+
+  it('classifies the three shapes Google reports it in, and nothing else', () => {
+    expect(isApiNotEnabled('"reason": "accessNotConfigured"')).toBe(true)
+    expect(isApiNotEnabled('"reason": "SERVICE_DISABLED"')).toBe(true)
+    expect(isApiNotEnabled('Google Calendar API has not been used in project 1 before')).toBe(true)
+    // A narrowed scope is a different failure with different advice: it really
+    // does need a reconnect, so it must not be absorbed here.
+    expect(isApiNotEnabled('{"error":"insufficientPermissions"}')).toBe(false)
+    expect(isApiNotEnabled('{"error":"invalid_grant"}')).toBe(false)
+  })
+
+  it('leaves a genuine scope failure classified as needs-reconnect', async () => {
+    const { fetchImpl } = scriptGoogle([
+      [/calendarList/, () => ({ status: 403, json: { error: { message: 'insufficientPermissions' } } })],
+    ])
+    const provider = createGoogleProvider(deps(fetchImpl) as never)
+
+    const err = await provider.listCalendars(connection()).then(() => null, (e: unknown) => e)
+    expect(needsReconnect(err)).toBe(true)
+    expect(needsSetup(err)).toBe(false)
   })
 })
 

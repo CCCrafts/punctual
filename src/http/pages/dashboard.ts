@@ -1901,6 +1901,14 @@ export interface ConnectionView {
    * broken connection can still see and fix what is selected.
    */
   calendars: Array<{ id: string; name: string; primary: boolean }>
+  /**
+   * Set when the list is empty because the provider's calendar API is not
+   * enabled for this deployment's cloud project — a misconfiguration the
+   * operator fixes in a console, not by reconnecting. Carries the fix itself,
+   * since an empty picker gives the host nothing to act on and the obvious
+   * guess (reconnect) leads straight back here.
+   */
+  problem?: string
 }
 
 export interface ConnectionsPageData extends DashboardChrome {
@@ -1972,6 +1980,16 @@ function connectionCard(d: ConnectionsPageData, view: ConnectionView): string {
 </article>`
   }
 
+  // Distinct from the `needs_reconnect` card above: that one offers Reconnect
+  // because reconnecting is the fix. Here it is not, so this deliberately
+  // offers no button at all — just the one thing that does work.
+  const problem = view.problem
+    ? `<div role="alert">
+    <p class="pu-err" style="font-size:.9375rem;margin-top:.75rem">Could not list calendars from ${escapeHtml(providerLabel(c.provider))}.
+       Reconnecting will not help &mdash; ${escapeHtml(view.problem)}</p>
+  </div>`
+    : ''
+
   // A provider list we could not fetch must not silently drop the host's
   // selection, so fall back to the stored ids — labelled as ids we could
   // not resolve, so the host knows the name is missing and not the calendar.
@@ -2007,6 +2025,7 @@ function connectionCard(d: ConnectionsPageData, view: ConnectionView): string {
   // form, rendered after, which plain HTML honours without any script.
   return `<article class="pu-card">
   ${connectionHeading(c)}
+  ${problem}
   <form id="save-${escapeHtml(c.id)}" method="post" action="/dashboard/connections/${id}">
     ${csrfField(d.csrf)}
     <fieldset style="border:0;padding:0;margin:1rem 0 0">
