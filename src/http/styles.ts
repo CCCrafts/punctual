@@ -291,6 +291,14 @@ time,.pu-time{font-family:var(--pu-font-mono);font-variant-numeric:tabular-nums}
 .pu-hosts-text{margin:0;font-size:.9375rem;line-height:1.4;color:var(--pu-text-secondary)}
 .pu-hosts-text strong{color:var(--pu-ink-950);font-weight:600}
 .pu-hosts-team{color:var(--pu-text-secondary);font-weight:400}
+.pu-home .pu-event-header{border-bottom:0}
+.pu-home-intro p{margin:.5rem 0 0;max-width:38rem;line-height:1.5}
+.pu-home-list{list-style:none;margin:1.5rem 0 0;padding:0;display:grid;gap:.75rem;grid-template-columns:repeat(auto-fill,minmax(18rem,1fr))}
+.pu-home-item{display:flex;flex-direction:column;gap:.35rem;padding:1rem 1.1rem;border:1px solid var(--pu-line);border-radius:12px;background:var(--pu-surface-raised);color:inherit;text-decoration:none;min-height:100%}
+.pu-home-item:hover,.pu-home-item:focus-visible{border-color:var(--pu-green-fill);outline:0}
+.pu-home-item-title{font-family:var(--pu-font-display);font-weight:600;font-size:1.0625rem}
+.pu-home-item-meta{display:flex;align-items:center;gap:.4rem;font-size:.875rem;color:var(--pu-text-secondary)}
+.pu-home-item-desc{font-size:.9375rem;color:var(--pu-text-secondary);line-height:1.4}
 .pu-hosts-more{display:inline}
 .pu-hosts-more summary{display:inline;cursor:pointer;color:var(--pu-green-700);list-style:none}
 .pu-hosts-more summary::-webkit-details-marker{display:none}

@@ -34,6 +34,8 @@ function page(signups = 'open'): string {
     allUsers: [admin, bob],
     signups: { value: signups, pinnedByEnv: false },
     companyLogo: null,
+    home: { mode: 'landing', title: '', intro: '', eventTypeIds: [] },
+    homeChoices: [],
   })
 }
 

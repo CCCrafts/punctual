@@ -21,6 +21,9 @@ import { buildOgRoutes } from './og/route.js'
 import { buildAvatarRoutes } from './avatars/route.js'
 import { privacyPage, termsPage } from './pages/legal.js'
 import { calendlyAlternativePage, landingPage } from './pages/landing.js'
+import { instanceHomePage } from './pages/home.js'
+import { HOME_KEYS, homeItems, parseHomeSettings } from '../core/domain/home.js'
+import { COMPANY_LOGO_KEY, COMPANY_LOGO_SHAPE, companyLogoFrom } from '../core/domain/media.js'
 import { docsApiPage, docsIndexPage, docsMcpPage, docsSelfHostingPage } from './pages/docs.js'
 import type { EnginePorts, RequestScope } from '../ports.js'
 import type { SlotService } from '../engine.js'
@@ -75,8 +78,26 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
   // Marketing landing page and docs index. Registered before every other
   // route so they win regardless of what else claims '/' — same reasoning as
   // the /privacy and /terms mounts below.
-  app.get('/', (c) =>
-    c.html(
+  app.get('/', async (c) => {
+    // The instance decides what its front page is (core/domain/home.ts):
+    // the Punctual landing, or an index of its own booking links.
+    const repos = ports.repositories({ consistency: 'unconstrained' })
+    const values = await repos.settings.getMany([...HOME_KEYS, COMPANY_LOGO_KEY, COMPANY_LOGO_SHAPE])
+    const home = parseHomeSettings(values)
+    if (home.mode === 'index') {
+      return c.html(
+        instanceHomePage({
+          brandName: ports.config.brandName,
+          baseUrl: ports.config.baseUrl,
+          title: home.title,
+          intro: home.intro,
+          companyLogo: companyLogoFrom(values[COMPANY_LOGO_KEY], values[COMPANY_LOGO_SHAPE]),
+          items: homeItems(home, await repos.eventTypes.listActiveWithOwners()),
+          ...(ports.config.legalOperator ? { operator: ports.config.legalOperator } : {}),
+        }),
+      )
+    }
+    return c.html(
       landingPage({
         brandName: ports.config.brandName,
         baseUrl: ports.config.baseUrl,
@@ -84,8 +105,8 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
         ...(ports.config.legalOperator ? { operator: ports.config.legalOperator } : {}),
         ...(ports.config.analyticsId ? { analyticsId: ports.config.analyticsId } : {}),
       }),
-    ),
-  )
+    )
+  })
   app.get('/docs', (c) =>
     c.html(
       docsIndexPage({

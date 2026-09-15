@@ -6,6 +6,14 @@ still change interfaces.
 
 ## [Unreleased]
 
+### Added
+
+- **Your own front page.** An instance chooses what `/` is: the Punctual
+  landing (the default), or an index of the instance — the company logo, a
+  title and intro, and the booking links an admin picks from the event
+  types on the instance. Set on the Admin page under *Homepage*. Asked for
+  in #8.
+
 ### Fixed
 
 - Rescheduling through the REST API or the MCP server moved a collective

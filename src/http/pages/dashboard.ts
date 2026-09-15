@@ -45,6 +45,7 @@ import type { CompanyLogo,
 } from '../../core/domain/types.js'
 import type { BookingListView, CalendarProviderName, EmailDelivery } from '../../ports.js'
 import type { HostChangeFailure } from '../../core/domain/booking-hosts.js'
+import { HOME_INTRO_MAX, HOME_TITLE_MAX, type HomeSettings } from '../../core/domain/home.js'
 import { slotStateClassName } from '../../core/slot-state.js'
 import { slugify } from '../../core/domain/booking-service.js'
 import { formatInZone, localDateString, offsetLabel } from '../../core/time/zone.js'
@@ -3152,8 +3153,46 @@ export interface AdminPageData extends DashboardChrome {
   signups: { value: string; pinnedByEnv: boolean }
   /** The instance's company logo (an `instance_settings` pair), or null when none is set. */
   companyLogo: CompanyLogo | null
+  /** What `/` is on this instance, and the event types an admin may put on it (core/domain/home.ts). */
+  home: HomeSettings
+  homeChoices: Array<{ id: string; title: string; ownerName: string; path: string }>
   errors?: Record<string, string>
   notice?: string
+}
+
+/**
+ * The homepage section of the Admin page: the mode, and — for the index —
+ * its title, intro and the booking links, picked from every active event
+ * type on the instance in one list, so an admin sees the whole offer.
+ */
+function homepageForm(d: AdminPageData, errors: Record<string, string>): string {
+  const h = d.home
+  const picked = new Set(h.eventTypeIds)
+  const choices = d.homeChoices
+    .map(
+      (c) => `<label style="display:flex;gap:.5rem;align-items:flex-start;font-weight:400;margin:.35rem 0">
+        <input type="checkbox" name="event_types" value="${escapeHtml(c.id)}"${picked.has(c.id) ? ' checked' : ''} style="margin-top:.2rem">
+        <span>${escapeHtml(c.title)} <span class="pu-muted">— ${escapeHtml(c.ownerName)} · <code>${escapeHtml(c.path)}</code></span></span>
+      </label>`,
+    )
+    .join('')
+  return `<form method="post" action="/dashboard/admin/homepage">
+    ${csrfField(d.csrf)}
+    <fieldset style="border:0;padding:0;margin:0 0 1rem">
+      <legend style="font-weight:600;margin-bottom:.35rem">Show</legend>
+      <label style="display:flex;gap:.5rem;align-items:flex-start;font-weight:400;margin:.25rem 0"><input type="radio" name="home_mode" value="landing"${h.mode === 'landing' ? ' checked' : ''} style="margin-top:.2rem"><span><strong>The ${escapeHtml(d.brandName)} landing</strong> <span class="pu-muted">— what punctual.sh shows: the product, the pledge, the docs</span></span></label>
+      <label style="display:flex;gap:.5rem;align-items:flex-start;font-weight:400;margin:.25rem 0"><input type="radio" name="home_mode" value="index"${h.mode === 'index' ? ' checked' : ''} style="margin-top:.2rem"><span><strong>This instance</strong> <span class="pu-muted">— your company logo, a title and intro, and the booking links below</span></span></label>
+    </fieldset>
+    <label for="home-title">Title</label>
+    <input id="home-title" name="title" maxlength="${HOME_TITLE_MAX}" value="${escapeHtml(h.title)}" placeholder="${escapeHtml(d.brandName)}"${describedBy('home-title', errors)}>
+    ${fieldError('home-title', errors)}
+    <label for="home-intro" style="margin-top:.75rem">Intro</label>
+    <textarea id="home-intro" name="intro" rows="4" maxlength="${HOME_INTRO_MAX}" placeholder="A sentence or two about who you are and what these meetings are for. Blank line between paragraphs."${describedBy('home-intro', errors)}>${escapeHtml(h.intro)}</textarea>
+    ${fieldError('home-intro', errors)}
+    <p style="font-weight:600;margin:1rem 0 .25rem">Booking links</p>
+    ${choices || '<p class="pu-muted">No active event types on this instance yet.</p>'}
+    <div style="margin-top:.75rem"><button class="pu-btn" type="submit">Save homepage</button></div>
+  </form>`
 }
 
 export function adminPage(d: AdminPageData): string {
@@ -3230,6 +3269,11 @@ export function adminPage(d: AdminPageData): string {
   <h2>Company logo</h2>
   <p class="pu-muted">Heads every team booking page and its social card. An event type with a logo of its own keeps that; personal pages keep the host's photo.</p>
   ${logoPanel({ csrf: d.csrf, action: '/dashboard/admin/logo', key: d.companyLogo?.key ?? null, shape: d.companyLogo?.shape ?? null, name: d.brandName, errorKey: 'company-logo', errors, hint: 'A wordmark reads best in its own proportions.' })}
+</section>
+<section class="pu-card" aria-label="Homepage" style="margin-bottom:1.25rem">
+  <h2>Homepage</h2>
+  <p class="pu-muted">What a visitor sees at <code>/</code> on this instance.</p>
+  ${homepageForm(d, errors)}
 </section>
 <section class="pu-card" aria-label="Users">
   <h2>Users</h2>

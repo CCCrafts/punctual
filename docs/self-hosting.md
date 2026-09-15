@@ -242,6 +242,11 @@ confirmation emails. To reword it or make it required, add your own line
 starting with `Agenda |` to the event type's questions (e.g.
 `Agenda | textarea | required`); your version replaces the built-in one.
 
+**Your front page.** By default `/` is the Punctual landing. On the Admin
+page, under *Homepage*, switch it to *This instance*: your company logo, a
+title and intro, and the booking links you pick from your event types.
+Docs stay at `/docs`.
+
 ## Upgrading
 
 ```bash

@@ -478,6 +478,9 @@ export function createFakeSettings(): SettingsRepository {
     async get(key) {
       return store.get(key) ?? null
     },
+    async getMany(keys) {
+      return Object.fromEntries(keys.filter((k) => store.has(k)).map((k) => [k, store.get(k)!]))
+    },
     async set(key, value) {
       store.set(key, value)
     },

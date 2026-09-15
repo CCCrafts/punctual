@@ -81,6 +81,7 @@ import { canManageTeam, isManagingRole } from '../core/domain/teams.js'
 import { hostUsers, hostsForReschedule, resolveHosts as resolveEventTypeHosts } from '../core/domain/hosts.js'
 import { changeBookingHosts } from '../core/domain/booking-hosts.js'
 import { saveCalendarConnection } from './calendar-connect.js'
+import { HOME_EVENT_TYPES, HOME_INTRO, HOME_INTRO_MAX, HOME_KEYS, HOME_MODE, HOME_TITLE, HOME_TITLE_MAX, parseHomeSettings } from '../core/domain/home.js'
 import { notifyNewHosts as notifyNewHostsShared } from './host-notifications.js'
 import { MAX_DECODED_PIXELS,
   MAX_UPLOAD_BYTES,
@@ -2317,6 +2318,13 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
         allUsers: await repos.users.listAll(),
         signups: { value, pinnedByEnv },
         companyLogo: await companyLogo(repos),
+        home: parseHomeSettings(await repos.settings.getMany(HOME_KEYS)),
+        homeChoices: (await repos.eventTypes.listActiveWithOwners()).map((item) => ({
+          id: item.eventType.id,
+          title: item.eventType.title,
+          ownerName: item.ownerName,
+          path: `/${item.ownerSlug}/${item.eventType.slug}`,
+        })),
         ...extra,
       }),
       status as 200,
@@ -2361,6 +2369,33 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     await repos.settings.set(COMPANY_LOGO_SHAPE, shape, ports.clock.now())
     await advanceBookmark(c)
     return renderAdmin(c, { notice: shape === 'natural' ? 'Company logo shown in its own proportions.' : 'Company logo shown as a circle.' })
+  })
+
+  /**
+   * What `/` is on this instance (core/domain/home.ts). The picked event
+   * types are checked against the instance's active ones, so a crafted id
+   * cannot put a dead link on the front page.
+   */
+  app.post('/dashboard/admin/homepage', requireSession, requireAdmin, async (c) => {
+    const form = await c.req.formData()
+    if (!(await csrfOk(c, form))) return csrfRejected(c)
+    const repos = c.get('repos')
+    const mode = form.get('home_mode') === 'index' ? 'index' : 'landing'
+    const title = String(form.get('title') ?? '').trim()
+    const intro = String(form.get('intro') ?? '').trim()
+    const errors: Record<string, string> = {}
+    if (title.length > HOME_TITLE_MAX) errors['home-title'] = `Up to ${HOME_TITLE_MAX} characters`
+    if (intro.length > HOME_INTRO_MAX) errors['home-intro'] = `Up to ${HOME_INTRO_MAX} characters`
+    if (Object.keys(errors).length > 0) return renderAdmin(c, { errors }, 400)
+    const active = new Set((await repos.eventTypes.listActiveWithOwners()).map((item) => item.eventType.id))
+    const picked = [...new Set(form.getAll('event_types').map(String))].filter((id) => active.has(id))
+    const now = ports.clock.now()
+    await repos.settings.set(HOME_MODE, mode, now)
+    await repos.settings.set(HOME_TITLE, title, now)
+    await repos.settings.set(HOME_INTRO, intro, now)
+    await repos.settings.set(HOME_EVENT_TYPES, JSON.stringify(picked), now)
+    await advanceBookmark(c)
+    return renderAdmin(c, { notice: mode === 'index' ? 'Homepage saved — / now shows this instance.' : 'Homepage saved — / shows the landing.' })
   })
 
   app.post('/dashboard/admin/logo/delete', requireSession, requireAdmin, async (c) => {

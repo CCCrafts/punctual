@@ -113,6 +113,8 @@ export interface UserRepository {
  */
 export interface SettingsRepository {
   get(key: string): Promise<string | null>
+  /** The rows for these keys, in one round trip; absent keys are absent. */
+  getMany(keys: readonly string[]): Promise<Record<string, string>>
   set(key: string, value: string, now: number): Promise<void>
 }
 
@@ -134,6 +136,12 @@ export interface EventTypeRepository {
   ): Promise<{ host: User; eventType: EventType; team: Team | null; companyLogo: CompanyLogo | null } | null>
   listForUser(userId: string): Promise<EventType[]>
   listForTeam(teamId: string): Promise<EventType[]>
+  /**
+   * Every active event type on the instance with the slug and name its
+   * booking link starts with — the user's or the team's. For the instance
+   * homepage and the admin's picker for it (core/domain/home.ts).
+   */
+  listActiveWithOwners(): Promise<Array<{ eventType: EventType; ownerSlug: string; ownerName: string }>>
   create(et: Omit<EventType, 'createdAt'>): Promise<EventType>
   update(id: string, patch: Partial<EventType>): Promise<void>
   /**

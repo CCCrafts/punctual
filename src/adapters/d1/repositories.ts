@@ -307,6 +307,25 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
       )
       return rows.map((r) => mapEventType(r)!).filter(Boolean)
     },
+    async listActiveWithOwners() {
+      const rows = await all<Record<string, unknown>>(
+        `SELECT et.*, u.slug AS owner_user_slug, u.name AS owner_user_name, t.slug AS owner_team_slug, t.name AS owner_team_name
+         FROM event_types et
+         LEFT JOIN users u ON u.id = et.owner_user_id
+         LEFT JOIN teams t ON t.id = et.owner_team_id
+         WHERE et.active = 1
+         ORDER BY COALESCE(t.name, u.name), et.title`,
+      )
+      const out: Array<{ eventType: EventType; ownerSlug: string; ownerName: string }> = []
+      for (const r of rows) {
+        const eventType = mapEventType(r)
+        const ownerSlug = r['owner_team_slug'] ?? r['owner_user_slug']
+        const ownerName = r['owner_team_name'] ?? r['owner_user_name'] ?? ownerSlug
+        if (!eventType || typeof ownerSlug !== 'string') continue
+        out.push({ eventType, ownerSlug, ownerName: String(ownerName) })
+      }
+      return out
+    },
     async create(et) {
       const row = { ...et, createdAt: Date.now() }
       // schedule_id resolves through a scalar subquery, not a bare bound
@@ -1481,6 +1500,14 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
         key,
       )
       return row?.value ?? null
+    },
+    async getMany(keys) {
+      if (keys.length === 0) return {}
+      const rows = await all<{ key: string; value: string }>(
+        `SELECT key, value FROM instance_settings WHERE key IN (${keys.map(() => '?').join(',')})`,
+        ...keys,
+      )
+      return Object.fromEntries(rows.map((r) => [r.key, r.value]))
     },
     async set(key, value, now) {
       await run(

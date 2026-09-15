@@ -320,6 +320,12 @@ ${pre(`npx wrangler d1 execute punctual --remote \\\n  --command "UPDATE users S
   it or make it required, add your own <code>Agenda | textarea | required</code>
   line to the event type's questions; your version replaces the built-in one.</p>
 
+<p><strong>Your front page.</strong> By default <code>/</code> is the
+  Punctual landing. On the Admin page, under <em>Homepage</em>, switch it to
+  <em>This instance</em>: your company logo, a title and intro, and the
+  booking links you pick from your event types. Docs stay at
+  <code>/docs</code>.</p>
+
 <h2>Upgrading</h2>
 ${pre(`git pull\nnpm run migrate\nnpm run deploy`)}
 <p class="pu-muted">Migrations are forward-only and additive, so skipping
