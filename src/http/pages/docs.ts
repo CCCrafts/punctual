@@ -285,6 +285,12 @@ ${pre(`[[send_email]]\nname = "EMAIL"`)}
   are set, and either key takes precedence over a <code>send_email</code>
   binding):</p>
 ${pre(`npx wrangler secret put RESEND_API_KEY\n# or\nnpx wrangler secret put BREVO_API_KEY`)}
+<p>To take the guessing out of it, name the sender in <code>[vars]</code>:
+  <code>EMAIL_PROVIDER = "cloudflare"</code> (or <code>resend</code>,
+  <code>brevo</code>, <code>console</code>). A missing key or binding for
+  the one you named then shows up on <code>/health</code> and the dashboard
+  as <code>email_provider_unavailable</code>, instead of mail quietly going
+  through whatever else is set.</p>
 <p class="pu-muted">Then set <code>FROM_EMAIL</code> and <code>FROM_NAME</code>
   in <code>wrangler.toml</code>'s <code>[vars]</code> to an address on a
   domain you have verified with your provider, with SPF, DKIM and DMARC
@@ -365,6 +371,7 @@ ${pre(`git pull\nnpm run migrate\nnpm run deploy`)}
 <tr><td class="pu-time">GOOGLE_CLIENT_ID / _SECRET</td><td>secret</td><td>Your Google OAuth app</td></tr>
 <tr><td class="pu-time">MICROSOFT_CLIENT_ID / _SECRET</td><td>secret</td><td>Your Microsoft app</td></tr>
 <tr><td class="pu-time">[[send_email]]</td><td>binding</td><td>Cloudflare Email Service; no key. Used when neither API key is set</td></tr>
+<tr><td class="pu-time">EMAIL_PROVIDER</td><td>[vars]</td><td>Optional: cloudflare, resend, brevo or console. Names the sender; a missing key or binding for it is reported on /health and the dashboard</td></tr>
 <tr><td class="pu-time">RESEND_API_KEY</td><td>secret</td><td>Omit to log emails instead of sending</td></tr>
 <tr><td class="pu-time">BREVO_API_KEY</td><td>secret</td><td>Alternative to Resend; Resend wins if both are set</td></tr>
 </tbody>

@@ -171,6 +171,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
   // Closed over beside brandName because it travels with it into every
   // DashboardChrome literal below — see emailWarningBanner in pages/dashboard.ts.
   const emailDelivery = ports.config.emailDelivery
+  const emailProblem = ports.config.emailProblem
   const secureCookies = ports.config.baseUrl.startsWith('https://')
   const hash = (value: string): Promise<string> => ports.crypto.hash(value)
 
@@ -588,6 +589,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
         user,
         csrf: c.get('csrf'),
         emailDelivery,
+        ...(emailProblem ? { emailProblem } : {}),
         eventTypes,
         upcomingBookings,
         baseUrl: ports.config.baseUrl,
@@ -609,6 +611,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
         user: c.get('user'),
         csrf: c.get('csrf'),
         emailDelivery,
+        ...(emailProblem ? { emailProblem } : {}),
         teams: await managedTeams(c),
         schedules: await c.get('repos').availability.listForUser(c.get('user').id),
       }),
@@ -624,6 +627,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
         user: c.get('user'),
         csrf: c.get('csrf'),
         emailDelivery,
+        ...(emailProblem ? { emailProblem } : {}),
         eventType,
         teams: await managedTeams(c),
         schedules: await c.get('repos').availability.listForUser(c.get('user').id),
@@ -789,6 +793,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
           user,
           csrf: c.get('csrf'),
           emailDelivery,
+        ...(emailProblem ? { emailProblem } : {}),
           eventType: draft,
           questionsText,
           errors,
@@ -874,6 +879,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
           user,
           csrf: c.get('csrf'),
           emailDelivery,
+        ...(emailProblem ? { emailProblem } : {}),
           eventType: draft,
           questionsText: read.questionsText,
           teams: await managedTeams(c),
@@ -893,6 +899,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
           user,
           csrf: c.get('csrf'),
           emailDelivery,
+        ...(emailProblem ? { emailProblem } : {}),
           eventType: draft,
           questionsText: read.questionsText,
           errors,
@@ -918,6 +925,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
             user,
             csrf: c.get('csrf'),
             emailDelivery,
+        ...(emailProblem ? { emailProblem } : {}),
             eventType: draft,
             questionsText: read.questionsText,
             errors: { hosts: 'A host is no longer on the team, or a schedule was deleted. Reload the page and try again.' },
@@ -946,6 +954,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
       user: c.get('user'),
       csrf: c.get('csrf'),
       emailDelivery,
+        ...(emailProblem ? { emailProblem } : {}),
       eventType,
       teams: await managedTeams(c),
       schedules: await c.get('repos').availability.listForUser(c.get('user').id),
@@ -1008,6 +1017,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
           user: c.get('user'),
           csrf: c.get('csrf'),
           emailDelivery,
+        ...(emailProblem ? { emailProblem } : {}),
           eventType: existing,
           teams: await managedTeams(c),
           schedules: await c.get('repos').availability.listForUser(c.get('user').id),
@@ -1122,6 +1132,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
       user: c.get('user'),
       csrf: c.get('csrf'),
       emailDelivery,
+        ...(emailProblem ? { emailProblem } : {}),
       schedules,
       creatorNames,
       ...(who.scope ? { scope: who.scope } : { teamEvents: await teamEventsFor(c, who.subject) }),
@@ -1204,6 +1215,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
       user: c.get('user'),
       csrf: c.get('csrf'),
       emailDelivery,
+        ...(emailProblem ? { emailProblem } : {}),
       schedule,
       ...(who.scope ? { scope: who.scope } : {}),
     }
@@ -1521,7 +1533,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
         if (!seen.has(team.id)) views.push(await view(team, true))
       }
     }
-    return { brandName, user, csrf: c.get('csrf'), emailDelivery, teams: views }
+    return { brandName, user, csrf: c.get('csrf'), emailDelivery, ...(emailProblem ? { emailProblem } : {}), teams: views }
   }
 
   /**
@@ -1859,6 +1871,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
         user,
         csrf: c.get('csrf'),
         emailDelivery,
+        ...(emailProblem ? { emailProblem } : {}),
         connections: views,
         availableProviders: ports.calendars.available(),
         ...(c.req.query('connected') ? { notice: 'Calendar connected.' } : {}),
@@ -1937,7 +1950,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     const user = c.get('user')
     const keys = await c.get('repos').apiKeys.listForUser(user.id)
     return c.html(apiKeysPage({ brandName, user, csrf: c.get('csrf'),
- emailDelivery, keys }))
+ emailDelivery, ...(emailProblem ? { emailProblem } : {}), keys }))
   })
 
   /**
@@ -1971,6 +1984,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
           user,
           csrf: c.get('csrf'),
           emailDelivery,
+        ...(emailProblem ? { emailProblem } : {}),
           keys,
           nameValue: name,
           scopesValue: scopes,
@@ -2096,6 +2110,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
             user,
             csrf: c.get('csrf'),
             emailDelivery,
+        ...(emailProblem ? { emailProblem } : {}),
             slugValue: raw,
             errors: { slug: 'That slug is already taken' },
           }),
@@ -2112,6 +2127,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
         user: { ...user, slug: raw },
         csrf: c.get('csrf'),
         emailDelivery,
+        ...(emailProblem ? { emailProblem } : {}),
         notice: 'Slug updated. Links using the old address now show "not found".',
       }),
     )
@@ -2153,6 +2169,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
           user,
           csrf: c.get('csrf'),
           emailDelivery,
+        ...(emailProblem ? { emailProblem } : {}),
           nameValue: name,
           jobTitleValue: jobTitleRaw,
           companyValue: companyRaw,
@@ -2178,6 +2195,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
         user: { ...user, name, company, jobTitle, companyUrl },
         csrf: c.get('csrf'),
         emailDelivery,
+        ...(emailProblem ? { emailProblem } : {}),
         notice: 'Profile updated.',
       }),
     )
@@ -2266,6 +2284,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
         user: { ...user, avatarKey: thumbKey },
         csrf: c.get('csrf'),
         emailDelivery,
+        ...(emailProblem ? { emailProblem } : {}),
         notice: 'Photo updated.',
       }),
     )
@@ -2290,6 +2309,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
         user: { ...user, avatarKey: null },
         csrf: c.get('csrf'),
         emailDelivery,
+        ...(emailProblem ? { emailProblem } : {}),
         notice: 'Photo removed.',
       }),
     )
@@ -2315,6 +2335,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
         user: c.get('user'),
         csrf: c.get('csrf'),
         emailDelivery,
+        ...(emailProblem ? { emailProblem } : {}),
         allUsers: await repos.users.listAll(),
         signups: { value, pinnedByEnv },
         companyLogo: await companyLogo(repos),
@@ -2536,6 +2557,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
         user,
         csrf: c.get('csrf'),
         emailDelivery,
+        ...(emailProblem ? { emailProblem } : {}),
         view,
         rows,
         truncated: found.length > BOOKINGS_LIST_LIMIT,
@@ -2628,6 +2650,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
       user,
       csrf: c.get('csrf'),
       emailDelivery,
+        ...(emailProblem ? { emailProblem } : {}),
       booking,
       eventType,
       canEditEventType: eventType !== null && (eventType.ownerUserId === user.id || access.managesTeam),

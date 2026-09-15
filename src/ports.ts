@@ -880,6 +880,12 @@ export interface EngineConfig {
    * happens to read the logs.
    */
   emailDelivery: EmailDelivery
+  /**
+   * The operator named a provider (EMAIL_PROVIDER) that could not be used —
+   * its key or binding is missing, or the name is unknown — in one
+   * sentence, for /health and the dashboard. Absent when all is well.
+   */
+  emailProblem?: string
   /** Off unless explicitly enabled (ADR-0006 §5). */
   telemetryEnabled: boolean
   /** Abuse-limit overrides; operator-tunable. */

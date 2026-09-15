@@ -61,6 +61,7 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
   // curl this and immediately see what is silently not happening.
   app.get('/health', (c) => {
     const warnings: string[] = []
+    if (ports.config.emailProblem) warnings.push(`email_provider_unavailable: ${ports.config.emailProblem}`)
     if (ports.config.emailDelivery === 'console') {
       warnings.push(
         'email_not_configured: no [[send_email]] binding, RESEND_API_KEY or BREVO_API_KEY — booking confirmations, ' +

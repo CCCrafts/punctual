@@ -103,6 +103,11 @@ BRAND_NAME = "Punctual"
 #DEMO_BOOKING_PATH = "/you/30min"
 FROM_EMAIL = "scheduling@your-domain.example"
 FROM_NAME = "Punctual"
+# Optional: name the email sender instead of inferring it from what is set
+# (RESEND_API_KEY, then BREVO_API_KEY, then the [[send_email]] binding, else
+# the console). Named, a missing key or binding is reported on /health and
+# the dashboard rather than quietly falling back to another sender.
+#EMAIL_PROVIDER = "cloudflare"   # cloudflare | resend | brevo | console
 SUPPORT_EMAIL = "you@your-domain.example"
 # Off unless explicitly enabled (ADR-0006 §5).
 TELEMETRY_ENABLED = "0"

@@ -97,6 +97,8 @@ export interface DashboardChrome {
    * operator's config problems to a booker.
    */
   emailDelivery: EmailDelivery
+  /** See `EngineConfig.emailProblem`: the named provider could not be used. */
+  emailProblem?: string
 }
 
 /**
@@ -105,9 +107,18 @@ export interface DashboardChrome {
  * nothing. Deliberately not dismissible and not admin-gated.
  */
 function emailWarningBanner(chrome: DashboardChrome): string {
-  if (chrome.emailDelivery !== 'console') return ''
+  if (chrome.emailDelivery !== 'console' && !chrome.emailProblem) return ''
+  if (chrome.emailProblem && chrome.emailDelivery !== 'console') {
+    // Named provider unusable, mail going through something else: say so,
+    // it is a misconfiguration even though mail is flowing.
+    return `<div role="alert" class="pu-callout" style="margin:0 0 1.25rem">
+  <p style="margin:0"><strong>Email is not going where you configured it to.</strong> ${escapeHtml(chrome.emailProblem)}
+    &mdash; see <a href="/docs/self-hosting">self-hosting</a>.</p>
+</div>`
+  }
   return `<div role="alert" class="pu-callout" style="margin:0 0 1.25rem">
   <p style="margin:0"><strong>Email is not configured — no one is receiving confirmations.</strong>
+    ${chrome.emailProblem ? `${escapeHtml(chrome.emailProblem)}.` : ''}
     Bookings are being saved and synced to calendars, but every confirmation, reschedule notice,
     cancellation and reminder is written to the log instead of sent. Add a
     <code>[[send_email]]</code> binding for Cloudflare Email Service, or set

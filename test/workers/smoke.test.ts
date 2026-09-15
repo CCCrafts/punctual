@@ -52,6 +52,16 @@ describe('/health surfaces silent degradation', () => {
     expect(alone.warnings).toEqual([])
     const withKey = await health({ EMAIL: binding, RESEND_API_KEY: 're_set_on_purpose' })
     expect(withKey.emailDelivery).toBe('resend')
+
+    // Named, the binding wins over the key; named without its credential,
+    // the deployment says so instead of quietly sending through the key.
+    const named = await health({ EMAIL: binding, RESEND_API_KEY: 're_set_on_purpose', EMAIL_PROVIDER: 'cloudflare' })
+    expect(named.emailDelivery).toBe('cloudflare')
+    expect(named.warnings).toEqual([])
+    const unusable = await health({ RESEND_API_KEY: 're_set_on_purpose', EMAIL_PROVIDER: 'brevo' })
+    expect(unusable.emailDelivery).toBe('console')
+    expect(unusable.warnings.some((w) => w.startsWith('email_provider_unavailable: EMAIL_PROVIDER=brevo but the BREVO_API_KEY secret is not set'))).toBe(true)
+    expect(unusable.warnings.some((w) => w.startsWith('email_not_configured'))).toBe(true)
   })
 
   it('never leaks the provider key itself, only the mode', async () => {

@@ -16,6 +16,7 @@ import { createKvCache } from './adapters/cache/kv.js'
 import { createKvBlobCache } from './adapters/cache/kv-blob.js'
 import { createR2BlobStorage } from './adapters/storage/r2-blob.js'
 import { createBrevoSender, createCloudflareSender, createConsoleSender, createResendSender } from './adapters/email/index.js'
+import { selectEmailDelivery } from './adapters/email/select.js'
 import { createEnvOAuthCredentials } from './adapters/oauth.js'
 import { createCalendarProviders } from './adapters/providers.js'
 import { createCoordinator } from './adapters/coordinator.js'
@@ -24,7 +25,7 @@ import { createRateLimiterAdapter } from './adapters/rate-limiter.js'
 import { handleOne, handleQueueBatch } from './adapters/queue/consumer.js'
 import { runScheduledTasks } from './adapters/scheduled.js'
 import { parseSignupPolicy } from './core/domain/auth-flows.js'
-import type { EmailDelivery, EnginePorts, RequestScope } from './ports.js'
+import type { EnginePorts, RequestScope } from './ports.js'
 
 export { HostCalendar } from './do/host-calendar.js'
 export { RateLimiter } from './do/rate-limiter.js'
@@ -54,6 +55,8 @@ export interface Env {
   SIGNING_KEY?: string
   /** Cloudflare Email Service. Bound by `[[send_email]]` in wrangler.toml — no key, no secret. */
   EMAIL?: SendEmail
+  /** Name the sender instead of inferring it: cloudflare | resend | brevo | console (adapters/email/select.ts). */
+  EMAIL_PROVIDER?: string
   RESEND_API_KEY?: string
   BREVO_API_KEY?: string
   GOOGLE_CLIENT_ID?: string
@@ -129,19 +132,10 @@ export function buildPorts(env: Env): EnginePorts {
   // Resolved ONCE, next to the sender it describes, so the two cannot drift:
   // a mode that claimed 'brevo' while the console sender was actually wired
   // would be worse than no signal at all.
-  // A provider key outranks the binding. A key is set on purpose, for one
-  // deployment, and a deployment that already sends through Resend or Brevo
-  // must keep doing so when the binding is added to the template — the
-  // binding is the no-key default for a Cloudflare-only setup, not an
-  // override. Moving to Email Service is "delete the key", which is also
-  // the moment the key stops being a secret to look after.
-  const emailDelivery: EmailDelivery = env.RESEND_API_KEY
-    ? 'resend'
-    : env.BREVO_API_KEY
-      ? 'brevo'
-      : env.EMAIL
-        ? 'cloudflare'
-        : 'console'
+  // Inferred from what is configured, or named by EMAIL_PROVIDER — and then
+  // a missing key or binding is a reported problem, not a quiet fallback
+  // (adapters/email/select.ts).
+  const { delivery: emailDelivery, problem: emailProblem } = selectEmailDelivery(env)
   const email =
     emailDelivery === 'cloudflare'
       ? createCloudflareSender({ binding: env.EMAIL!, from: emailFrom, fromName: emailFromName })
@@ -151,6 +145,7 @@ export function buildPorts(env: Env): EnginePorts {
           ? createBrevoSender({ apiKey: env.BREVO_API_KEY!, from: emailFrom, fromName: emailFromName })
           : createConsoleSender()
 
+  if (emailProblem) console.warn(`[punctual] ${emailProblem}. See /health and docs/self-hosting.md.`)
   if (emailDelivery === 'console') {
     // Loud, once, at boot. On its own this catches nothing (nobody tails a
     // healthy Worker), which is why /health and the dashboard carry the same
@@ -195,6 +190,7 @@ export function buildPorts(env: Env): EnginePorts {
       fromEmail: env.FROM_EMAIL ?? 'hello@example.com',
       fromName: env.FROM_NAME ?? 'Punctual',
       emailDelivery,
+      ...(emailProblem ? { emailProblem } : {}),
       telemetryEnabled: env.TELEMETRY_ENABLED === '1',
     },
     // Constructed last: it needs the other ports.

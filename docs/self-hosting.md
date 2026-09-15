@@ -187,6 +187,12 @@ a binding present, a provider *is* configured.
 Set **either** provider's key (Resend is tried first if both are set, and
 either key takes precedence over a `send_email` binding):
 
+To take the guessing out of it, name the sender in `[vars]`:
+`EMAIL_PROVIDER = "cloudflare"` (or `resend`, `brevo`, `console`). Then a
+missing key or binding for the one you named shows up on `/health` and the
+dashboard as `email_provider_unavailable`, instead of mail quietly going
+through whatever else is set.
+
 ```bash
 npx wrangler secret put RESEND_API_KEY
 # or
@@ -293,6 +299,7 @@ Two features need a paid plan, and both degrade gracefully:
 | `GOOGLE_CLIENT_ID` / `_SECRET` | secret | Your Google OAuth app |
 | `MICROSOFT_CLIENT_ID` / `_SECRET` | secret | Your Microsoft app |
 | `[[send_email]]` | binding | Cloudflare Email Service — no key. Used when neither API key is set. Needs the sending domain onboarded (Compute → Email Service) and Workers Paid; until then guest sends fail while `/health` still reads healthy |
+| `EMAIL_PROVIDER` | `[vars]` | Optional: `cloudflare`, `resend`, `brevo` or `console`. Names the sender instead of inferring it; a named provider whose key or binding is missing is reported on `/health` (`email_provider_unavailable`) and the dashboard instead of quietly falling back |
 | `RESEND_API_KEY` | secret | Omit to log emails instead of sending — `/health` and the dashboard both warn when neither key is set |
 | `BREVO_API_KEY` | secret | Alternative to Resend; Resend wins if both are set |
 

@@ -8,6 +8,15 @@ still change interfaces.
 
 ### Added
 
+- **`EMAIL_PROVIDER`.** Name the email sender — `cloudflare`, `resend`,
+  `brevo` or `console` — instead of having it inferred from which key or
+  binding is set. A named provider whose key or binding is missing is
+  reported on `/health` (`email_provider_unavailable`), in the boot log and
+  on the dashboard, rather than mail quietly going through another sender.
+  Suggested by @theoephraim (#7).
+
+### Added
+
 - **Your own front page.** An instance chooses what `/` is: the Punctual
   landing (the default), or an index of the instance — the company logo, a
   title and an intro whose links are live, the company's site and a
