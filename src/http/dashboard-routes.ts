@@ -2002,7 +2002,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
 
     const keys = await repos.apiKeys.listForUser(user.id)
     return c.html(apiKeysPage({ brandName, user, csrf: c.get('csrf'),
- emailDelivery, keys, newKey: created.raw }))
+ emailDelivery, ...(emailProblem ? { emailProblem } : {}), keys, newKey: created.raw }))
   })
 
   /**
@@ -2015,7 +2015,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     const id = c.req.param('id') ?? ''
     const apiKey = (await c.get('repos').apiKeys.listForUser(user.id)).find((k) => k.id === id)
     if (!apiKey) return notFound(c)
-    return c.html(revokeKeyPage({ brandName, user, csrf: c.get('csrf'), emailDelivery, apiKey }))
+    return c.html(revokeKeyPage({ brandName, user, csrf: c.get('csrf'), emailDelivery, ...(emailProblem ? { emailProblem } : {}), apiKey }))
   })
 
   app.post('/dashboard/api-keys/:id/delete', requireSession, async (c) => {
@@ -2037,7 +2037,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
   // ===========================================================================
 
   app.get('/dashboard/settings', requireSession, (c) =>
-    c.html(settingsPage({ brandName, baseUrl: ports.config.baseUrl, user: c.get('user'), csrf: c.get('csrf'), emailDelivery })),
+    c.html(settingsPage({ brandName, baseUrl: ports.config.baseUrl, user: c.get('user'), csrf: c.get('csrf'), emailDelivery, ...(emailProblem ? { emailProblem } : {}) })),
   )
 
   app.post('/dashboard/settings', requireSession, async (c) => {
@@ -2084,7 +2084,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     if (Object.keys(errors).length > 0) {
       return c.html(
         settingsPage({ brandName, baseUrl: ports.config.baseUrl, user, csrf: c.get('csrf'),
- emailDelivery, slugValue: raw, errors }),
+ emailDelivery, ...(emailProblem ? { emailProblem } : {}), slugValue: raw, errors }),
         400,
       )
     }
@@ -2267,7 +2267,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     const user = c.get('user')
     const fail = (message: string) =>
       c.html(settingsPage({ brandName, baseUrl: ports.config.baseUrl, user, csrf: c.get('csrf'),
- emailDelivery, errors: { avatar: message } }), 400)
+ emailDelivery, ...(emailProblem ? { emailProblem } : {}), errors: { avatar: message } }), 400)
 
     const stored = await storeUploadedImage(form.get('avatar'))
     if (!stored.ok) return fail(stored.message)
@@ -2756,7 +2756,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
   app.get('/dashboard/bookings/:id/reschedule', requireSession, async (c) => {
     const access = await hostBookingAccess(c)
     if (!access) return notFound(c)
-    const chrome = { brandName, user: c.get('user'), csrf: c.get('csrf'), emailDelivery }
+    const chrome = { brandName, user: c.get('user'), csrf: c.get('csrf'), emailDelivery, ...(emailProblem ? { emailProblem } : {}) }
     const base = { ...chrome, booking: access.booking, eventType: access.eventType }
 
     const blocked = rescheduleBlocker(access, ports.clock.now(), 'moved')
@@ -2777,7 +2777,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     if (!access) return notFound(c)
     const repos = c.get('repos')
     const user = c.get('user')
-    const base = { brandName, user, csrf: c.get('csrf'), emailDelivery, booking: access.booking, eventType: access.eventType }
+    const base = { brandName, user, csrf: c.get('csrf'), emailDelivery, ...(emailProblem ? { emailProblem } : {}), booking: access.booking, eventType: access.eventType }
 
     const blocked = rescheduleBlocker(access, ports.clock.now(), 'moved')
     const eventType = access.eventType

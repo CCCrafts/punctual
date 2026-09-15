@@ -63,8 +63,13 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
     const warnings: string[] = []
     if (ports.config.emailProblem) warnings.push(`email_provider_unavailable: ${ports.config.emailProblem}`)
     if (ports.config.emailDelivery === 'console') {
+      // The cause named honestly: with EMAIL_PROVIDER set, the keys may well
+      // be there — it is the named sender that cannot be used.
+      const cause = ports.config.emailProblem
+        ? 'the sender named by EMAIL_PROVIDER cannot be used (see email_provider_unavailable)'
+        : 'no [[send_email]] binding, RESEND_API_KEY or BREVO_API_KEY'
       warnings.push(
-        'email_not_configured: no [[send_email]] binding, RESEND_API_KEY or BREVO_API_KEY — booking confirmations, ' +
+        `email_not_configured: ${cause} — booking confirmations, ` +
           'reschedule and cancellation notices and reminders are logged, not delivered',
       )
     }

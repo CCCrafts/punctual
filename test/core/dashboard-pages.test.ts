@@ -73,6 +73,20 @@ describe('dashboard chrome', () => {
   })
 })
 
+describe('the email banner', () => {
+  it('shows nothing when mail flows as configured, the misrouting when a named sender is unusable, the outage when nothing sends', async () => {
+    const { settingsPage } = await import('../../src/http/pages/dashboard.js')
+    const base = { ...chrome, baseUrl: 'https://punctual.test' }
+    expect(settingsPage({ ...base, emailDelivery: 'brevo' })).not.toContain('role="alert" class="pu-callout"')
+    const misrouted = settingsPage({ ...base, emailDelivery: 'resend', emailProblem: 'EMAIL_PROVIDER="sendgrid" is not one of cloudflare, resend, brevo, console; using resend' })
+    expect(misrouted).toContain('Email is not going where you configured it to.')
+    expect(misrouted).toContain('EMAIL_PROVIDER=&quot;sendgrid&quot;')
+    const down = settingsPage({ ...base, emailDelivery: 'console', emailProblem: 'EMAIL_PROVIDER=brevo but the BREVO_API_KEY secret is not set — emails are logged, not sent' })
+    expect(down).toContain('Email is not configured — no one is receiving confirmations.')
+    expect(down).toContain('BREVO_API_KEY secret is not set')
+  })
+})
+
 describe('calendars page', () => {
   it('titles the connect card by how many calendars are already connected', () => {
     expect(connectionsPage({ ...chrome, connections: [], availableProviders: ['google'] })).toContain(
