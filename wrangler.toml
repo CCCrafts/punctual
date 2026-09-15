@@ -18,8 +18,8 @@ directory = "./assets"
 
 # Cloudflare Email Service — the option with no API key at all, since the
 # binding itself is the credential and this file scopes it. Commented out
-# because it is opt-in: uncommenting changes where every email goes, and it
-# takes precedence over RESEND_API_KEY and BREVO_API_KEY when bound.
+# because it is opt-in. RESEND_API_KEY and BREVO_API_KEY take precedence
+# when set: the binding sends only when neither key is configured.
 #
 # Sending to guests — rather than only to verified destination addresses in
 # your own account — needs your sending domain onboarded under

@@ -205,8 +205,8 @@ const SETUP_HINTS: Record<CalendarProviderName, string> = {
     'Enable the Google Calendar API for the Cloud project that owns your OAuth client: ' +
     'https://console.cloud.google.com/apis/library/calendar-json.googleapis.com',
   microsoft:
-    'Grant the Calendars.ReadWrite application permission to your Entra app registration, ' +
-    'then have a tenant admin consent to it.',
+    'Add the Calendars.ReadWrite delegated permission to your Entra app registration, ' +
+    'and grant admin consent if your tenant requires it.',
 }
 
 /**

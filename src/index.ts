@@ -129,18 +129,18 @@ export function buildPorts(env: Env): EnginePorts {
   // Resolved ONCE, next to the sender it describes, so the two cannot drift:
   // a mode that claimed 'brevo' while the console sender was actually wired
   // would be worse than no signal at all.
-  // The binding outranks both keys deliberately. A `[[send_email]]` block is
-  // an edit to wrangler.toml — the most explicit configuration act available,
-  // and the only one of the three that cannot arrive by accident from a stray
-  // secret inherited off another deployment. Swapping to Resend or Brevo is
-  // therefore "remove the binding", not "set a key and hope the precedence
-  // falls your way".
-  const emailDelivery: EmailDelivery = env.EMAIL
-    ? 'cloudflare'
-    : env.RESEND_API_KEY
-      ? 'resend'
-      : env.BREVO_API_KEY
-        ? 'brevo'
+  // A provider key outranks the binding. A key is set on purpose, for one
+  // deployment, and a deployment that already sends through Resend or Brevo
+  // must keep doing so when the binding is added to the template — the
+  // binding is the no-key default for a Cloudflare-only setup, not an
+  // override. Moving to Email Service is "delete the key", which is also
+  // the moment the key stops being a secret to look after.
+  const emailDelivery: EmailDelivery = env.RESEND_API_KEY
+    ? 'resend'
+    : env.BREVO_API_KEY
+      ? 'brevo'
+      : env.EMAIL
+        ? 'cloudflare'
         : 'console'
   const email =
     emailDelivery === 'cloudflare'

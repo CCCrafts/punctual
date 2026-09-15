@@ -282,7 +282,8 @@ ${pre(`[[send_email]]\nname = "EMAIL"`)}
 
 <h3>Resend or Brevo</h3>
 <p>Set <strong>either</strong> provider's key (Resend is tried first if both
-  are set, and a <code>send_email</code> binding takes precedence over both):</p>
+  are set, and either key takes precedence over a <code>send_email</code>
+  binding):</p>
 ${pre(`npx wrangler secret put RESEND_API_KEY\n# or\nnpx wrangler secret put BREVO_API_KEY`)}
 <p class="pu-muted">Then set <code>FROM_EMAIL</code> and <code>FROM_NAME</code>
   in <code>wrangler.toml</code>'s <code>[vars]</code> to an address on a
@@ -355,7 +356,7 @@ ${pre(`git pull\nnpm run migrate\nnpm run deploy`)}
 <tr><td class="pu-time">SIGNING_KEY</td><td>secret</td><td>HMAC key for guest manage links</td></tr>
 <tr><td class="pu-time">GOOGLE_CLIENT_ID / _SECRET</td><td>secret</td><td>Your Google OAuth app</td></tr>
 <tr><td class="pu-time">MICROSOFT_CLIENT_ID / _SECRET</td><td>secret</td><td>Your Microsoft app</td></tr>
-<tr><td class="pu-time">[[send_email]]</td><td>binding</td><td>Cloudflare Email Service; no key. Wins over both API keys</td></tr>
+<tr><td class="pu-time">[[send_email]]</td><td>binding</td><td>Cloudflare Email Service; no key. Used when neither API key is set</td></tr>
 <tr><td class="pu-time">RESEND_API_KEY</td><td>secret</td><td>Omit to log emails instead of sending</td></tr>
 <tr><td class="pu-time">BREVO_API_KEY</td><td>secret</td><td>Alternative to Resend; Resend wins if both are set</td></tr>
 </tbody>

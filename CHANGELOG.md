@@ -6,6 +6,21 @@ still change interfaces.
 
 ## [Unreleased]
 
+### Added
+
+- **Cloudflare Email Service** as a third email provider, through the
+  `send_email` binding — no API key to set or rotate. Opt-in: uncomment
+  `[[send_email]]` in `wrangler.toml`; a `RESEND_API_KEY` or `BREVO_API_KEY`
+  still takes precedence when set. Contributed by @theoephraim (#7).
+
+### Fixed
+
+- A fresh deployment whose Google Cloud project has the Calendar API
+  switched off got an empty calendar picker and no explanation, and
+  "Reconnect" could not help. The connections page now says what is wrong
+  and links the console page that fixes it. Contributed by @theoephraim
+  (#6).
+
 ### Changed
 
 - **Calendar events say who the meeting is with.** The event on the hosts'

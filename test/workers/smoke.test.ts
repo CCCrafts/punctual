@@ -32,24 +32,26 @@ describe('/health surfaces silent degradation', () => {
     expect(body.warnings.join(' ')).toContain('email_not_configured')
   })
 
-  it('prefers the Cloudflare Email Service binding over a provider key', async () => {
+  it('uses the Cloudflare Email Service binding when no provider key is set, and a key over the binding', async () => {
     // The binding is opt-in (`[[send_email]]` is commented out in
     // wrangler.toml), so this is the only place the resolved mode can be
-    // exercised — and precedence is the part worth pinning: a deployment that
-    // binds Email Service AND carries an inherited key must not quietly keep
-    // sending through the key.
+    // exercised — and precedence is the part worth pinning: a deployment
+    // that sends through Resend must keep doing so when the binding shows
+    // up in the template, and a deployment with no key at all must use the
+    // binding rather than logging.
     const { default: worker } = await import('../../src/index.js')
     const binding = { send: async () => ({ messageId: 'msg_test' }) }
-    const res = await worker.fetch(
-      new Request('https://punctual.sh/health'),
-      { ...env, EMAIL: binding, RESEND_API_KEY: 're_inherited' },
-      createExecutionContext(),
-    )
-    const body = (await res.json()) as { emailDelivery: string; warnings: string[] }
-    expect(body.emailDelivery).toBe('cloudflare')
+    const health = async (extra: Record<string, unknown>) => {
+      const res = await worker.fetch(new Request('https://punctual.sh/health'), { ...env, ...extra }, createExecutionContext())
+      return (await res.json()) as { emailDelivery: string; warnings: string[] }
+    }
+    const alone = await health({ EMAIL: binding })
+    expect(alone.emailDelivery).toBe('cloudflare')
     // A configured deployment must not warn: a banner that cries wolf is one
     // operators learn to scroll past.
-    expect(body.warnings).toEqual([])
+    expect(alone.warnings).toEqual([])
+    const withKey = await health({ EMAIL: binding, RESEND_API_KEY: 're_set_on_purpose' })
+    expect(withKey.emailDelivery).toBe('resend')
   })
 
   it('never leaks the provider key itself, only the mode', async () => {
