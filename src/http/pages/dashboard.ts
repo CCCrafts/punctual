@@ -3169,7 +3169,12 @@ function homepageForm(d: AdminPageData, errors: Record<string, string>): string 
   const h = d.home
   const order = new Map(h.eventTypeIds.map((id, i) => [id, i + 1]))
   const row = (style: string) => `display:flex;gap:.5rem;align-items:flex-start;font-weight:400;${style}`
-  const choices = d.homeChoices
+  // The picked links first, in their saved order, then the rest: a browser
+  // posts checked boxes in DOM order, so the DOM order IS the order that
+  // will be saved — a re-save without changes must not reshuffle the page
+  // (caught by review), and a newly ticked link lands at the end.
+  const sorted = [...d.homeChoices].sort((a, b) => (order.get(a.id) ?? Infinity) - (order.get(b.id) ?? Infinity))
+  const choices = sorted
     .map((c) => {
       const n = order.get(c.id)
       return `<div style="display:grid;grid-template-columns:1.6rem 1fr auto;gap:.5rem;align-items:start;margin:.4rem 0">

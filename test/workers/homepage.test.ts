@@ -192,11 +192,22 @@ describe('the instance homepage', () => {
     expect(saved.status).toBe(200)
     const adminAfter = await saved.text()
     expect(adminAfter).toContain('/ now shows this instance')
-    // The picker shows the order, and remembers the featured one.
+    // The picker shows the order, lists the picked links in it (so a re-save
+    // posts them in the same order), and remembers the featured one.
     expect(adminAfter).toMatch(new RegExp(`1\\.</span>[\\s\\S]{0,400}value="${ET_TEAM}" checked`))
+    expect(adminAfter.indexOf(`value="${ET_TEAM}"`)).toBeLessThan(adminAfter.indexOf(`value="${ET}"`))
     expect(adminAfter).toContain(`name="home_featured" value="${ET_TEAM}" checked`)
     const stored = await db.prepare("SELECT value FROM instance_settings WHERE key = 'home_event_types'").first<{ value: string }>()
     expect(JSON.parse(stored!.value)).toEqual([ET_TEAM, ET])
+    // A re-save as the browser would post it — checked boxes in DOM order — keeps the order (caught by review).
+    const resave = new FormData()
+    resave.append('csrf', csrf)
+    resave.append('home_mode', 'index')
+    for (const id of [...adminAfter.matchAll(/name="event_types" value="([^"]+)" checked/g)].map((m) => m[1]!)) resave.append('event_types', id)
+    expect((await app.fetch(new Request(`${BASE}/dashboard/admin/homepage`, { method: 'POST', body: resave, headers: { cookie } }))).status).toBe(200)
+    expect(JSON.parse((await db.prepare("SELECT value FROM instance_settings WHERE key = 'home_event_types'").first<{ value: string }>())!.value)).toEqual([ET_TEAM, ET])
+    // Restore the fields the re-save left out.
+    expect((await app.fetch(new Request(`${BASE}/dashboard/admin/homepage`, { method: 'POST', body: form, headers: { cookie } }))).status).toBe(200)
 
     const html = await (await app.fetch(new Request(`${BASE}/`))).text()
     expect(html).toContain('<title>Acme Support</title>')

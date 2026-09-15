@@ -90,6 +90,14 @@ describe('links in the intro', () => {
     )
     expect(linkify('(https://acme.com)')).toBe('(<a href="https://acme.com" target="_blank" rel="noopener">acme.com</a>)')
   })
+
+  it('keeps a profile URL with an @ in it as one link, and a quote out of the href (caught by review)', () => {
+    expect(linkify('Follow https://www.threads.net/@serge.bulaev today')).toBe(
+      'Follow <a href="https://www.threads.net/@serge.bulaev" target="_blank" rel="noopener">www.threads.net/@serge.bulaev</a> today',
+    )
+    expect(linkify('See "https://acme.com" now')).toBe('See &quot;<a href="https://acme.com" target="_blank" rel="noopener">acme.com</a>&quot; now')
+    expect(linkify("It's https://acme.com/a'b")).toBe('It&#39;s <a href="https://acme.com/a" target="_blank" rel="noopener">acme.com/a</a>&#39;b')
+  })
 })
 
 describe('the instance homepage', () => {

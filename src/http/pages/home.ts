@@ -29,16 +29,29 @@ export interface InstanceHomeData {
 const PUNCTUAL_SITE_URL = 'https://punctual.sh'
 
 /**
- * Escaped text with its URLs and addresses made clickable. Escaping comes
- * first, so a typed `<a>` is text; the anchors are built from the escaped
- * string, whose URL characters escaping leaves alone (a `&` in a query
- * string becomes `&amp;`, which is the correct href encoding anyway).
+ * Text with its URLs and addresses made clickable. One pass over the RAW
+ * text, escaping each piece — the plain runs, every href, every label —
+ * on its own: a second pass over already-built anchors took the `@` in a
+ * profile URL for an address and wrote a tag inside a tag, and escaping
+ * before matching let a quote's entity ride into the href (caught by
+ * review). Quotes and angle brackets end a URL; a trailing `.,;:!?)` is
+ * punctuation, not part of it.
  */
+const LINK = /(https?:\/\/[^\s<>"']+[^\s<>"'.,;:!?)])|((?<=^|[\s(])[^\s@<>()"']+@[^\s@<>()"']+\.[a-z]{2,})/gi
+
 export function linkify(text: string): string {
-  const escaped = escapeHtml(text)
-  return escaped
-    .replace(/https?:\/\/[^\s<]+[^\s<.,;:!?)]/g, (url) => `<a href="${url}" target="_blank" rel="noopener">${url.replace(/^https?:\/\//, '')}</a>`)
-    .replace(/(^|[\s(])([^\s@<>()]+@[^\s@<>()]+\.[a-z]{2,})/gi, (_m, pre: string, email: string) => `${pre}<a href="mailto:${email}">${email}</a>`)
+  let out = ''
+  let last = 0
+  for (const m of text.matchAll(LINK)) {
+    out += escapeHtml(text.slice(last, m.index))
+    if (m[1] !== undefined) {
+      out += `<a href="${escapeHtml(m[1])}" target="_blank" rel="noopener">${escapeHtml(m[1].replace(/^https?:\/\//, ''))}</a>`
+    } else {
+      out += `<a href="mailto:${escapeHtml(m[2]!)}">${escapeHtml(m[2]!)}</a>`
+    }
+    last = m.index + m[0].length
+  }
+  return out + escapeHtml(text.slice(last))
 }
 
 function paragraphs(text: string): string {
