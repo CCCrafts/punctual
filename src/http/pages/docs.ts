@@ -247,18 +247,42 @@ ${pre(`npx wrangler secret put MICROSOFT_CLIENT_ID\nnpx wrangler secret put MICR
 
 <h2>6. Email (optional, but you want it)</h2>
 <p>Without an email provider, Punctual logs emails instead of sending them.
-  On Cloudflare the simplest option has no key at all &mdash; bind Cloudflare
-  Email Service in <code>wrangler.toml</code>, which takes precedence over
-  both API keys when present:</p>
+  There are three ways to send; on Cloudflare the first needs no API key at
+  all.</p>
+
+<h3>Cloudflare Email Service</h3>
+<p>The <code>send_email</code> binding is itself the credential, scoped by
+  <code>wrangler.toml</code> &mdash; nothing to rotate, leak or forget to set.
+  Your domain must be on Cloudflare DNS, and sending to guests needs a Workers
+  Paid plan. Do these <strong>in order</strong>:</p>
+<ol>
+  <li><strong>Onboard the sending domain</strong> &mdash;
+    <strong>Compute &rarr; Email Service &rarr; Email Sending &rarr; Onboard
+    Domain</strong>. Cloudflare adds MX, SPF and DKIM under
+    <code>cf-bounce.&lt;your-domain&gt;</code> and DMARC at
+    <code>_dmarc.&lt;your-domain&gt;</code>; allow 5&ndash;15 minutes. It does
+    not touch your apex MX, so an existing mailbox provider on the same domain
+    keeps working &mdash; Email <em>Routing</em> is the feature that conflicts
+    there, and this is not that.</li>
+  <li><strong>Set <code>FROM_EMAIL</code> to an address on the domain you
+    onboarded.</strong> Onboarding <code>mail.example.com</code> does not
+    authorise <code>you@example.com</code>: a sender outside an onboarded
+    domain is rejected on every send.</li>
+  <li><strong>Uncomment the binding</strong> in <code>wrangler.toml</code>.</li>
+  <li><strong>Deploy, then sign in.</strong> The sign-in link is the one email
+    sent on the request path rather than through the queue, so an unauthorised
+    sender fails immediately and visibly &mdash; before a guest ever books.</li>
+</ol>
 ${pre(`[[send_email]]\nname = "EMAIL"`)}
-<p class="pu-muted">Sending to guests (rather than only to verified
-  destination addresses in your own account) requires onboarding your sending
-  domain under <strong>Compute &rarr; Email Service &rarr; Email Sending</strong>,
-  and a Workers Paid plan. Until the domain is onboarded, sends to guests fail
-  &mdash; and because a provider <em>is</em> configured, the banner below stays
-  silent, so onboard the domain before your first sign-in.</p>
-<p>Otherwise set <strong>either</strong> provider's key (Resend is
-  tried first if both are set):</p>
+<p class="pu-muted">The order matters. Do steps 3 and 4 before step 1 and you
+  get a window where this page and <code>/health</code> both read healthy while
+  no mail arrives: the &ldquo;email is not configured&rdquo; warning only fires
+  for the console sender, and with a binding present a provider <em>is</em>
+  configured.</p>
+
+<h3>Resend or Brevo</h3>
+<p>Set <strong>either</strong> provider's key (Resend is tried first if both
+  are set, and a <code>send_email</code> binding takes precedence over both):</p>
 ${pre(`npx wrangler secret put RESEND_API_KEY\n# or\nnpx wrangler secret put BREVO_API_KEY`)}
 <p class="pu-muted">Then set <code>FROM_EMAIL</code> and <code>FROM_NAME</code>
   in <code>wrangler.toml</code>'s <code>[vars]</code> to an address on a
@@ -350,8 +374,9 @@ ${pre(`git pull\nnpm run migrate\nnpm run deploy`)}
 <p><strong>Emails are not arriving.</strong> With no
   <code>RESEND_API_KEY</code> they are logged, not sent. Check
   <code>npx wrangler tail</code>. If you bound Cloudflare Email Service
-  instead, the likeliest cause is a sending domain that is not onboarded yet:
-  the send fails rather than logging, and <code>tail</code> names it.</p>
+  instead they are not logged but rejected, and there are two usual causes:
+  the sending domain is not onboarded yet, or <code>FROM_EMAIL</code> is on a
+  different domain than the one you onboarded. <code>tail</code> names which.</p>
 <p><strong>Times look wrong by an hour.</strong> Almost always a host
   timezone set incorrectly rather than a DST bug &mdash; the engine computes
   in UTC and converts at the edges.</p>
