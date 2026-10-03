@@ -318,7 +318,7 @@ time,.pu-time{font-family:var(--pu-font-mono);font-variant-numeric:tabular-nums}
 .pu-home-foot{max-width:56rem;margin:2.5rem auto 2rem;padding:1.25rem 1.25rem 0;border-top:1px solid var(--pu-line);font-size:.875rem;color:var(--pu-text-secondary)}
 .pu-home-foot p{margin:.25rem 0}
 .pu-home-foot-by{font-size:.8125rem}
-.pu-ins-kpis{display:grid;gap:1rem 1.5rem;grid-template-columns:repeat(auto-fit,minmax(8.5rem,1fr))}
+.pu-ins-kpis{display:grid;gap:1rem 1.25rem;grid-template-columns:repeat(auto-fit,minmax(6.75rem,1fr))}
 .pu-ins-kpi{display:flex;flex-direction:column;gap:.15rem}
 .pu-ins-kpi-value{font-family:var(--pu-font-mono);font-weight:700;font-size:1.5rem;font-variant-numeric:tabular-nums}
 .pu-ins-kpi-label{font-size:.8125rem;color:var(--pu-text-secondary)}
@@ -514,7 +514,9 @@ input:has(+ .pu-err),select:has(+ .pu-err),textarea:has(+ .pu-err){border-color:
    stacked, centred rows (~200px before any content). */
 .pu-dash-header{display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;
   border-bottom:1px solid var(--pu-line);padding-bottom:1rem;margin-bottom:1.5rem}
-.pu-nav{display:flex;gap:1rem;flex-wrap:wrap;font-size:.9375rem}
+/* Nine links for an admin (Insights joined them) must still share the
+   first row with the wordmark and sign-out inside the 900px wrap. */
+.pu-nav{display:flex;gap:.7rem;flex-wrap:wrap;font-size:.875rem}
 .pu-dash-signout{margin:0}
 /* Narrow enough that seven links cannot share a row with the wordmark and
    the sign-out button. Wordmark and sign-out keep the first row; the nav
