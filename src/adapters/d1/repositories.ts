@@ -661,6 +661,27 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
       }
       return rows.map((r) => mapBooking(r)!).filter(Boolean)
     },
+    async statsForEventTypes(eventTypeIds, range) {
+      if (eventTypeIds.length === 0) return []
+      const marks = eventTypeIds.map(() => '?').join(',')
+      // Three counts in one pass, dated by the moment that matters for
+      // each: a booking by when it was made, a cancellation by when it was
+      // cancelled. Days are UTC, as on the views side.
+      const rows = await all<{ event_type_id: string; day: string; booked: number; rescheduled: number; cancelled: number }>(
+        `SELECT event_type_id, day, SUM(booked) AS booked, SUM(rescheduled) AS rescheduled, SUM(cancelled) AS cancelled FROM (
+           SELECT event_type_id, date(created_at / 1000, 'unixepoch') AS day,
+                  CASE WHEN reschedule_of IS NULL THEN 1 ELSE 0 END AS booked,
+                  CASE WHEN reschedule_of IS NULL THEN 0 ELSE 1 END AS rescheduled,
+                  0 AS cancelled
+           FROM bookings WHERE event_type_id IN (${marks}) AND created_at >= ? AND created_at < ?
+           UNION ALL
+           SELECT event_type_id, date(cancelled_at / 1000, 'unixepoch') AS day, 0, 0, 1
+           FROM bookings WHERE event_type_id IN (${marks}) AND status = 'cancelled' AND cancelled_at IS NOT NULL AND cancelled_at >= ? AND cancelled_at < ?
+         ) GROUP BY event_type_id, day ORDER BY day`,
+        ...eventTypeIds, range.start, range.end, ...eventTypeIds, range.start, range.end,
+      )
+      return rows.map((r) => ({ eventTypeId: r.event_type_id, day: r.day, booked: Number(r.booked), rescheduled: Number(r.rescheduled), cancelled: Number(r.cancelled) }))
+    },
     async countForHostOnDate(hostUserId, range) {
       // Matched against `start_utc` in the caller's resolved range, NOT the
       // stored `local_date` column. `local_date` is stamped once, in a

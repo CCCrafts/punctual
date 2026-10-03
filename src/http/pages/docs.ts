@@ -371,6 +371,8 @@ ${pre(`git pull\nnpm run migrate\nnpm run deploy`)}
 <tr><td class="pu-time">GOOGLE_CLIENT_ID / _SECRET</td><td>secret</td><td>Your Google OAuth app</td></tr>
 <tr><td class="pu-time">MICROSOFT_CLIENT_ID / _SECRET</td><td>secret</td><td>Your Microsoft app</td></tr>
 <tr><td class="pu-time">[[send_email]]</td><td>binding</td><td>Cloudflare Email Service; no key. Used when neither API key is set</td></tr>
+<tr><td class="pu-time">[[analytics_engine_datasets]]</td><td>binding</td><td>Page views for the Insights page (Workers Analytics Engine, free). Shipped on</td></tr>
+<tr><td class="pu-time">INSIGHTS_API_TOKEN</td><td>secret</td><td>Optional: Account Analytics Read token, so Insights can read views back; with CLOUDFLARE_ACCOUNT_ID in [vars]</td></tr>
 <tr><td class="pu-time">EMAIL_PROVIDER</td><td>[vars]</td><td>Optional: cloudflare, resend, brevo or console. Names the sender; a missing key or binding for it is reported on /health and the dashboard</td></tr>
 <tr><td class="pu-time">RESEND_API_KEY</td><td>secret</td><td>Omit to log emails instead of sending</td></tr>
 <tr><td class="pu-time">BREVO_API_KEY</td><td>secret</td><td>Alternative to Resend; Resend wins if both are set</td></tr>

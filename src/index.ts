@@ -17,6 +17,7 @@ import { createKvBlobCache } from './adapters/cache/kv-blob.js'
 import { createR2BlobStorage } from './adapters/storage/r2-blob.js'
 import { createBrevoSender, createCloudflareSender, createConsoleSender, createResendSender } from './adapters/email/index.js'
 import { selectEmailDelivery } from './adapters/email/select.js'
+import { createAnalyticsEngineInsights } from './adapters/insights/analytics-engine.js'
 import { createEnvOAuthCredentials } from './adapters/oauth.js'
 import { createCalendarProviders } from './adapters/providers.js'
 import { createCoordinator } from './adapters/coordinator.js'
@@ -57,6 +58,14 @@ export interface Env {
   EMAIL?: SendEmail
   /** Name the sender instead of inferring it: cloudflare | resend | brevo | console (adapters/email/select.ts). */
   EMAIL_PROVIDER?: string
+  /** Workers Analytics Engine, for page and confirm views on the Insights page (`[[analytics_engine_datasets]]`). */
+  INSIGHTS?: AnalyticsEngineDataset
+  /** The dataset name the binding writes to; the SQL API reads it by name. Defaults to punctual_insights. */
+  INSIGHTS_DATASET?: string
+  /** Optional: an API token with Account Analytics Read, so the Insights page can read views back. */
+  INSIGHTS_API_TOKEN?: string
+  /** Needed with INSIGHTS_API_TOKEN: the Cloudflare account that owns the dataset. */
+  CLOUDFLARE_ACCOUNT_ID?: string
   RESEND_API_KEY?: string
   BREVO_API_KEY?: string
   GOOGLE_CLIENT_ID?: string
@@ -179,6 +188,12 @@ export function buildPorts(env: Env): EnginePorts {
     clock,
     queue,
     rateLimiter,
+    insights: createAnalyticsEngineInsights({
+      ...(env.INSIGHTS ? { dataset: env.INSIGHTS } : {}),
+      datasetName: env.INSIGHTS_DATASET ?? 'punctual_insights',
+      ...(env.CLOUDFLARE_ACCOUNT_ID ? { accountId: env.CLOUDFLARE_ACCOUNT_ID } : {}),
+      ...(env.INSIGHTS_API_TOKEN ? { apiToken: env.INSIGHTS_API_TOKEN } : {}),
+    }),
     config: {
       baseUrl,
       brandName: env.BRAND_NAME ?? 'Punctual',

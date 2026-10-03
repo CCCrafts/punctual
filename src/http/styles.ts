@@ -318,6 +318,19 @@ time,.pu-time{font-family:var(--pu-font-mono);font-variant-numeric:tabular-nums}
 .pu-home-foot{max-width:56rem;margin:2.5rem auto 2rem;padding:1.25rem 1.25rem 0;border-top:1px solid var(--pu-line);font-size:.875rem;color:var(--pu-text-secondary)}
 .pu-home-foot p{margin:.25rem 0}
 .pu-home-foot-by{font-size:.8125rem}
+.pu-ins-kpis{display:grid;gap:1rem 1.5rem;grid-template-columns:repeat(auto-fit,minmax(8.5rem,1fr))}
+.pu-ins-kpi{display:flex;flex-direction:column;gap:.15rem}
+.pu-ins-kpi-value{font-family:var(--pu-font-mono);font-weight:700;font-size:1.5rem;font-variant-numeric:tabular-nums}
+.pu-ins-kpi-label{font-size:.8125rem;color:var(--pu-text-secondary)}
+.pu-ins-chart{margin:1.25rem 0 0}
+.pu-ins-chart svg{display:block;width:100%;height:120px}
+.pu-ins-bar-views{fill:var(--pu-green-tint)}
+.pu-ins-bar-booked{fill:var(--pu-green-fill)}
+.pu-ins-chart figcaption{font-size:.8125rem;margin-top:.4rem}
+.pu-ins-key{display:inline-block;width:.7rem;height:.7rem;border-radius:2px;vertical-align:-1px;margin:0 .2rem 0 .4rem}
+.pu-ins-key-views{background:var(--pu-green-tint)}
+.pu-ins-key-booked{background:var(--pu-green-fill)}
+.pu-ins-table .pu-num,.pu-dash-table .pu-num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 .pu-hosts-more{display:inline}
 .pu-hosts-more summary{display:inline;cursor:pointer;color:var(--pu-green-700);list-style:none}
 .pu-hosts-more summary::-webkit-details-marker{display:none}

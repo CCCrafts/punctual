@@ -9,7 +9,7 @@
  * Vitest project alongside the domain they support.
  */
 
-import type {
+import type { Interval,
   ApiKey,
   Booking,
   CalendarConnection,
@@ -19,7 +19,8 @@ import type {
   Team,
   User,
 } from '../core/domain/types.js'
-import type {
+import type { InsightEvent, InsightKind } from '../core/domain/insights.js'
+import type { InsightsPort,
   ApiKeyRepository,
   AvailabilityRepository,
   EventTypeHostRepository,
@@ -238,6 +239,22 @@ export function createFakeRepositories(): FakeRepositories {
     async byManageToken(tokenHash: string) {
       for (const b of bookings.values()) if (b.manageTokenHash === tokenHash) return b
       return null
+    },
+    async statsForEventTypes(eventTypeIds: string[], range: Interval) {
+      const out = new Map<string, { eventTypeId: string; day: string; booked: number; rescheduled: number; cancelled: number }>()
+      const bump = (id: string, at: number, k: 'booked' | 'rescheduled' | 'cancelled') => {
+        const day = new Date(at).toISOString().slice(0, 10)
+        const key = `${id}|${day}`
+        const row = out.get(key) ?? { eventTypeId: id, day, booked: 0, rescheduled: 0, cancelled: 0 }
+        row[k] += 1
+        out.set(key, row)
+      }
+      for (const b of bookings.values()) {
+        if (!eventTypeIds.includes(b.eventTypeId)) continue
+        if (b.createdAt >= range.start && b.createdAt < range.end) bump(b.eventTypeId, b.createdAt, b.rescheduleOf ? 'rescheduled' : 'booked')
+        if (b.status === 'cancelled' && b.cancelledAt !== null && b.cancelledAt >= range.start && b.cancelledAt < range.end) bump(b.eventTypeId, b.cancelledAt, 'cancelled')
+      }
+      return [...out.values()]
     },
     async listForHostByStatus(hostUserId: string, opts: BookingListOptions) {
       const mine = [...bookings.values()].filter((b) => b.hostUserId === hostUserId || b.hostUserIds.includes(hostUserId))
@@ -485,4 +502,57 @@ export function createFakeSettings(): SettingsRepository {
       store.set(key, value)
     },
   }
+}
+
+/**
+ * An in-memory `InsightsPort`: every recorded view is kept and `query`
+ * aggregates it, so a test can exercise the Insights page end to end.
+ */
+export interface FakeInsights extends InsightsPort {
+  recorded: InsightEvent[]
+  /** Forget every recorded view. */
+  reset(): void
+  /** Flip to simulate a deployment without a token: `query` returns null. */
+  readable: boolean
+  /** Timestamp the next recorded events with (epoch ms); defaults to now. */
+  at: number | null
+}
+
+export function createFakeInsights(): FakeInsights {
+  const stamped: Array<{ event: InsightEvent; at: number }> = []
+  const self: FakeInsights = {
+    enabled: true,
+    canRead: true,
+    readable: true,
+    at: null,
+    recorded: [],
+    reset() {
+      self.recorded.length = 0
+      stamped.length = 0
+    },
+    record(event) {
+      self.recorded.push(event)
+      stamped.push({ event, at: self.at ?? Date.now() })
+    },
+    async query(eventTypeIds, period) {
+      if (!self.readable) return null
+      const start = period.until - period.days * 86_400_000
+      const daily = new Map<string, { eventTypeId: string; day: string; kind: InsightKind; count: number }>()
+      const sources = new Map<string, number>()
+      for (const { event, at } of stamped) {
+        if (!eventTypeIds.includes(event.eventTypeId) || at < start || at >= period.until) continue
+        const day = new Date(at).toISOString().slice(0, 10)
+        const key = `${event.eventTypeId}|${day}|${event.kind}`
+        const row = daily.get(key) ?? { eventTypeId: event.eventTypeId, day, kind: event.kind, count: 0 }
+        row.count += 1
+        daily.set(key, row)
+        if (event.kind === 'page_view') {
+          const source = event.utmSource ? `utm:${event.utmSource}` : event.referer
+          if (source) sources.set(source, (sources.get(source) ?? 0) + 1)
+        }
+      }
+      return { daily: [...daily.values()], sources: [...sources].map(([source, count]) => ({ source, count })) }
+    },
+  }
+  return self
 }

@@ -72,6 +72,15 @@ new_sqlite_classes = ["HostCalendar", "RateLimiter"]
 
 # Emails and webhooks. Both degrade gracefully when absent: the engine falls
 # back to inline delivery so a self-hoster without Queues still works.
+# Page and confirm views for the dashboard's Insights page. Workers
+# Analytics Engine is on the free plan; writes cost nothing per request.
+# Reading the numbers back needs INSIGHTS_API_TOKEN (Account Analytics:
+# Read) and CLOUDFLARE_ACCOUNT_ID — see docs/self-hosting.md; without
+# them Insights shows bookings only.
+[[analytics_engine_datasets]]
+binding = "INSIGHTS"
+dataset = "punctual_insights"
+
 [[queues.producers]]
 binding = "TASKS"
 queue = "punctual-tasks"

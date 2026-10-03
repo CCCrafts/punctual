@@ -81,6 +81,8 @@ import { canManageTeam, isManagingRole } from '../core/domain/teams.js'
 import { hostUsers, hostsForReschedule, resolveHosts as resolveEventTypeHosts } from '../core/domain/hosts.js'
 import { changeBookingHosts } from '../core/domain/booking-hosts.js'
 import { saveCalendarConnection } from './calendar-connect.js'
+import { insightsPage } from './pages/insights.js'
+import { buildInsightsReport, periodFrom, periodStart } from '../core/domain/insights.js'
 import { HOME_CONTACT, HOME_EVENT_TYPES, HOME_FEATURED, HOME_INTRO, HOME_INTRO_MAX, HOME_KEYS, HOME_MODE, HOME_TITLE, HOME_TITLE_MAX, HOME_WEBSITE, isEmailAddress, parseHomeSettings } from '../core/domain/home.js'
 import { notifyNewHosts as notifyNewHostsShared } from './host-notifications.js'
 import { MAX_DECODED_PIXELS,
@@ -2517,6 +2519,44 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
   const BOOKINGS_LIST_LIMIT = 100
   /** How far ahead the host's reschedule picker looks. */
   const RESCHEDULE_HORIZON_MS = 14 * 24 * 60 * 60 * 1000
+
+  /**
+   * The funnel (core/domain/insights.ts). A host sees their own event types
+   * and those of their teams; an admin may widen to the whole instance.
+   * Bookings come from D1; views from the insights port when it can read.
+   */
+  app.get('/dashboard/insights', requireSession, async (c) => {
+    const repos = c.get('repos')
+    const user = c.get('user')
+    const period = periodFrom(c.req.query('days'), ports.clock.now())
+    const scope: 'mine' | 'instance' = user.role === 'admin' && c.req.query('scope') === 'instance' ? 'instance' : 'mine'
+    const eventTypes: Array<{ eventType: EventType; ownerName: string }> = []
+    if (scope === 'instance') {
+      for (const item of await repos.eventTypes.listActiveWithOwners()) eventTypes.push({ eventType: item.eventType, ownerName: item.owner.name })
+    } else {
+      for (const eventType of await repos.eventTypes.listForUser(user.id)) eventTypes.push({ eventType, ownerName: user.name || user.slug })
+      for (const team of await userTeams(c)) {
+        for (const eventType of await repos.eventTypes.listForTeam(team.id)) eventTypes.push({ eventType, ownerName: team.name })
+      }
+    }
+    const ids = eventTypes.map((e) => e.eventType.id)
+    const [bookings, views] = await Promise.all([
+      repos.bookings.statsForEventTypes(ids, { start: periodStart(period), end: period.until }),
+      ports.insights?.canRead ? ports.insights.query(ids, period).catch(() => null) : Promise.resolve(null),
+    ])
+    return c.html(
+      insightsPage({
+        brandName,
+        user,
+        csrf: c.get('csrf'),
+        emailDelivery,
+        ...(emailProblem ? { emailProblem } : {}),
+        report: buildInsightsReport({ period, eventTypes, bookings, views }),
+        scope,
+        viewsEnabled: ports.insights?.enabled ?? false,
+      }),
+    )
+  })
 
   app.get('/dashboard/bookings', requireSession, async (c) => {
     const repos = c.get('repos')

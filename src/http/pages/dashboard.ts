@@ -59,11 +59,12 @@ import { avatarHtml, escapeHtml, hostsSentence, joinNames, logoHtml, shellFoot, 
 /** Form field carrying the double-submit token. Routes read the same name. */
 export const CSRF_FIELD = 'csrf'
 
-export type NavKey = 'events' | 'bookings' | 'availability' | 'teams' | 'connections' | 'keys' | 'settings' | 'admin'
+export type NavKey = 'events' | 'bookings' | 'insights' | 'availability' | 'teams' | 'connections' | 'keys' | 'settings' | 'admin'
 
 const NAV: ReadonlyArray<{ key: NavKey; href: string; label: string }> = [
   { key: 'events', href: '/dashboard', label: 'Event types' },
   { key: 'bookings', href: '/dashboard/bookings', label: 'Bookings' },
+  { key: 'insights', href: '/dashboard/insights', label: 'Insights' },
   { key: 'availability', href: '/dashboard/availability', label: 'Availability' },
   { key: 'teams', href: '/dashboard/teams', label: 'Teams' },
   { key: 'connections', href: '/dashboard/connections', label: 'Calendars' },
@@ -3327,3 +3328,6 @@ export function adminPage(d: AdminPageData): string {
     shellBottom(d.brandName)
   )
 }
+
+/** The dashboard shell, for pages that live in their own module (pages/insights.ts). */
+export const dashboardShell = { top: shellTop, bottom: shellBottom }

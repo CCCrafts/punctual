@@ -14,6 +14,7 @@
  */
 
 import type { HomeOwner } from './core/domain/home.js'
+import type { BookingDayStats, InsightEvent, InsightsPeriod, InsightsViews } from './core/domain/insights.js'
 import type {
   ApiKey,
   CompanyLogo,
@@ -267,6 +268,13 @@ export interface BookingRepository {
    * near a timezone boundary and undercount their cap.
    */
   countForHostOnDate(hostUserId: string, range: Interval): Promise<number>
+  /**
+   * The funnel's bookings half (core/domain/insights.ts): per event type,
+   * per UTC day of `created_at` — new bookings (not reschedule
+   * replacements), reschedules (replacements created), and cancellations
+   * by `cancelled_at`. One query over `bookings_event_type_idx`.
+   */
+  statsForEventTypes(eventTypeIds: string[], range: Interval): Promise<BookingDayStats[]>
 
   /**
    * The atomic write (ADR-0002 §1). The booking row and one `slot_locks` row
@@ -922,6 +930,8 @@ export interface EnginePorts {
   queue: QueuePort
   coordinator: HostCoordinator
   rateLimiter: RateLimiter
+  /** Page and confirm views for the Insights page; absent on a deployment without the binding. */
+  insights?: InsightsPort
   config: EngineConfig
 }
 
@@ -939,4 +949,19 @@ export interface EnginePorts {
 export interface RequestScope {
   consistency: 'unconstrained' | 'bookmark'
   bookmark?: string | null
+}
+
+/**
+ * Where the funnel's views go and come from (core/domain/insights.ts). The
+ * production adapter is Workers Analytics Engine (adapters/insights).
+ */
+export interface InsightsPort {
+  /** Views are being recorded at all. */
+  enabled: boolean
+  /** Views can be read back (an API token is configured). */
+  canRead: boolean
+  /** Fire-and-forget: a metric must never slow or fail a page. */
+  record(event: InsightEvent): void
+  /** Null when views cannot be read: not configured, or the read failed. */
+  query(eventTypeIds: string[], period: InsightsPeriod): Promise<InsightsViews | null>
 }

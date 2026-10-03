@@ -6,6 +6,22 @@ still change interfaces.
 
 ## [Unreleased]
 
+### Added
+
+- **Insights.** A booking funnel in the dashboard: page views, visitors
+  who picked a time, bookings, conversion, reschedules and cancellations —
+  per event type, per day, and by referring site or `utm_source` — for 7,
+  30 or 90 days; a host sees their own and their teams' event types, an
+  admin the whole instance. Bookings are counted from the database; views
+  are recorded on Workers Analytics Engine (free; crawlers left out) and
+  read back with an optional `INSIGHTS_API_TOKEN`.
+
+### Fixed
+
+- Crawlers enumerated the confirm step — one URL per slot — by the
+  thousand. Slot links now say `rel="nofollow"` and `/robots.txt`
+  disallows `/*/confirm`; the booking page itself stays indexable.
+
 ### Changed
 
 - **No email to an address that cannot sign in.** With sign-ups closed

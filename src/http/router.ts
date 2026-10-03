@@ -24,11 +24,12 @@ import { calendlyAlternativePage, landingPage } from './pages/landing.js'
 import { instanceHomePage } from './pages/home.js'
 import { HOME_KEYS, homeFeatured, homeGroups, homeItems, parseHomeSettings, withTeamPeople } from '../core/domain/home.js'
 import { COMPANY_LOGO_KEY, COMPANY_LOGO_SHAPE, companyLogoFrom } from '../core/domain/media.js'
+import { insightEventFor, isLikelyBot, type InsightKind } from '../core/domain/insights.js'
 import { docsApiPage, docsIndexPage, docsMcpPage, docsSelfHostingPage } from './pages/docs.js'
 import type { EnginePorts, RequestScope } from '../ports.js'
 import type { SlotService } from '../engine.js'
 import { daysWithSlots, monthRange } from '../engine.js'
-import type { User } from '../core/domain/types.js'
+import type { EventType, User } from '../core/domain/types.js'
 import { hostUsers as hostUsers_, resolveHosts as resolveEventTypeHosts } from '../core/domain/hosts.js'
 import { isValidTimeZone, localDateString } from '../core/time/zone.js'
 import {
@@ -48,6 +49,16 @@ import {
 } from './pages/booking.js'
 
 type Env = Record<string, unknown>
+
+/**
+ * One funnel event per page load (core/domain/insights.ts): fire-and-forget,
+ * never for a crawler, never when the deployment has no insights binding.
+ */
+function recordView(ports: EnginePorts, request: Request, kind: InsightKind, eventType: EventType, embed: boolean): void {
+  if (!ports.insights?.enabled) return
+  if (isLikelyBot(request.headers.get('user-agent'))) return
+  ports.insights.record(insightEventFor(kind, eventType, { referer: request.headers.get('referer'), url: new URL(request.url), embed }, ports.config.baseUrl))
+}
 
 export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bindings: Env }> {
   const app = new Hono<{ Bindings: Env }>()
@@ -288,6 +299,7 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
 
     const guestTimezone = resolveGuestTimezone(c.req.query('tz'), c.req.raw, host.tz)
     const embed = c.req.query('embed') === '1'
+    recordView(ports, c.req.raw, 'page_view', eventType, embed)
     const currentMonth = localDateString(ports.clock.now(), host.tz).slice(0, 7)
     // The floor `clampMonth` snaps back to, below: the EARLIER of
     // the two parties' current months, not just the host's. A guest near the
@@ -440,6 +452,7 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
     if (!Number.isSafeInteger(start) || Math.abs(start) > 8.64e15) return notFound(c, ports)
     const guestTimezone = resolveGuestTimezone(c.req.query('tz'), c.req.raw, host.tz)
     const embed = c.req.query('embed') === '1'
+    recordView(ports, c.req.raw, 'confirm_view', eventType, embed)
 
     const data: BookingPageData = {
       host,

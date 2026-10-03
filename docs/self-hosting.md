@@ -255,6 +255,26 @@ and a contact address, and the booking links you pick from your event
 types — one of them featured at the top, the rest grouped under each team
 and person. Docs stay at `/docs`.
 
+## Insights
+
+The dashboard's **Insights** page is a booking funnel: page views, how many
+visitors picked a time, bookings, conversion, reschedules and cancellations
+— per event type, per day, and by where visitors came from (referring site
+or `utm_source`). Crawlers and link previews are left out.
+
+Bookings come from your database and always show. Views are written to
+Workers Analytics Engine through the `INSIGHTS` binding (free, shipped on)
+and read back through its SQL API, which needs two more things:
+
+```bash
+# An API token with the single permission "Account Analytics: Read"
+npx wrangler secret put INSIGHTS_API_TOKEN
+```
+
+and `CLOUDFLARE_ACCOUNT_ID` in `[vars]` (the id on your dashboard's
+Workers page). Until both are set, Insights shows the bookings half and says
+so. Days are counted in UTC.
+
 ## Upgrading
 
 ```bash
@@ -299,6 +319,9 @@ Two features need a paid plan, and both degrade gracefully:
 | `GOOGLE_CLIENT_ID` / `_SECRET` | secret | Your Google OAuth app |
 | `MICROSOFT_CLIENT_ID` / `_SECRET` | secret | Your Microsoft app |
 | `[[send_email]]` | binding | Cloudflare Email Service — no key. Used when neither API key is set. Needs the sending domain onboarded (Compute → Email Service) and Workers Paid; until then guest sends fail while `/health` still reads healthy |
+| `[[analytics_engine_datasets]]` | binding | Page and confirm views for the Insights page (Workers Analytics Engine, free). Shipped on; remove the block to record nothing |
+| `INSIGHTS_API_TOKEN` | secret | Optional: an API token with *Account Analytics: Read*, so Insights can read views back. Without it Insights shows bookings only |
+| `CLOUDFLARE_ACCOUNT_ID` | `[vars]` | With `INSIGHTS_API_TOKEN`: the account that owns the dataset |
 | `EMAIL_PROVIDER` | `[vars]` | Optional: `cloudflare`, `resend`, `brevo` or `console`. Names the sender instead of inferring it; a named provider whose key or binding is missing is reported on `/health` (`email_provider_unavailable`) and the dashboard instead of quietly falling back |
 | `RESEND_API_KEY` | secret | Omit to log emails instead of sending — `/health` and the dashboard both warn when neither key is set |
 | `BREVO_API_KEY` | secret | Alternative to Resend; Resend wins if both are set |
