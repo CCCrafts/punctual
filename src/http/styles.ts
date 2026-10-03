@@ -331,6 +331,9 @@ time,.pu-time{font-family:var(--pu-font-mono);font-variant-numeric:tabular-nums}
 .pu-ins-key-views{background:var(--pu-green-tint)}
 .pu-ins-key-booked{background:var(--pu-green-fill)}
 .pu-ins-table .pu-num,.pu-dash-table .pu-num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+/* Seven columns: on a phone the wrapper scrolls, so the names must not fold into a column of single words. */
+.pu-ins-table{min-width:46rem}
+.pu-ins-table td:first-child,.pu-ins-table th:first-child{white-space:nowrap}
 .pu-hosts-more{display:inline}
 .pu-hosts-more summary{display:inline;cursor:pointer;color:var(--pu-green-700);list-style:none}
 .pu-hosts-more summary::-webkit-details-marker{display:none}
