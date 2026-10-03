@@ -24,7 +24,7 @@ import { calendlyAlternativePage, landingPage } from './pages/landing.js'
 import { instanceHomePage } from './pages/home.js'
 import { HOME_KEYS, homeFeatured, homeGroups, homeItems, parseHomeSettings, withTeamPeople } from '../core/domain/home.js'
 import { COMPANY_LOGO_KEY, COMPANY_LOGO_SHAPE, companyLogoFrom } from '../core/domain/media.js'
-import { insightEventFor, isLikelyBot, type InsightKind } from '../core/domain/insights.js'
+import { insightEventFor, isLikelyBot, refererHost, type InsightKind } from '../core/domain/insights.js'
 import { docsApiPage, docsIndexPage, docsMcpPage, docsSelfHostingPage } from './pages/docs.js'
 import type { EnginePorts, RequestScope } from '../ports.js'
 import type { SlotService } from '../engine.js'
@@ -57,7 +57,18 @@ type Env = Record<string, unknown>
 function recordView(ports: EnginePorts, request: Request, kind: InsightKind, eventType: EventType, embed: boolean): void {
   if (!ports.insights?.enabled) return
   if (isLikelyBot(request.headers.get('user-agent'))) return
-  ports.insights.record(insightEventFor(kind, eventType, { referer: request.headers.get('referer'), url: new URL(request.url), embed }, ports.config.baseUrl))
+  const url = new URL(request.url)
+  const referer = request.headers.get('referer')
+  // A page view is the ARRIVAL. The booking page has no client script, so
+  // every day and month on the calendar is a full GET of the same page;
+  // counting those made a guest who looked at three days before booking
+  // read as 25% conversion (caught by review). A same-site referer, or a
+  // calendar parameter on the URL, means the visitor was already here.
+  if (kind === 'page_view') {
+    const sameSite = referer !== null && referer !== '' && refererHost(referer, ports.config.baseUrl) === ''
+    if (sameSite || url.searchParams.has('date') || url.searchParams.has('month')) return
+  }
+  ports.insights.record(insightEventFor(kind, eventType, { referer, url, embed }, ports.config.baseUrl))
 }
 
 export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bindings: Env }> {

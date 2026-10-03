@@ -14,7 +14,7 @@
  *   blob9 embed ('1' | '0') · double1 1 · index1 eventTypeId
  */
 
-import type { InsightEvent, InsightKind, InsightsViews } from '../../core/domain/insights.js'
+import { periodStart, type InsightEvent, type InsightKind, type InsightsViews } from '../../core/domain/insights.js'
 import type { InsightsPort } from '../../ports.js'
 
 export interface AnalyticsEngineInsightsOptions {
@@ -69,7 +69,7 @@ export function createAnalyticsEngineInsights(opts: AnalyticsEngineInsightsOptio
     async query(eventTypeIds, period) {
       if (!canRead || eventTypeIds.length === 0) return null
       const ids = eventTypeIds.map(sqlString).join(',')
-      const since = `toDateTime(${Math.floor((period.until - period.days * 86_400_000) / 1000)})`
+      const since = `toDateTime(${Math.floor(periodStart(period) / 1000)})`
       const until = `toDateTime(${Math.floor(period.until / 1000)})`
       const table = opts.datasetName
       const daily = await sql<{ kind: string; event_type_id: string; day: string; n: string | number }>(

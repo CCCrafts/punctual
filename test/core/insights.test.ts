@@ -49,7 +49,9 @@ describe('the period', () => {
     expect(periodFrom('7', now)).toEqual({ days: 7, until: now })
     expect(periodFrom('90', now).days).toBe(90)
     for (const bad of ['', undefined, '14', 'abc']) expect(periodFrom(bad, now).days).toBe(30)
-    expect(utcDay(periodStart({ days: 7, until: now }))).toBe('2026-09-26')
+    // The last 7 UTC days including today, from midnight.
+    expect(periodStart({ days: 7, until: now })).toBe(Date.UTC(2026, 8, 27))
+    expect(utcDay(periodStart({ days: 7, until: now }))).toBe('2026-09-27')
   })
 })
 
@@ -84,10 +86,18 @@ describe('the report', () => {
       ['et_2', 5, 0, 1, 0.2],
     ])
     expect(r.days).toHaveLength(7)
-    expect(r.days.map((d) => d.day)).toEqual(['2026-09-26', '2026-09-27', '2026-09-28', '2026-09-29', '2026-09-30', '2026-10-01', '2026-10-02'])
-    expect(r.days[5]).toEqual({ day: '2026-10-01', views: 40, booked: 3 })
-    expect(r.days[6]).toEqual({ day: '2026-10-02', views: 15, booked: 3 })
+    expect(r.days.map((d) => d.day)).toEqual(['2026-09-27', '2026-09-28', '2026-09-29', '2026-09-30', '2026-10-01', '2026-10-02', '2026-10-03'])
+    expect(r.days[4]).toEqual({ day: '2026-10-01', views: 40, booked: 3 })
+    expect(r.days[5]).toEqual({ day: '2026-10-02', views: 15, booked: 3 })
     expect(r.sources.map((s) => s.source)).toEqual(['utm:newsletter', 'linkedin.com'])
+  })
+
+  it("today is on the chart, not only in the totals (caught by review)", () => {
+    const today = [{ eventTypeId: 'et_1', day: '2026-10-03', booked: 2, cancelled: 0, rescheduled: 0 }]
+    const r = buildInsightsReport({ period: { days: 7, until: now }, eventTypes: types, bookings: today, views: { daily: [{ eventTypeId: 'et_1', day: '2026-10-03', kind: 'page_view', count: 9 }], sources: [] } })
+    expect(r.days[6]).toEqual({ day: '2026-10-03', views: 9, booked: 2 })
+    expect(r.totals.booked).toBe(2)
+    expect(r.days.reduce((n, d) => n + d.booked, 0)).toBe(r.totals.booked)
   })
 
   it('stands on bookings alone when views cannot be read, and never divides by zero', () => {
@@ -129,7 +139,7 @@ describe('the Analytics Engine adapter', () => {
     expect(calls[0]!.url).toBe('https://api.cloudflare.com/client/v4/accounts/acc_1/analytics_engine/sql')
     expect(calls[0]!.auth).toBe('Bearer tok')
     expect(calls[0]!.body).toContain("index1 IN ('et_1','et_o\\'neil')")
-    expect(calls[0]!.body).toContain(`toDateTime(${Math.floor((now - 7 * 86_400_000) / 1000)})`)
+    expect(calls[0]!.body).toContain(`toDateTime(${Math.floor(Date.UTC(2026, 8, 27) / 1000)})`)
     expect(calls[0]!.body).toContain('FROM punctual_insights')
     expect(views).toEqual({
       daily: [

@@ -19,7 +19,7 @@ import type { Interval,
   Team,
   User,
 } from '../core/domain/types.js'
-import type { InsightEvent, InsightKind } from '../core/domain/insights.js'
+import { periodStart, type InsightEvent, type InsightKind } from '../core/domain/insights.js'
 import type { InsightsPort,
   ApiKeyRepository,
   AvailabilityRepository,
@@ -536,7 +536,7 @@ export function createFakeInsights(): FakeInsights {
     },
     async query(eventTypeIds, period) {
       if (!self.readable) return null
-      const start = period.until - period.days * 86_400_000
+      const start = periodStart(period)
       const daily = new Map<string, { eventTypeId: string; day: string; kind: InsightKind; count: number }>()
       const sources = new Map<string, number>()
       for (const { event, at } of stamped) {

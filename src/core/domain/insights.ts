@@ -59,8 +59,16 @@ export function periodFrom(raw: string | undefined, until: number): InsightsPeri
   return { days, until }
 }
 
+/**
+ * The period is the last `days` UTC calendar days INCLUDING today: it
+ * starts at the UTC midnight `days - 1` days before `until`. Aligned to
+ * midnight so the chart, the table and the totals all cover the same
+ * days — an unaligned start left today's bookings in the totals but off
+ * the chart (caught by review).
+ */
 export function periodStart(p: InsightsPeriod): number {
-  return p.until - p.days * 86_400_000
+  const d = new Date(p.until - (p.days - 1) * 86_400_000)
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())
 }
 
 export function utcDay(ms: number): string {
@@ -158,6 +166,7 @@ export function buildInsightsReport(input: {
   const start = periodStart(period)
   const dayKeys: string[] = []
   for (let t = start; t < period.until; t += 86_400_000) dayKeys.push(utcDay(t))
+  if (dayKeys[dayKeys.length - 1] !== utcDay(period.until - 1)) dayKeys.push(utcDay(period.until - 1))
   const dayIndex = new Map(dayKeys.map((d, i) => [d, i]))
   const days: InsightsDay[] = dayKeys.map((day) => ({ day, views: 0, booked: 0 }))
 
