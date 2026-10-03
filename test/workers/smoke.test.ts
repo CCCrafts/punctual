@@ -497,6 +497,8 @@ describe('only the bare booking page is indexable', () => {
     expect(status).toBe(200)
     expect(body).toContain('<link rel="canonical" href="https://punctual.test/sales-team/team-intro">')
     expect(body).not.toContain('name="robots"')
+    // Slot links are not for following: each is a distinct confirm URL.
+    for (const slot of body.match(/<a class="[^"]*" href="[^"]*\/confirm\?[^"]*"[^>]*>/g) ?? []) expect(slot).toContain('rel="nofollow"')
   })
 
   it('keeps the embedded copy and the confirm step out of the index', async () => {
@@ -527,11 +529,13 @@ describe('only the bare booking page is indexable', () => {
     // anchored with a slash or `$` — a bare `/auth` would also hide a host
     // whose slug happens to be `author` (caught by review).
     for (const rule of body.split('\n').filter((l) => l.startsWith('Disallow: '))) {
-      expect(rule).toMatch(/[/$]$/)
+      expect(rule).toMatch(/[/$?]$/)
     }
-    // The confirm step and the embedded copy are deliberately NOT blocked:
-    // a crawler has to be able to fetch a page to read its noindex.
-    expect(body).not.toContain('confirm')
+    // The confirm step is blocked — one URL per slot, enumerated by
+    // crawlers by the thousand — in both its spellings; the embedded copy
+    // is NOT, so a crawler can still read its noindex.
+    expect(body).toContain('Disallow: /*/confirm$\n')
+    expect(body).toContain('Disallow: /*/confirm?\n')
     expect(body).not.toContain('embed')
   })
 })

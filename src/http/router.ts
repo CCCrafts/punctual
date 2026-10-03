@@ -223,10 +223,12 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
   // What a crawler may fetch at all. Indexing itself is decided per page
   // (`PageChrome.canonical`, pages/booking.ts): a page that must NOT appear
   // in results says `noindex` in its head, and a crawler can only read that
-  // if it is allowed to fetch the page — which is why the confirm step and
-  // the embedded booking page are not listed here. Disallowed are the
-  // areas that hold nothing for a crawler: the dashboard, sign-in, the API,
-  // and guest manage links, whose URLs carry a token.
+  // if it is allowed to fetch the page — which is why the embedded booking
+  // page is not listed here. Disallowed are the areas that hold nothing for
+  // a crawler: the dashboard, sign-in, the API, guest manage links (their
+  // URLs carry a token), and the confirm step — one URL per slot, which
+  // crawlers enumerated by the thousand; its noindex had weeks to be read
+  // before this rule, and the slot links say nofollow besides.
   app.get('/robots.txt', (c) =>
     c.body(
       // Anchored, because robots rules are prefixes and the longest match
@@ -242,6 +244,8 @@ export function buildRouter(ports: EnginePorts, slots: SlotService): Hono<{ Bind
         'Disallow: /mcp/',
         'Disallow: /mcp$',
         'Disallow: /booking/',
+        'Disallow: /*/confirm$',
+        'Disallow: /*/confirm?',
         'Allow: /',
         '',
       ].join('\n'),

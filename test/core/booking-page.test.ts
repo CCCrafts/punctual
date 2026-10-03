@@ -298,7 +298,7 @@ describe('slotList slot-state wiring', () => {
 
   it('still renders as a real, focusable link — available slots stay interactive', () => {
     const html = slotList(pageData({ selectedDate: '2026-09-10', slots }))
-    expect(html).toMatch(/<a class="pu-slot pu-slot-available" href="[^"]+">/)
+    expect(html).toMatch(/<a class="pu-slot pu-slot-available" href="[^"]+" rel="nofollow">/)
   })
 })
 

@@ -605,7 +605,11 @@ export function slotList(d: BookingPageData): string {
         `${bookingPath(d)}/confirm?start=${s.start}` +
         `&tz=${encodeURIComponent(d.guestTimezone)}` +
         (d.embed ? '&embed=1' : '')
-      return `<a class="${slotStateClassName('available')}" href="${escapeHtml(href)}">
+      // nofollow: every slot is a distinct URL, and a crawler that follows
+      // them enumerates the whole calendar — ten thousand confirm fetches
+      // in a fortnight on one event type. Nothing on the far side is worth
+      // indexing (it says noindex), so there is nothing to follow.
+      return `<a class="${slotStateClassName('available')}" href="${escapeHtml(href)}" rel="nofollow">
         <time datetime="${new Date(s.start).toISOString()}">${escapeHtml(label)}</time></a>`
     })
     .join('\n    ')
