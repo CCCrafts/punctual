@@ -121,9 +121,11 @@ export async function sendDigests(ports: EnginePorts, now: number): Promise<void
   for (const host of await repos.users.listDigestRecipients()) {
     const date = digestDue(host, now)
     if (!date) continue
-    await repos.users.markDigestSent(host.id, date)
+    // One conditional UPDATE is the claim: an overlapping tick that reads
+    // the same row loses here and sends nothing (caught by review).
+    if (!(await repos.users.claimDigest(host.id, date))) continue
     const range = digestRange(date, host.tz)
-    const todays = digestBookings(await repos.bookings.listForHost(host.id, range))
+    const todays = digestBookings(await repos.bookings.listForHost(host.id, range), range)
     if (todays.length === 0) continue
     const meetings: Array<{ booking: Booking; eventType: EventType; coHosts: User[] }> = []
     for (const booking of todays) {

@@ -66,6 +66,8 @@ describe('the digest run', () => {
     repos.seedBooking(booking('bk_cancelled', 'et_intro', day + 12 * 3_600_000, { status: 'cancelled' }))
     repos.seedBooking(booking('bk_tomorrow', 'et_intro', day + 34 * 3_600_000))
     repos.seedBooking(booking('bk_yesterday', 'et_intro', day - 3_600_000))
+    // Began at 23:30 yesterday, ends 00:30 today: overlaps the day, is not today's (caught by review).
+    repos.seedBooking(booking('bk_midnight', 'et_intro', day - 1_800_000, { endUtc: day + 1_800_000 }))
 
     await sendDigests(ports, KYIV_8AM)
     expect(queued).toHaveLength(1)
@@ -78,6 +80,8 @@ describe('the digest run', () => {
     expect(mail.text).toContain('Demo — Guest bk_late')
     expect(mail.text).not.toContain('bk_cancelled')
     expect(mail.text).not.toContain('bk_tomorrow')
+    expect(mail.text).not.toContain('bk_midnight')
+    expect(mail.text).toContain('Wednesday, October 7')
     expect(mail.html).toContain('https://punctual.test/dashboard/bookings/bk_early')
     expect((await repos.users.byId(host.id))?.digestSentOn).toBe('2026-10-07')
 
@@ -97,9 +101,17 @@ describe('the digest run', () => {
     expect((await repos.users.byId('u_quiet'))?.digestSentOn).toBe('2026-10-08')
   })
 
-  it('sorts and filters to confirmed meetings', () => {
-    const b = [booking('b', 'et', 20), booking('a', 'et', 10), booking('c', 'et', 15, { status: 'cancelled' })]
-    expect(digestBookings(b).map((x) => x.id)).toEqual(['a', 'b'])
+  it('sorts and filters to confirmed meetings that start inside the day', () => {
+    const b = [booking('b', 'et', 20), booking('a', 'et', 10), booking('c', 'et', 15, { status: 'cancelled' }), booking('x', 'et', 2, { endUtc: 12 })]
+    expect(digestBookings(b, { start: 5, end: 100 }).map((x) => x.id)).toEqual(['a', 'b'])
+  })
+
+  it('two overlapping ticks send one digest: the claim is atomic', async () => {
+    const { repos, queued, ports } = harness()
+    repos.seedUser({ id: 'u_host', email: 'grace@example.com', name: 'Grace', slug: 'grace', tz: 'Europe/Kyiv', digestHour: 8 })
+    repos.seedBooking(booking('bk_1', 'et_intro', Date.UTC(2026, 9, 7, 9)))
+    await Promise.all([sendDigests(ports, KYIV_8AM), sendDigests(ports, KYIV_8AM + 1000)])
+    expect(queued).toHaveLength(1)
   })
 
   it('renders one line per meeting', () => {

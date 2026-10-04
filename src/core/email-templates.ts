@@ -755,7 +755,10 @@ export interface DigestEmailInput {
 export function dailyDigestEmail(input: DigestEmailInput): EmailContent {
   const tz = input.host.tz
   const n = input.meetings.length
-  const dayLabel = formatInZone(input.meetings[0]?.booking.startUtc ?? Date.now(), tz, { weekday: 'long', month: 'long', day: 'numeric' })
+  // From the digest's own date, not the first meeting's start: a meeting
+  // that began before midnight must not relabel the day (caught by review).
+  const [y, mo, d] = input.date.split('-').map(Number) as [number, number, number]
+  const dayLabel = new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'UTC' }).format(new Date(Date.UTC(y, mo - 1, d)))
   const rows: DetailRow[] = input.meetings.map(({ booking, eventType, coHosts }) => ({
     label: formatInZone(booking.startUtc, tz, { hour: 'numeric', minute: '2-digit' }),
     value: `${eventType.title} — ${booking.guestName}${coHosts.length > 0 ? ` (with ${coHosts.map((u) => u.name || u.slug).join(', ')})` : ''}`,

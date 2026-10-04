@@ -85,8 +85,11 @@ export interface UserRepository {
   listAll(): Promise<User[]>
   /** Everyone with a digest hour set — the cron's candidates; `digestDue` decides who is actually due. */
   listDigestRecipients(): Promise<User[]>
-  /** Record that today's digest went out, BEFORE sending, so an overlapping tick does not send a second. */
-  markDigestSent(id: string, localDate: string): Promise<void>
+  /**
+   * Claim today's digest BEFORE sending: true when this call moved the marker to `localDate`,
+   * false when it already was — one conditional UPDATE, so two overlapping ticks cannot both win.
+   */
+  claimDigest(id: string, localDate: string): Promise<boolean>
   /** How many users exist at all — the first-user-becomes-admin bootstrap check. */
   count(): Promise<number>
   /**
@@ -948,6 +951,8 @@ export interface EnginePorts {
   rateLimiter: RateLimiter
   /** Page and confirm views for the Insights page; absent on a deployment without the binding. */
   insights?: InsightsPort
+  /** The zone's edge traffic for the Admin page (adapters/insights/zone-analytics.ts); absent when not configured. */
+  zoneAnalytics?: { configured: boolean; traffic(): Promise<import('./adapters/insights/zone-analytics.js').ZoneTraffic | null> }
   config: EngineConfig
 }
 

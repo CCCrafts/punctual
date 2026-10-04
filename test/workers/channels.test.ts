@@ -234,7 +234,7 @@ describe('notification channels', () => {
     expect(tg.url).toBe(`https://api.telegram.org/bot${TG_TOKEN}/sendMessage`)
     const text = (slack.body as { text: string }).text
     expect(text).toContain('*New booking: Crew call*')
-    expect(text).toContain('Ada Lovelace <ada@example.test>')
+    expect(text).toContain('Ada Lovelace &lt;ada@example.test&gt;')
     expect(text).toContain('With Chan Host and Ch Admin')
     // The host's own channel reads the time in the host's zone (UTC); the team's in its first member's.
     expect(text).toContain('(UTC)')

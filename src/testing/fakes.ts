@@ -162,9 +162,11 @@ export function createFakeRepositories(): FakeRepositories {
     async listDigestRecipients() {
       return [...users.values()].filter((u) => u.digestHour !== null && u.digestHour !== undefined)
     },
-    async markDigestSent(id, localDate) {
+    async claimDigest(id, localDate) {
       const u = users.get(id)
-      if (u) users.set(id, { ...u, digestSentOn: localDate })
+      if (!u || u.digestSentOn === localDate) return false
+      users.set(id, { ...u, digestSentOn: localDate })
+      return true
     },
     async count() {
       return users.size
@@ -250,8 +252,9 @@ export function createFakeRepositories(): FakeRepositories {
       return null
     },
     async listForHost(hostUserId: string, range: Interval) {
+      // Overlap, as D1 does — a booking that merely crosses into the range is returned too.
       return [...bookings.values()]
-        .filter((b) => (b.hostUserIds.includes(hostUserId) || b.hostUserId === hostUserId) && b.startUtc >= range.start && b.startUtc < range.end)
+        .filter((b) => (b.hostUserIds.includes(hostUserId) || b.hostUserId === hostUserId) && b.startUtc < range.end && b.endUtc > range.start)
         .sort((a, b) => a.startUtc - b.startUtc)
     },
     async statsForEventTypes(eventTypeIds: string[], range: Interval) {

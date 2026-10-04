@@ -105,8 +105,12 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
       const rows = await all<Record<string, unknown>>('SELECT * FROM users WHERE digest_hour IS NOT NULL')
       return rows.map((r) => mapUser(r)!)
     },
-    async markDigestSent(id, localDate) {
-      await run('UPDATE users SET digest_sent_on = ? WHERE id = ?', localDate, id)
+    async claimDigest(id, localDate) {
+      const res = await session
+        .prepare('UPDATE users SET digest_sent_on = ? WHERE id = ? AND (digest_sent_on IS NULL OR digest_sent_on <> ?)')
+        .bind(localDate, id, localDate)
+        .run()
+      return (res.meta.changes ?? 0) > 0
     },
     async listAll() {
       const rows = await all<Record<string, unknown>>('SELECT * FROM users ORDER BY created_at')

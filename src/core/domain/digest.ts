@@ -40,7 +40,12 @@ export function digestRange(date: string, tz: string): { start: number; end: num
   return { start: localTimeToInstant(date, 0, tz), end: localTimeToInstant(nextDate, 0, tz) }
 }
 
-/** Today's confirmed meetings, in order — the ones the email lists. */
-export function digestBookings(bookings: Booking[]): Booking[] {
-  return bookings.filter((b) => b.status === 'confirmed').sort((a, b) => a.startUtc - b.startUtc)
+/**
+ * Today's confirmed meetings, in order — the ones the email lists. Those
+ * that START today: the repository returns anything overlapping the day,
+ * and a meeting that ran past last midnight is yesterday's (caught by
+ * review).
+ */
+export function digestBookings(bookings: Booking[], range: { start: number; end: number }): Booking[] {
+  return bookings.filter((b) => b.status === 'confirmed' && b.startUtc >= range.start && b.startUtc < range.end).sort((a, b) => a.startUtc - b.startUtc)
 }
