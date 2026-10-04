@@ -309,6 +309,26 @@ describe('one event per booking per provider (ADR-0011)', () => {
     expect(byConn.get('conn_bob')!.map((a) => a.email)).toEqual(['ada@example.com', 'bob@example.com'])
   })
 
+  it("the organizer leaves and nobody remaining writes to that provider: their event gets the booking's current people, not them (caught by review)", async () => {
+    // Grace held the only Google calendar and organized the event; she is
+    // taken off the booking, Bob (no calendar) stays. The plan has no Google
+    // event, so Grace's stored event must be updated with guest + Bob —
+    // not with guest + Grace, which left the one calendar event wrong.
+    const h = harness({
+      users: [bob],
+      connectionsByUser: { u_host: [connection()], u_bob: [] },
+      bookingPatch: { hostUserId: 'u_bob', hostUserIds: ['u_bob'], externalEventIds: { conn_1: 'evt_a' } },
+      eventTypePatch: teamPatch,
+    })
+    await handleOne({ ...h.sync, action: 'update' }, h.ports)
+
+    expect(h.createEvent).not.toHaveBeenCalled()
+    expect(h.updateEvent).toHaveBeenCalledTimes(1)
+    const call = h.updateEvent.mock.calls[0] as unknown[]
+    expect((call[0] as CalendarConnection).id).toBe('conn_1')
+    expect(((call[2] as { attendees: Attendee[] }).attendees).map((a) => a.email)).toEqual(['ada@example.com', 'bob@example.com'])
+  })
+
   it('a redelivered create makes no second event', async () => {
     const h = harness({ bookingPatch: { externalEventIds: { conn_1: 'evt_existing' } } })
     await handleOne(h.sync, h.ports)

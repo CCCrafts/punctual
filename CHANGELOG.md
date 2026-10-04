@@ -18,6 +18,10 @@ still change interfaces.
 
 ### Fixed
 
+- Removing the host who organized a joint meeting's calendar event, when
+  no remaining host writes to that provider, left the departed host on
+  the one calendar event and the remaining hosts off it. The event is now
+  updated with the booking's current people.
 - Crawlers enumerated the confirm step — one URL per slot — by the
   thousand. Slot links now say `rel="nofollow"` and `/robots.txt`
   disallows `/*/confirm`; the booking page itself stays indexable.

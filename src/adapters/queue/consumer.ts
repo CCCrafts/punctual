@@ -302,7 +302,15 @@ async function syncCalendar(
           anchor.get(conn.provider) === conn.id
             ? plan.events.find((e) => e.conn.provider === conn.provider)?.attendees
             : undefined
-        const attendees = planned ?? (await legacyAttendees(repos, booking, conn))
+        // A stored event whose connection belongs to a host who has LEFT the
+        // booking, on a provider nobody remaining writes to: the plan has no
+        // event for it, yet it is the only calendar event this meeting has.
+        // The legacy fallback would put the departed host back on it and
+        // leave the remaining hosts off (caught by review); it gets the
+        // booking's current people instead, through the departed host's
+        // connection, which is still theirs.
+        const departed = !booking.hostUserIds.includes(conn.userId)
+        const attendees = planned ?? (departed ? plan.currentAttendees : await legacyAttendees(repos, booking, conn))
         await ports.calendars.get(conn.provider).updateEvent(conn, externalId, externalFor(conn, attendees))
       } catch (err) {
         console.error(`[punctual] calendar update failed for connection ${conn.id}`, err)
@@ -375,6 +383,8 @@ async function planInvites(
   organizerTz: Map<string, string>
   /** Everyone on the meeting — the guest, then the hosts in booking order — for the event's title and description. */
   participants: Participant[]
+  /** The guest and every current host by their account email — for an event that outlived its organizer. */
+  currentAttendees: ExternalEvent['attendees']
 }> {
   const settings = await hostSettings(repos, eventType)
   const hosts: Array<{ user: User; writable: CalendarConnection[] }> = []
@@ -418,7 +428,14 @@ async function planInvites(
     events.push({ conn, attendees })
     organizerTz.set(conn.id, organizer.user.tz)
   })
-  return { events, organizerTz, participants }
+  const currentAttendees: ExternalEvent['attendees'] = [{ email: booking.guestEmail, name: booking.guestName }]
+  for (const h of hosts) {
+    const optional = settings.get(h.user.id)?.required === false
+    if (h.user.email && h.user.email.toLowerCase() !== booking.guestEmail.toLowerCase()) {
+      currentAttendees.push({ email: h.user.email, name: h.user.name || h.user.slug, ...(optional ? { optional: true } : {}) })
+    }
+  }
+  return { events, organizerTz, participants, currentAttendees }
 }
 
 /** A pre-ADR-0011 event's attendee list: the guest and the connection's own host. */
