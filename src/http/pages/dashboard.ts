@@ -3349,19 +3349,30 @@ function trafficSection(d: AdminPageData): string {
   const bars = t.days
     .map((x, i) => `<g><title>${x.day}: ${x.requests.toLocaleString('en-US')}</title><rect class="pu-ins-bar-booked" x="${(i * bw + 1).toFixed(1)}" y="${(H - (x.requests / max) * (H - 4)).toFixed(1)}" width="${(bw - 2).toFixed(1)}" height="${((x.requests / max) * (H - 4)).toFixed(1)}"/></g>`)
     .join('')
-  const list = (rows: Array<[string, number]>, mono = false) =>
+  // Paths break anywhere (they are one long token); agents are clipped with
+  // an ellipsis and carry the whole string in a title, since a wrapped
+  // user-agent is three lines of noise.
+  const list = (rows: Array<[string, number]>, mode: 'path' | 'plain' | 'clip') =>
     rows.length === 0
       ? '<p class="pu-muted">—</p>'
-      : `<table class="pu-dash-table" style="min-width:0"><tbody>${rows
-          .map(([k, v]) => `<tr><td${mono ? ' class="pu-time"' : ''} style="word-break:break-all">${escapeHtml(k)}</td><td class="pu-num">${v.toLocaleString('en-US')}</td></tr>`)
+      : `<table class="pu-dash-table" style="min-width:0;table-layout:fixed"><tbody>${rows
+          .map(([k, v]) => {
+            const cell =
+              mode === 'path'
+                ? `<td class="pu-time" style="word-break:break-all">${escapeHtml(k)}</td>`
+                : mode === 'clip'
+                  ? `<td style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${escapeHtml(k)}">${escapeHtml(k)}</td>`
+                  : `<td>${escapeHtml(k)}</td>`
+            return `<tr>${cell}<td class="pu-num" style="width:5.5rem">${v.toLocaleString('en-US')}</td></tr>`
+          })
           .join('')}</tbody></table>`
   return `<p class="pu-muted" style="margin-top:0">Every browser request Cloudflare served for this host, crawlers included, ${escapeHtml(t.since)} → ${escapeHtml(t.until)}. People-only numbers are on <a href="/dashboard/insights">Insights</a>.</p>
   <p style="margin:.25rem 0 .5rem"><span class="pu-ins-kpi-value">${t.total.toLocaleString('en-US')}</span> <span class="pu-muted">requests in 14 days</span></p>
   <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Requests per day" style="display:block;width:100%;height:80px">${bars}</svg>
   <div class="pu-grid" style="grid-template-columns:repeat(auto-fit,minmax(16rem,1fr));gap:1rem;margin-top:1rem">
-    <div><h3 style="margin:0 0 .35rem;font-size:.9375rem">Top paths</h3>${list(t.paths.map((p) => [p.path, p.requests]), true)}</div>
-    <div><h3 style="margin:0 0 .35rem;font-size:.9375rem">Countries</h3>${list(t.countries.map((c) => [c.country, c.requests]))}</div>
-    <div><h3 style="margin:0 0 .35rem;font-size:.9375rem">User agents</h3>${list(t.agents.map((a) => [a.agent.length > 70 ? `${a.agent.slice(0, 70)}…` : a.agent, a.requests]))}</div>
+    <div><h3 style="margin:0 0 .35rem;font-size:.9375rem">Top paths</h3>${list(t.paths.map((p) => [p.path, p.requests]), 'path')}</div>
+    <div><h3 style="margin:0 0 .35rem;font-size:.9375rem">Countries</h3>${list(t.countries.map((c) => [c.country, c.requests]), 'plain')}</div>
+    <div><h3 style="margin:0 0 .35rem;font-size:.9375rem">User agents</h3>${list(t.agents.map((a) => [a.agent, a.requests]), 'clip')}</div>
   </div>`
 }
 
