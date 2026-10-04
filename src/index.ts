@@ -18,6 +18,7 @@ import { createR2BlobStorage } from './adapters/storage/r2-blob.js'
 import { createBrevoSender, createCloudflareSender, createConsoleSender, createResendSender } from './adapters/email/index.js'
 import { selectEmailDelivery } from './adapters/email/select.js'
 import { createAnalyticsEngineInsights } from './adapters/insights/analytics-engine.js'
+import { createZoneAnalytics } from './adapters/insights/zone-analytics.js'
 import { createEnvOAuthCredentials } from './adapters/oauth.js'
 import { createCalendarProviders } from './adapters/providers.js'
 import { createCoordinator } from './adapters/coordinator.js'
@@ -66,6 +67,10 @@ export interface Env {
   INSIGHTS_API_TOKEN?: string
   /** Needed with INSIGHTS_API_TOKEN: the Cloudflare account that owns the dataset. */
   CLOUDFLARE_ACCOUNT_ID?: string
+  /** Optional: the zone BASE_URL lives in, so the Admin page can show the edge's view of traffic. */
+  CLOUDFLARE_ZONE_ID?: string
+  /** Optional: a token with Zone Analytics Read for that zone; INSIGHTS_API_TOKEN is used when this is unset. */
+  ZONE_ANALYTICS_TOKEN?: string
   RESEND_API_KEY?: string
   BREVO_API_KEY?: string
   GOOGLE_CLIENT_ID?: string
@@ -188,6 +193,12 @@ export function buildPorts(env: Env): EnginePorts {
     clock,
     queue,
     rateLimiter,
+    zoneAnalytics: createZoneAnalytics({
+      ...(env.CLOUDFLARE_ZONE_ID ? { zoneId: env.CLOUDFLARE_ZONE_ID } : {}),
+      ...((env.ZONE_ANALYTICS_TOKEN ?? env.INSIGHTS_API_TOKEN) ? { apiToken: env.ZONE_ANALYTICS_TOKEN ?? env.INSIGHTS_API_TOKEN } : {}),
+      host: new URL(baseUrl).host,
+      cache,
+    }),
     insights: createAnalyticsEngineInsights({
       ...(env.INSIGHTS ? { dataset: env.INSIGHTS } : {}),
       datasetName: env.INSIGHTS_DATASET ?? 'punctual_insights',

@@ -48,6 +48,7 @@ import type { HostChangeFailure } from '../../core/domain/booking-hosts.js'
 import { HOME_INTRO_MAX, HOME_TITLE_MAX, type HomeSettings } from '../../core/domain/home.js'
 import { CHANNEL_EVENTS, type NotificationChannel } from '../../core/domain/chat-notify.js'
 import { DIGEST_HOURS } from '../../core/domain/digest.js'
+import type { ZoneTraffic } from '../../adapters/insights/zone-analytics.js'
 import { slotStateClassName } from '../../core/slot-state.js'
 import { slugify } from '../../core/domain/booking-service.js'
 import { formatInZone, localDateString, offsetLabel } from '../../core/time/zone.js'
@@ -3259,6 +3260,9 @@ export interface AdminPageData extends DashboardChrome {
   companyLogo: CompanyLogo | null
   /** What `/` is on this instance, and the event types an admin may put on it (core/domain/home.ts). */
   home: HomeSettings
+  /** The edge's view of the last fourteen days (adapters/insights/zone-analytics.ts): null = not configured or unavailable. */
+  traffic: ZoneTraffic | null
+  trafficConfigured: boolean
   homeChoices: Array<{ id: string; title: string; ownerName: string; path: string }>
   errors?: Record<string, string>
   notice?: string
@@ -3325,6 +3329,40 @@ function homepageForm(d: AdminPageData, errors: Record<string, string>): string 
     ${d.homeChoices.length > 0 ? `<label style="${row('margin:.4rem 0 0;font-size:.8125rem')}"><input type="radio" name="home_featured" value=""${h.featuredId === null ? ' checked' : ''} style="margin-top:.15rem"> No featured meeting</label>` : ''}
     <div style="margin-top:.9rem"><button class="pu-btn" type="submit">Save homepage</button></div>
   </form>`
+}
+
+/**
+ * What Cloudflare's edge saw: every browser request to this host, crawlers
+ * and all — which is why it sits on Admin next to the instance's other
+ * plumbing rather than on Insights, whose numbers are people.
+ */
+function trafficSection(d: AdminPageData): string {
+  if (!d.trafficConfigured) {
+    return `<p class="pu-muted">Cloudflare's view of this host's traffic — requests per day, top paths, countries, user agents. Set <code>CLOUDFLARE_ZONE_ID</code> in <code>[vars]</code> (and a token with <em>Zone Analytics: Read</em>, or reuse <code>INSIGHTS_API_TOKEN</code>) — see <a href="/docs/self-hosting">self-hosting</a>.</p>`
+  }
+  const t = d.traffic
+  if (!t) return `<p class="pu-muted">Cloudflare did not answer just now. The reason is in the Worker's log.</p>`
+  const max = Math.max(1, ...t.days.map((x) => x.requests))
+  const W = 720
+  const H = 80
+  const bw = t.days.length > 0 ? W / t.days.length : W
+  const bars = t.days
+    .map((x, i) => `<g><title>${x.day}: ${x.requests.toLocaleString('en-US')}</title><rect class="pu-ins-bar-booked" x="${(i * bw + 1).toFixed(1)}" y="${(H - (x.requests / max) * (H - 4)).toFixed(1)}" width="${(bw - 2).toFixed(1)}" height="${((x.requests / max) * (H - 4)).toFixed(1)}"/></g>`)
+    .join('')
+  const list = (rows: Array<[string, number]>, mono = false) =>
+    rows.length === 0
+      ? '<p class="pu-muted">—</p>'
+      : `<table class="pu-dash-table" style="min-width:0"><tbody>${rows
+          .map(([k, v]) => `<tr><td${mono ? ' class="pu-time"' : ''} style="word-break:break-all">${escapeHtml(k)}</td><td class="pu-num">${v.toLocaleString('en-US')}</td></tr>`)
+          .join('')}</tbody></table>`
+  return `<p class="pu-muted" style="margin-top:0">Every browser request Cloudflare served for this host, crawlers included, ${escapeHtml(t.since)} → ${escapeHtml(t.until)}. People-only numbers are on <a href="/dashboard/insights">Insights</a>.</p>
+  <p style="margin:.25rem 0 .5rem"><span class="pu-ins-kpi-value">${t.total.toLocaleString('en-US')}</span> <span class="pu-muted">requests in 14 days</span></p>
+  <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Requests per day" style="display:block;width:100%;height:80px">${bars}</svg>
+  <div class="pu-grid" style="grid-template-columns:repeat(auto-fit,minmax(16rem,1fr));gap:1rem;margin-top:1rem">
+    <div><h3 style="margin:0 0 .35rem;font-size:.9375rem">Top paths</h3>${list(t.paths.map((p) => [p.path, p.requests]), true)}</div>
+    <div><h3 style="margin:0 0 .35rem;font-size:.9375rem">Countries</h3>${list(t.countries.map((c) => [c.country, c.requests]))}</div>
+    <div><h3 style="margin:0 0 .35rem;font-size:.9375rem">User agents</h3>${list(t.agents.map((a) => [a.agent.length > 70 ? `${a.agent.slice(0, 70)}…` : a.agent, a.requests]))}</div>
+  </div>`
 }
 
 export function adminPage(d: AdminPageData): string {
@@ -3401,6 +3439,10 @@ export function adminPage(d: AdminPageData): string {
   <h2>Company logo</h2>
   <p class="pu-muted">Heads every team booking page and its social card. An event type with a logo of its own keeps that; personal pages keep the host's photo.</p>
   ${logoPanel({ csrf: d.csrf, action: '/dashboard/admin/logo', key: d.companyLogo?.key ?? null, shape: d.companyLogo?.shape ?? null, name: d.brandName, errorKey: 'company-logo', errors, hint: 'A wordmark reads best in its own proportions.' })}
+</section>
+<section class="pu-card" aria-label="Traffic" style="margin-bottom:1.25rem">
+  <h2>Traffic</h2>
+  ${trafficSection(d)}
 </section>
 <section class="pu-card" aria-label="Homepage" style="margin-bottom:1.25rem">
   <h2>Homepage</h2>

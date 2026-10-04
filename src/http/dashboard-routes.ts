@@ -2359,6 +2359,8 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
         signups: { value, pinnedByEnv },
         companyLogo: await companyLogo(repos),
         home: parseHomeSettings(await repos.settings.getMany(HOME_KEYS)),
+        traffic: ports.zoneAnalytics?.configured ? await ports.zoneAnalytics.traffic().catch(() => null) : null,
+        trafficConfigured: ports.zoneAnalytics?.configured ?? false,
         homeChoices: (await repos.eventTypes.listActiveWithOwners()).map((item) => ({
           id: item.eventType.id,
           title: item.eventType.title,

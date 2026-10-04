@@ -333,6 +333,7 @@ Two features need a paid plan, and both degrade gracefully:
 | `[[analytics_engine_datasets]]` | binding | Page and confirm views for the Insights page (Workers Analytics Engine, free). Shipped on; remove the block to record nothing |
 | `INSIGHTS_API_TOKEN` | secret | Optional: an API token with *Account Analytics: Read*, so Insights can read views back. Without it Insights shows bookings only |
 | `CLOUDFLARE_ACCOUNT_ID` | `[vars]` | With `INSIGHTS_API_TOKEN`: the account that owns the dataset |
+| `CLOUDFLARE_ZONE_ID` | `[vars]` | Optional: the zone `BASE_URL` lives in. With a token that has *Zone Analytics: Read* (`ZONE_ANALYTICS_TOKEN`, or `INSIGHTS_API_TOKEN` if it has that right too) the Admin page shows the edge's view of traffic: requests per day, top paths, countries, user agents, 14 days |
 | `EMAIL_PROVIDER` | `[vars]` | Optional: `cloudflare`, `resend`, `brevo` or `console`. Names the sender instead of inferring it; a named provider whose key or binding is missing is reported on `/health` (`email_provider_unavailable`) and the dashboard instead of quietly falling back |
 | `RESEND_API_KEY` | secret | Omit to log emails instead of sending — `/health` and the dashboard both warn when neither key is set |
 | `BREVO_API_KEY` | secret | Alternative to Resend; Resend wins if both are set |

@@ -35,6 +35,8 @@ function page(signups = 'open'): string {
     signups: { value: signups, pinnedByEnv: false },
     companyLogo: null,
     home: { mode: 'landing', title: '', intro: '', eventTypeIds: [], featuredId: null, website: '', contactEmail: '' },
+    traffic: null,
+    trafficConfigured: false,
     homeChoices: [],
   })
 }
@@ -61,5 +63,19 @@ describe('adminPage', () => {
 
   it('tells an admin closing sign-ups how to admit one more person later', () => {
     expect(page('closed')).toContain('To add someone later, switch to Allowlist and enter their email.')
+  })
+})
+
+describe('the traffic section', () => {
+  it('explains what to configure, says when Cloudflare did not answer, and renders the numbers when it did', async () => {
+    const { adminPage } = await import('../../src/http/pages/dashboard.js')
+    const base = { brandName: 'Punctual', user: { id: 'u', email: 'a@x', name: 'A', tz: 'UTC', slug: 'a', avatarKey: null, company: null, jobTitle: null, companyUrl: null, role: 'admin' as const, createdAt: 0 }, csrf: 'tok', emailDelivery: 'brevo' as const, allUsers: [], signups: { value: 'open', pinnedByEnv: false }, companyLogo: null, home: { mode: 'landing' as const, title: '', intro: '', eventTypeIds: [], featuredId: null, website: '', contactEmail: '' }, homeChoices: [] }
+    expect(adminPage({ ...base, traffic: null, trafficConfigured: false })).toContain('CLOUDFLARE_ZONE_ID')
+    expect(adminPage({ ...base, traffic: null, trafficConfigured: true })).toContain('Cloudflare did not answer just now')
+    const html = adminPage({ ...base, trafficConfigured: true, traffic: { since: '2026-09-20', until: '2026-10-04', total: 24514, days: [{ day: '2026-09-20', requests: 300 }], paths: [{ path: '/serge/30min/confirm', requests: 10837 }], countries: [{ country: 'US', requests: 3746 }], agents: [{ agent: '<script>x</script>', requests: 1 }] } })
+    expect(html).toContain('24,514')
+    expect(html).toContain('/serge/30min/confirm')
+    expect(html).toContain('&lt;script&gt;x&lt;/script&gt;')
+    expect(html).toContain('<svg viewBox="0 0 720 80"')
   })
 })

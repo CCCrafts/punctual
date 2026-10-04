@@ -8,6 +8,10 @@ still change interfaces.
 
 ### Added
 
+- **Traffic on the Admin page.** With `CLOUDFLARE_ZONE_ID` and a token
+  that can read zone analytics, admins see Cloudflare's own view of the
+  last fourteen days — requests per day, top paths, countries, user agents,
+  crawlers and all — next to the people-only numbers on Insights.
 - **Morning digest.** Opt in under Settings → Morning digest and pick an
   hour: one email, in your timezone, listing today's confirmed meetings
   with their times, guests and co-hosts, each linked to its booking.
