@@ -11,6 +11,8 @@ import type { EnginePorts, ExternalEvent, QueueMessage, Repositories } from '../
 import type { Booking, CalendarConnection, EventType, User } from '../../core/domain/types.js'
 import { calendarDescription, calendarTitle, participantsFor, type Participant } from '../../core/domain/calendar-text.js'
 import { hostSettings } from '../../core/domain/hosts.js'
+import { channelAad, chatMessage, type ChannelConfig } from '../../core/domain/chat-notify.js'
+import { postChatMessage } from '../chat.js'
 import { needsReconnect } from '../oauth.js'
 import { notifyBookingCreated, notifyBookingRescheduled } from '../notify.js'
 
@@ -36,6 +38,10 @@ export async function handleOne(msg: QueueMessage, ports: EnginePorts): Promise<
 
     case 'webhook':
       await deliverWebhook(msg, ports)
+      return
+
+    case 'chat':
+      await deliverChat(msg, ports)
       return
 
     case 'calendar.sync':
@@ -77,6 +83,51 @@ async function deliverWebhook(
   if (!res.ok) {
     throw new Error(`webhook ${webhook.url} returned ${res.status}`)
   }
+}
+
+/**
+ * Post a booking notification to a Slack or Telegram channel. The message
+ * is built here, from the booking as it is now, in the channel owner's
+ * timezone (a team's: its first member's). A failed post throws, so the
+ * queue retries; a channel or booking that is gone is simply done.
+ */
+async function deliverChat(msg: Extract<QueueMessage, { kind: 'chat' }>, ports: EnginePorts): Promise<void> {
+  const repos = ports.repositories({ consistency: 'unconstrained' })
+  const channel = await repos.channels.byId(msg.channelId)
+  if (!channel || !channel.active) return
+  const booking = await repos.bookings.byId(msg.bookingId)
+  if (!booking) return
+  const eventType = await repos.eventTypes.byId(booking.eventTypeId)
+  if (!eventType) return
+  const hosts: User[] = []
+  for (const id of booking.hostUserIds.length > 0 ? booking.hostUserIds : [booking.hostUserId]) {
+    const u = await repos.users.byId(id)
+    if (u) hosts.push(u)
+  }
+  const named = async (ids: string[] | undefined): Promise<string[] | undefined> => {
+    if (!ids) return undefined
+    const out: string[] = []
+    for (const id of ids) {
+      const u = hosts.find((h) => h.id === id) ?? (await repos.users.byId(id))
+      out.push(u ? u.name || u.slug : id)
+    }
+    return out
+  }
+  let tz = hosts[0]?.tz ?? 'UTC'
+  if (channel.ownerKind === 'user') tz = (await repos.users.byId(channel.ownerId))?.tz ?? tz
+  const config = JSON.parse(await ports.crypto.decrypt(channel.configEncrypted, channelAad(channel.ownerKind, channel.ownerId, channel.id), channel.keyVersion)) as ChannelConfig
+  const message = chatMessage({
+    event: msg.event,
+    booking,
+    eventType,
+    hosts,
+    tz,
+    link: `${ports.config.baseUrl.replace(/\/$/, '')}/dashboard/bookings/${booking.id}`,
+    ...(msg.extra?.hostsAdded ? { hostsAdded: await named(msg.extra.hostsAdded) } : {}),
+    ...(msg.extra?.hostsRemoved ? { hostsRemoved: await named(msg.extra.hostsRemoved) } : {}),
+  })
+  const result = await postChatMessage(config, message)
+  if (!result.ok) throw new Error(`chat notification to ${channel.label} failed: ${result.detail}`)
 }
 
 async function hmacHex(secret: string, payload: string): Promise<string> {
@@ -309,7 +360,7 @@ async function syncCalendar(
         // leave the remaining hosts off (caught by review); it gets the
         // booking's current people instead, through the departed host's
         // connection, which is still theirs.
-        const departed = !booking.hostUserIds.includes(conn.userId)
+        const departed = !booking.hostUserIds.includes(conn.userId) && !plan.events.some((e) => e.conn.provider === conn.provider)
         const attendees = planned ?? (departed ? plan.currentAttendees : await legacyAttendees(repos, booking, conn))
         await ports.calendars.get(conn.provider).updateEvent(conn, externalId, externalFor(conn, attendees))
       } catch (err) {

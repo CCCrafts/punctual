@@ -168,10 +168,13 @@ describe('insights', () => {
     // Moving around the calendar is the same visit, not new arrivals (caught by review).
     expect((await app.fetch(new Request(`${BASE}/ins-host/intro?date=2030-01-15`, { headers: { 'user-agent': BROWSER, referer: `${BASE}/ins-host/intro` } }))).status).toBe(200)
     expect((await app.fetch(new Request(`${BASE}/ins-host/intro?month=2030-02`, { headers: { 'user-agent': BROWSER } }))).status).toBe(200)
+    expect((await app.fetch(new Request(`${BASE}/ins-host/intro`, { headers: { 'user-agent': BROWSER, referer: `${BASE}/ins-host/intro?tz=UTC` } }))).status).toBe(200)
+    // From the instance's own front page IS an arrival (caught by review).
     expect((await app.fetch(new Request(`${BASE}/ins-host/intro`, { headers: { 'user-agent': BROWSER, referer: `${BASE}/` } }))).status).toBe(200)
     expect(insights.recorded).toEqual([
       { kind: 'page_view', eventTypeId: ET, ownerUserId: HOST_ID, ownerTeamId: null, referer: 'linkedin.com', utmSource: 'newsletter', utmMedium: '', utmCampaign: '', embed: false },
       { kind: 'confirm_view', eventTypeId: ET, ownerUserId: HOST_ID, ownerTeamId: null, referer: '', utmSource: '', utmMedium: '', utmCampaign: '', embed: true },
+      { kind: 'page_view', eventTypeId: ET, ownerUserId: HOST_ID, ownerTeamId: null, referer: '', utmSource: '', utmMedium: '', utmCampaign: '', embed: false },
     ])
   })
 

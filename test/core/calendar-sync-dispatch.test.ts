@@ -329,6 +329,22 @@ describe('one event per booking per provider (ADR-0011)', () => {
     expect(((call[2] as { attendees: Attendee[] }).attendees).map((a) => a.email)).toEqual(['ada@example.com', 'bob@example.com'])
   })
 
+  it("a departed host's legacy per-host event keeps its own list when another event already carries the meeting (caught by review)", async () => {
+    // Pre-ADR-0011: Grace and Bob each had a Google event. Grace leaves;
+    // Bob's event is the anchor and gets the current people. Grace's must
+    // NOT also invite everyone — that is a second invitation to the same meeting.
+    const h = harness({
+      users: [bob],
+      connectionsByUser: { u_host: [connection()], u_bob: [connection({ id: 'conn_bob', userId: 'u_bob', providerAccountEmail: 'bob@example.com' })] },
+      bookingPatch: { hostUserId: 'u_bob', hostUserIds: ['u_bob'], externalEventIds: { conn_1: 'evt_a', conn_bob: 'evt_b' } },
+      eventTypePatch: teamPatch,
+    })
+    await handleOne({ ...h.sync, action: 'update' }, h.ports)
+    const byConn = new Map(h.updateEvent.mock.calls.map((c) => [((c as unknown[])[0] as CalendarConnection).id, ((c as unknown[])[2] as { attendees: Attendee[] }).attendees.map((a) => a.email)]))
+    expect(byConn.get('conn_bob')).toEqual(['ada@example.com', 'bob@example.com'])
+    expect(byConn.get('conn_1')).toEqual(['ada@example.com', 'grace@example.com'])
+  })
+
   it('a redelivered create makes no second event', async () => {
     const h = harness({ bookingPatch: { externalEventIds: { conn_1: 'evt_existing' } } })
     await handleOne(h.sync, h.ports)

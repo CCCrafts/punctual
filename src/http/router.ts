@@ -65,8 +65,18 @@ function recordView(ports: EnginePorts, request: Request, kind: InsightKind, eve
   // read as 25% conversion (caught by review). A same-site referer, or a
   // calendar parameter on the URL, means the visitor was already here.
   if (kind === 'page_view') {
-    const sameSite = referer !== null && referer !== '' && refererHost(referer, ports.config.baseUrl) === ''
-    if (sameSite || url.searchParams.has('date') || url.searchParams.has('month')) return
+    // "Already here" means THIS page: a visitor who came from the instance's
+    // own front page or another host's page is an arrival (caught by review).
+    let samePage = false
+    if (referer) {
+      try {
+        const from = new URL(referer)
+        samePage = refererHost(referer, ports.config.baseUrl) === '' && from.pathname === url.pathname
+      } catch {
+        samePage = false
+      }
+    }
+    if (samePage || url.searchParams.has('date') || url.searchParams.has('month')) return
   }
   ports.insights.record(insightEventFor(kind, eventType, { referer, url, embed }, ports.config.baseUrl))
 }
