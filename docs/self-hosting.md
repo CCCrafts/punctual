@@ -248,6 +248,13 @@ confirmation emails. To reword it or make it required, add your own line
 starting with `Agenda |` to the event type's questions (e.g.
 `Agenda | textarea | required`); your version replaces the built-in one.
 
+**Slack and Telegram.** Besides email, bookings can be posted to a Slack
+channel (an incoming webhook URL) or a Telegram chat (a bot token from
+@BotFather and the chat id). Each host sets their own under Settings →
+Notifications; a team's admins set the team's on its card under Teams.
+Nothing to configure on the server — the destinations are stored
+encrypted in your database.
+
 **Your front page.** By default `/` is the Punctual landing. On the Admin
 page, under *Homepage*, switch it to *This instance*: your company logo, a
 title and an intro (links and addresses become clickable), your website

@@ -41,7 +41,7 @@ import type {
   SignupPolicy,
 } from '../ports.js'
 import type { SlotService } from '../engine.js'
-import type { CompanyLogo,
+import type { WebhookEvent, CompanyLogo,
   Booking,
   CalendarConnection,
   EventType,
@@ -75,13 +75,15 @@ import {
 } from '../core/domain/auth-flows.js'
 import { OAUTH_ENDPOINTS, needsSetup, scopesFor, type OAuthPurpose } from '../adapters/oauth.js'
 import { dayRange } from '../engine.js'
-import { isValidTimeZone, localDateString } from '../core/time/zone.js'
+import { formatInZone, isValidTimeZone, localDateString } from '../core/time/zone.js'
 import { validateSlug } from '../core/domain/slugs.js'
 import { canManageTeam, isManagingRole } from '../core/domain/teams.js'
 import { hostUsers, hostsForReschedule, resolveHosts as resolveEventTypeHosts } from '../core/domain/hosts.js'
 import { changeBookingHosts } from '../core/domain/booking-hosts.js'
 import { saveCalendarConnection } from './calendar-connect.js'
 import { insightsPage } from './pages/insights.js'
+import { CHANNEL_EVENTS, channelAad, parseChannelEvents, parseDestination, type ChannelConfig, type NotificationChannel } from '../core/domain/chat-notify.js'
+import { postChatMessage } from '../adapters/chat.js'
 import { buildInsightsReport, periodFrom, periodStart } from '../core/domain/insights.js'
 import { HOME_CONTACT, HOME_EVENT_TYPES, HOME_FEATURED, HOME_INTRO, HOME_INTRO_MAX, HOME_KEYS, HOME_MODE, HOME_TITLE, HOME_TITLE_MAX, HOME_WEBSITE, isEmailAddress, parseHomeSettings } from '../core/domain/home.js'
 import { notifyNewHosts as notifyNewHostsShared } from './host-notifications.js'
@@ -117,6 +119,7 @@ import {
   parseWeeklyDraft,
   adminPage,
   settingsPage,
+  type SettingsPageData,
   slugify,
   teamsPage,
   revokeKeyPage,
@@ -1526,7 +1529,8 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
         members.push({ member, user: await repos.users.byId(member.userId) })
       }
       const canManage = canManageTeam(user, memberships.find((m) => m.teamId === team.id))
-      return { team, members, canManage, ...(viaInstanceAdmin ? { viaInstanceAdmin } : {}) }
+      const channels = canManage ? await repos.channels.listForOwner('team', team.id) : undefined
+      return { team, members, canManage, ...(viaInstanceAdmin ? { viaInstanceAdmin } : {}), ...(channels ? { channels } : {}) }
     }
     for (const team of await userTeams(c)) {
       seen.add(team.id)
@@ -2040,8 +2044,8 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
   // Dashboard — settings (the host's own slug)
   // ===========================================================================
 
-  app.get('/dashboard/settings', requireSession, (c) =>
-    c.html(settingsPage({ brandName, baseUrl: ports.config.baseUrl, user: c.get('user'), csrf: c.get('csrf'), emailDelivery, ...(emailProblem ? { emailProblem } : {}) })),
+  app.get('/dashboard/settings', requireSession, async (c) =>
+    c.html(settingsPage({ brandName, baseUrl: ports.config.baseUrl, user: c.get('user'), csrf: c.get('csrf'), emailDelivery, ...(emailProblem ? { emailProblem } : {}), channels: await c.get('repos').channels.listForOwner('user', c.get('user').id) })),
   )
 
   app.post('/dashboard/settings', requireSession, async (c) => {
@@ -2087,7 +2091,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
 
     if (Object.keys(errors).length > 0) {
       return c.html(
-        settingsPage({ brandName, baseUrl: ports.config.baseUrl, user, csrf: c.get('csrf'),
+        settingsPage({ channels: await repos.channels.listForOwner('user', user.id), brandName, baseUrl: ports.config.baseUrl, user, csrf: c.get('csrf'),
  emailDelivery, ...(emailProblem ? { emailProblem } : {}), slugValue: raw, errors }),
         400,
       )
@@ -2109,6 +2113,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
       if (!ok) {
         return c.html(
           settingsPage({
+            channels: await repos.channels.listForOwner('user', user.id),
             brandName,
             baseUrl: ports.config.baseUrl,
             user,
@@ -2126,6 +2131,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
 
     return c.html(
       settingsPage({
+        channels: await repos.channels.listForOwner('user', user.id),
         brandName,
         baseUrl: ports.config.baseUrl,
         user: { ...user, slug: raw },
@@ -2168,6 +2174,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     if (Object.keys(errors).length > 0) {
       return c.html(
         settingsPage({
+          channels: await c.get('repos').channels.listForOwner('user', user.id),
           brandName,
           baseUrl: ports.config.baseUrl,
           user,
@@ -2194,6 +2201,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
 
     return c.html(
       settingsPage({
+        channels: await repos.channels.listForOwner('user', user.id),
         brandName,
         baseUrl: ports.config.baseUrl,
         user: { ...user, name, company, jobTitle, companyUrl },
@@ -2269,20 +2277,21 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     if (!(await csrfOk(c, form))) return csrfRejected(c)
 
     const user = c.get('user')
-    const fail = (message: string) =>
-      c.html(settingsPage({ brandName, baseUrl: ports.config.baseUrl, user, csrf: c.get('csrf'),
+    const repos = c.get('repos')
+    const fail = async (message: string) =>
+      c.html(settingsPage({ channels: await repos.channels.listForOwner('user', user.id), brandName, baseUrl: ports.config.baseUrl, user, csrf: c.get('csrf'),
  emailDelivery, ...(emailProblem ? { emailProblem } : {}), errors: { avatar: message } }), 400)
 
     const stored = await storeUploadedImage(form.get('avatar'))
     if (!stored.ok) return fail(stored.message)
     const thumbKey = stored.key
 
-    const repos = c.get('repos')
     await repos.users.update(user.id, { avatarKey: thumbKey })
     await advanceBookmark(c)
 
     return c.html(
       settingsPage({
+        channels: await repos.channels.listForOwner('user', user.id),
         brandName,
         baseUrl: ports.config.baseUrl,
         user: { ...user, avatarKey: thumbKey },
@@ -2308,6 +2317,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
 
     return c.html(
       settingsPage({
+        channels: await repos.channels.listForOwner('user', user.id),
         brandName,
         baseUrl: ports.config.baseUrl,
         user: { ...user, avatarKey: null },
@@ -2433,6 +2443,100 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     await repos.settings.set(HOME_FEATURED, picked.includes(featured) ? featured : '', now)
     await advanceBookmark(c)
     return renderAdmin(c, { notice: mode === 'index' ? 'Homepage saved — / now shows this instance.' : 'Homepage saved — / shows the landing.' })
+  })
+
+  // ---- Slack / Telegram notification channels (core/domain/chat-notify.ts) ----
+
+  function readChannelForm(form: FormData) {
+    const kind = String(form.get('kind') ?? 'slack')
+    const draft = {
+      kind,
+      webhookUrl: String(form.get('webhook_url') ?? ''),
+      chatId: String(form.get('chat_id') ?? ''),
+      events: form.getAll('events').map(String),
+    }
+    const parsed = parseDestination(kind, { webhookUrl: draft.webhookUrl, botToken: String(form.get('bot_token') ?? ''), chatId: draft.chatId })
+    const events = parseChannelEvents(draft.events)
+    return { draft, parsed, events }
+  }
+
+  async function createChannel(c: Ctx, ownerKind: 'user' | 'team', ownerId: string, parsed: Extract<ReturnType<typeof parseDestination>, { ok: true }>, events: WebhookEvent[]): Promise<void> {
+    const id = `nch_${ports.crypto.randomToken(12)}`
+    const { ciphertext, keyVersion } = await ports.crypto.encrypt(JSON.stringify(parsed.config), channelAad(ownerKind, ownerId, id))
+    await c.get('repos').channels.create({
+      id, ownerKind, ownerId, kind: parsed.config.kind, label: parsed.label, configEncrypted: ciphertext, keyVersion, events, active: true, createdAt: ports.clock.now(),
+    })
+    await advanceBookmark(c)
+  }
+
+  /** A channel the signed-in user may manage: their own, or one of a team they manage. */
+  async function manageableChannel(c: Ctx, id: string): Promise<NotificationChannel | null> {
+    const ch = await c.get('repos').channels.byId(id)
+    if (!ch) return null
+    const user = c.get('user')
+    if (ch.ownerKind === 'user') return ch.ownerId === user.id ? ch : null
+    const teams = await managedTeams(c)
+    return teams.some((t) => t.id === ch.ownerId) ? ch : null
+  }
+
+  app.post('/dashboard/notifications', requireSession, async (c) => {
+    const form = await c.req.formData()
+    if (!(await csrfOk(c, form))) return csrfRejected(c)
+    const user = c.get('user')
+    const repos = c.get('repos')
+    const { draft, parsed, events } = readChannelForm(form)
+    const page = async (extra: Partial<SettingsPageData>) =>
+      settingsPage({ brandName, baseUrl: ports.config.baseUrl, user, csrf: c.get('csrf'), emailDelivery, ...(emailProblem ? { emailProblem } : {}), channels: await repos.channels.listForOwner('user', user.id), ...extra })
+    if (!parsed.ok) return c.html(await page({ channelDraft: draft, errors: { channel: parsed.message } }), 400)
+    if (events.length === 0) return c.html(await page({ channelDraft: draft, errors: { channel: 'Tick at least one event' } }), 400)
+    await createChannel(c, 'user', user.id, parsed, events)
+    return c.html(await page({ notice: `${parsed.label} added. Send a test to check it.` }))
+  })
+
+  app.post('/dashboard/teams/:id/notifications', requireSession, async (c) => {
+    const form = await c.req.formData()
+    if (!(await csrfOk(c, form))) return csrfRejected(c)
+    const team = await managedTeam(c)
+    if (!team) return notFound(c)
+    const { draft, parsed, events } = readChannelForm(form)
+    if (!parsed.ok) return c.html(teamsPage({ ...(await teamsData(c)), channelDraft: { teamId: team.id, ...draft }, errors: { [`channel-${team.id}`]: parsed.message } }), 400)
+    if (events.length === 0) return c.html(teamsPage({ ...(await teamsData(c)), channelDraft: { teamId: team.id, ...draft }, errors: { [`channel-${team.id}`]: 'Tick at least one event' } }), 400)
+    await createChannel(c, 'team', team.id, parsed, events)
+    return c.html(teamsPage({ ...(await teamsData(c)), notice: `${parsed.label} added to ${team.name}. Send a test to check it.` }))
+  })
+
+  app.post('/dashboard/notifications/:id/delete', requireSession, async (c) => {
+    const form = await c.req.formData()
+    if (!(await csrfOk(c, form))) return csrfRejected(c)
+    const ch = await manageableChannel(c, c.req.param('id'))
+    if (!ch) return notFound(c)
+    await c.get('repos').channels.delete(ch.id)
+    await advanceBookmark(c)
+    return c.redirect(ch.ownerKind === 'user' ? '/dashboard/settings' : '/dashboard/teams', 302)
+  })
+
+  /**
+   * One sample message, sent now rather than through the queue, so the
+   * host sees whether the destination works before a real booking does.
+   */
+  app.post('/dashboard/notifications/:id/test', requireSession, async (c) => {
+    const form = await c.req.formData()
+    if (!(await csrfOk(c, form))) return csrfRejected(c)
+    const ch = await manageableChannel(c, c.req.param('id'))
+    if (!ch) return notFound(c)
+    const user = c.get('user')
+    const config = JSON.parse(await ports.crypto.decrypt(ch.configEncrypted, channelAad(ch.ownerKind, ch.ownerId, ch.id), ch.keyVersion)) as ChannelConfig
+    const now = ports.clock.now()
+    const result = await postChatMessage(config, {
+      headline: `Test from ${brandName}`,
+      lines: [`This channel will hear about: ${ch.events.map((e) => CHANNEL_EVENTS.find((x) => x.value === e)?.label ?? e).join(', ')}.`, `Sent by ${user.name || user.slug} at ${formatInZone(now, user.tz, { hour: 'numeric', minute: '2-digit' })} (${user.tz}).`],
+      link: `${ports.config.baseUrl.replace(/\/$/, '')}/dashboard`,
+    })
+    const notice = result.ok ? `Test sent to ${ch.label}.` : `Could not post to ${ch.label}: ${result.detail}`
+    if (ch.ownerKind === 'user') {
+      return c.html(settingsPage({ brandName, baseUrl: ports.config.baseUrl, user, csrf: c.get('csrf'), emailDelivery, ...(emailProblem ? { emailProblem } : {}), channels: await c.get('repos').channels.listForOwner('user', user.id), ...(result.ok ? { notice } : { errors: { channel: notice } }) }), result.ok ? 200 : 400)
+    }
+    return c.html(teamsPage({ ...(await teamsData(c)), ...(result.ok ? { notice } : { errors: { [`channel-${ch.ownerId}`]: notice } }) }), result.ok ? 200 : 400)
   })
 
   app.post('/dashboard/admin/logo/delete', requireSession, requireAdmin, async (c) => {

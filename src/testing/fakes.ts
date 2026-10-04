@@ -20,6 +20,7 @@ import type { Interval,
   User,
 } from '../core/domain/types.js'
 import { periodStart, type InsightEvent, type InsightKind } from '../core/domain/insights.js'
+import type { NotificationChannel } from '../core/domain/chat-notify.js'
 import type { InsightsPort,
   ApiKeyRepository,
   AvailabilityRepository,
@@ -83,6 +84,7 @@ export function createFakeRepositories(): FakeRepositories {
   const confirmationClaims = new Map<string, number>()
   const teams = new Map<string, Team>()
   const connections = new Map<string, CalendarConnection>()
+  const channels = new Map<string, NotificationChannel>()
   /** Keyed by schedule id, not userId — a host can have more than one. */
   const schedules = new Map<string, Schedule>()
   let touches = 0
@@ -371,6 +373,20 @@ export function createFakeRepositories(): FakeRepositories {
     }),
     connections: connectionRepo,
     webhooks: unimplemented('webhooks'),
+    channels: {
+      async listForOwner(ownerKind, ownerId) {
+        return [...channels.values()].filter((c) => c.ownerKind === ownerKind && c.ownerId === ownerId && c.active)
+      },
+      async byId(id) {
+        return channels.get(id) ?? null
+      },
+      async create(ch) {
+        channels.set(ch.id, ch)
+      },
+      async delete(id) {
+        channels.delete(id)
+      },
+    },
     idempotency: unimplemented('idempotency'),
     settings: createFakeSettings(),
     bookmark() {

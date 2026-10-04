@@ -8,6 +8,13 @@ still change interfaces.
 
 ### Added
 
+- **Slack and Telegram notifications.** A host, and a team's admins, can
+  add a Slack incoming webhook or a Telegram bot + chat to be told about
+  new bookings, reschedules, cancellations and host changes — in Settings
+  for your own bookings, on the team's card for the team's. The
+  destination is stored encrypted and never shown again; a "Send a test"
+  button checks it. Delivered through the queue beside webhooks.
+  Migration 0016.
 - **Insights.** A booking funnel in the dashboard: page views, visitors
   who picked a time, bookings, conversion, reschedules and cancellations —
   per event type, per day, and by referring site or `utm_source` — for 7,

@@ -18,6 +18,7 @@
 
 import { companyLogoFrom } from '../../core/domain/media.js'
 import type { HomeOwner } from '../../core/domain/home.js'
+import type { NotificationChannel } from '../../core/domain/chat-notify.js'
 import type {
   ApiKey,
   Booking,
@@ -48,6 +49,7 @@ import type {
   TeamRepository,
   UserRepository,
   WebhookRepository,
+  NotificationChannelRepository,
 } from '../../ports.js'
 
 /**
@@ -1557,9 +1559,31 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
     },
   }
 
+  const channels: NotificationChannelRepository = {
+    async listForOwner(ownerKind, ownerId) {
+      const rows = await all<Record<string, unknown>>(
+        'SELECT * FROM notification_channels WHERE owner_kind = ? AND owner_id = ? AND active = 1 ORDER BY created_at',
+        ownerKind, ownerId,
+      )
+      return rows.map((r) => mapChannel(r)!)
+    },
+    async byId(id) {
+      return mapChannel(await first('SELECT * FROM notification_channels WHERE id = ?', id))
+    },
+    async create(ch) {
+      await run(
+        'INSERT INTO notification_channels (id,owner_kind,owner_id,kind,label,config_enc,key_version,events_json,active,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)',
+        ch.id, ch.ownerKind, ch.ownerId, ch.kind, ch.label, ch.configEncrypted, ch.keyVersion, JSON.stringify(ch.events), ch.active ? 1 : 0, ch.createdAt,
+      )
+    },
+    async delete(id) {
+      await run('DELETE FROM notification_channels WHERE id = ?', id)
+    },
+  }
+
   return {
     users, eventTypes, availability, bookings, slotLocks, teams, eventTypeHosts, connections,
-    sessions, apiKeys, webhooks, idempotency, settings,
+    sessions, apiKeys, webhooks, channels, idempotency, settings,
     async telemetryCounts() {
       const row = await first<{ users: number; event_types: number; bookings: number }>(
         `SELECT
@@ -1748,6 +1772,22 @@ function mapApiKey(row: Record<string, unknown> | null): ApiKey | null {
     name: String(row['name'] ?? ''),
     scopes: JSON.parse(String(row['scopes_json'] ?? '[]')),
     lastUsedAt: row['last_used_at'] == null ? null : Number(row['last_used_at']),
+    createdAt: Number(row['created_at']),
+  }
+}
+
+function mapChannel(row: Record<string, unknown> | null): NotificationChannel | null {
+  if (!row) return null
+  return {
+    id: String(row['id']),
+    ownerKind: row['owner_kind'] === 'team' ? 'team' : 'user',
+    ownerId: String(row['owner_id']),
+    kind: row['kind'] === 'telegram' ? 'telegram' : 'slack',
+    label: String(row['label']),
+    configEncrypted: String(row['config_enc']),
+    keyVersion: Number(row['key_version']),
+    events: JSON.parse(String(row['events_json'] ?? '[]')),
+    active: Number(row['active']) === 1,
     createdAt: Number(row['created_at']),
   }
 }

@@ -64,7 +64,7 @@ describe('dashboard chrome', () => {
   })
 
   it('does not nudge on Settings itself — the form there already asks', () => {
-    expect(settingsPage({ ...chrome, user: { ...user, name: '' }, baseUrl: 'https://punctual.test' })).not.toContain('Add your name')
+    expect(settingsPage({ channels: [], ...chrome, user: { ...user, name: '' }, baseUrl: 'https://punctual.test' })).not.toContain('Add your name')
   })
 
   it('renders a status notice as a neutral strip, not a success badge', () => {
@@ -77,11 +77,11 @@ describe('the email banner', () => {
   it('shows nothing when mail flows as configured, the misrouting when a named sender is unusable, the outage when nothing sends', async () => {
     const { settingsPage } = await import('../../src/http/pages/dashboard.js')
     const base = { ...chrome, baseUrl: 'https://punctual.test' }
-    expect(settingsPage({ ...base, emailDelivery: 'brevo' })).not.toContain('role="alert" class="pu-callout"')
-    const misrouted = settingsPage({ ...base, emailDelivery: 'resend', emailProblem: 'EMAIL_PROVIDER="sendgrid" is not one of cloudflare, resend, brevo, console; using resend' })
+    expect(settingsPage({ channels: [], ...base, emailDelivery: 'brevo' })).not.toContain('role="alert" class="pu-callout"')
+    const misrouted = settingsPage({ channels: [], ...base, emailDelivery: 'resend', emailProblem: 'EMAIL_PROVIDER="sendgrid" is not one of cloudflare, resend, brevo, console; using resend' })
     expect(misrouted).toContain('Email is not going where you configured it to.')
     expect(misrouted).toContain('EMAIL_PROVIDER=&quot;sendgrid&quot;')
-    const down = settingsPage({ ...base, emailDelivery: 'console', emailProblem: 'EMAIL_PROVIDER=brevo but the BREVO_API_KEY secret is not set — emails are logged, not sent' })
+    const down = settingsPage({ channels: [], ...base, emailDelivery: 'console', emailProblem: 'EMAIL_PROVIDER=brevo but the BREVO_API_KEY secret is not set — emails are logged, not sent' })
     expect(down).toContain('Email is not configured — no one is receiving confirmations.')
     expect(down).toContain('BREVO_API_KEY secret is not set')
   })

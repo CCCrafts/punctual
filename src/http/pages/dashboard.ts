@@ -46,6 +46,7 @@ import type { CompanyLogo,
 import type { BookingListView, CalendarProviderName, EmailDelivery } from '../../ports.js'
 import type { HostChangeFailure } from '../../core/domain/booking-hosts.js'
 import { HOME_INTRO_MAX, HOME_TITLE_MAX, type HomeSettings } from '../../core/domain/home.js'
+import { CHANNEL_EVENTS, type NotificationChannel } from '../../core/domain/chat-notify.js'
 import { slotStateClassName } from '../../core/slot-state.js'
 import { slugify } from '../../core/domain/booking-service.js'
 import { formatInZone, localDateString, offsetLabel } from '../../core/time/zone.js'
@@ -1714,6 +1715,8 @@ export interface TeamView {
   canManage: boolean
   /** True on the instance admin's view of a team they are not on — the card says so, since "why do I see this" is a fair question. */
   viaInstanceAdmin?: boolean
+  /** The team's Slack / Telegram channels; filled for managers only. */
+  channels?: NotificationChannel[]
 }
 
 export interface TeamsPageData extends DashboardChrome {
@@ -1726,6 +1729,7 @@ export interface TeamsPageData extends DashboardChrome {
   addValues?: { teamId: string; email: string; weight: string }
   /** Echo of a failed rename / re-slug submit, scoped to one team's settings form. */
   editValues?: { teamId: string; name: string; slug: string; showName: boolean }
+  channelDraft?: { teamId: string; kind?: string; webhookUrl?: string; chatId?: string; events?: string[] }
   errors?: Record<string, string>
   notice?: string
 }
@@ -1857,7 +1861,7 @@ function teamCard(d: TeamsPageData, view: TeamView): string {
   // must not squeeze even before the stylesheet applies.
   const edit = d.editValues?.teamId === team.id ? d.editValues : { teamId: team.id, name: team.name, slug: team.slug, showName: team.showName !== false }
   const settings = view.canManage
-    ? `<details class="pu-team-settings"${d.editValues?.teamId === team.id ? ' open' : ''}>
+    ? `<details class="pu-team-settings"${d.editValues?.teamId === team.id || d.channelDraft?.teamId === team.id ? ' open' : ''}>
     <summary>Team settings — name, address, visibility</summary>
     <form method="post" action="/dashboard/teams/${teamId}" style="margin-top:.5rem">
       ${csrfField(d.csrf)}
@@ -1882,6 +1886,9 @@ function teamCard(d: TeamsPageData, view: TeamView): string {
       </label>
       <div style="margin-top:.75rem"><button class="pu-btn pu-btn-ghost" type="submit">Save team</button></div>
     </form>
+    <h3 style="margin:1.25rem 0 .35rem;font-size:1rem">Notifications</h3>
+    <p class="pu-muted" style="font-size:.875rem;margin:0 0 .5rem">Every booking of this team's event types, posted to a Slack channel or a Telegram chat.</p>
+    ${channelsPanel({ csrf: d.csrf, action: `/dashboard/teams/${teamId}/notifications`, channels: view.channels ?? [], errorKey: `channel-${team.id}`, errors, draft: d.channelDraft?.teamId === team.id ? d.channelDraft : undefined, idPrefix: `ch-${team.id}` })}
   </details>`
     : ''
 
@@ -2250,8 +2257,80 @@ export interface SettingsPageData extends DashboardChrome {
   companyUrlValue?: string
   /** Public origin, so "View your booking page" opens the address a guest would use. */
   baseUrl: string
+  /** The host's own Slack / Telegram channels (core/domain/chat-notify.ts). */
+  channels: NotificationChannel[]
+  channelDraft?: { kind?: string; webhookUrl?: string; chatId?: string; events?: string[] }
   errors?: Record<string, string>
   notice?: string
+}
+
+
+/**
+ * Slack / Telegram notification channels for one owner — a host's own on
+ * Settings, a team's inside its settings. List with delete and "Send a
+ * test", then the form to add one. The destination is a secret: shown
+ * once as the masked label, never read back.
+ */
+export function channelsPanel(o: {
+  csrf: string
+  /** POST target for a new channel; delete and test post to /dashboard/notifications/:id/… */
+  action: string
+  channels: NotificationChannel[]
+  errorKey: string
+  errors: Record<string, string>
+  /** Field values to refill after a failed submit. */
+  draft?: { kind?: string; webhookUrl?: string; chatId?: string; events?: string[] }
+  idPrefix: string
+}): string {
+  const p = o.idPrefix
+  const draft = o.draft ?? {}
+  const kind = draft.kind ?? 'slack'
+  const ticked = new Set(draft.events ?? CHANNEL_EVENTS.map((e) => e.value))
+  const list =
+    o.channels.length === 0
+      ? ''
+      : `<ul style="list-style:none;padding:0;margin:0 0 1rem;display:grid;gap:.5rem">${o.channels
+          .map(
+            (ch) => `<li style="display:flex;align-items:center;gap:.75rem;flex-wrap:wrap">
+      <span><strong>${escapeHtml(ch.label)}</strong> <span class="pu-muted">— ${ch.events.map((e) => CHANNEL_EVENTS.find((c) => c.value === e)?.label ?? e).join(', ') || 'no events'}</span></span>
+      <form method="post" action="/dashboard/notifications/${encodeURIComponent(ch.id)}/test" style="margin:0 0 0 auto">${csrfField(o.csrf)}<button class="pu-btn pu-btn-ghost" type="submit" style="padding:.25rem .6rem;font-size:.8125rem">Send a test</button></form>
+      <form method="post" action="/dashboard/notifications/${encodeURIComponent(ch.id)}/delete" style="margin:0">${csrfField(o.csrf)}<button class="pu-btn-plain" type="submit">Remove</button></form>
+    </li>`,
+          )
+          .join('')}</ul>`
+  const events = CHANNEL_EVENTS.map(
+    (e) => `<label style="display:inline-flex;align-items:center;gap:.3rem;margin:0 1rem .25rem 0;font-weight:400"><input type="checkbox" name="events" value="${e.value}"${ticked.has(e.value) ? ' checked' : ''}> ${e.label}</label>`,
+  ).join('')
+  return `${list}
+  <details class="pu-channel-add"${o.errors[o.errorKey] ? ' open' : ''}>
+    <summary>Add a Slack or Telegram channel</summary>
+    <form method="post" action="${escapeHtml(o.action)}" style="margin-top:.75rem">
+      ${csrfField(o.csrf)}
+      ${fieldError(o.errorKey, o.errors)}
+      <fieldset style="border:0;padding:0;margin:0 0 .75rem">
+        <legend class="pu-sr">Service</legend>
+        <label style="display:inline-flex;align-items:center;gap:.3rem;margin-right:1rem;font-weight:400"><input type="radio" name="kind" value="slack"${kind === 'slack' ? ' checked' : ''}> Slack</label>
+        <label style="display:inline-flex;align-items:center;gap:.3rem;font-weight:400"><input type="radio" name="kind" value="telegram"${kind === 'telegram' ? ' checked' : ''}> Telegram</label>
+      </fieldset>
+      <label for="${p}-webhook">Slack incoming webhook URL</label>
+      <input id="${p}-webhook" name="webhook_url" type="url" inputmode="url" maxlength="300" placeholder="https://hooks.slack.com/services/T…/B…/…" value="${escapeHtml(draft.webhookUrl ?? '')}" autocomplete="off">
+      <p class="pu-muted" style="font-size:.8125rem;margin:.25rem 0 .75rem">Slack: your workspace → Apps → Incoming Webhooks → Add to a channel, then paste the URL. Leave blank for Telegram.</p>
+      <div class="pu-grid" style="grid-template-columns:repeat(auto-fit,minmax(12rem,1fr));gap:0 1rem">
+        <div>
+          <label for="${p}-token">Telegram bot token</label>
+          <input id="${p}-token" name="bot_token" type="password" maxlength="100" placeholder="123456789:AAH…" autocomplete="off">
+        </div>
+        <div>
+          <label for="${p}-chat">Telegram chat id</label>
+          <input id="${p}-chat" name="chat_id" maxlength="40" placeholder="-1001234567890 or @channel" value="${escapeHtml(draft.chatId ?? '')}" autocomplete="off">
+        </div>
+      </div>
+      <p class="pu-muted" style="font-size:.8125rem;margin:.25rem 0 .75rem">Telegram: make a bot with @BotFather, add it to the group or channel, and get the chat id from @userinfobot or the bot's getUpdates. Leave blank for Slack.</p>
+      <p style="font-weight:600;margin:0 0 .25rem">Tell me about</p>
+      <div>${events}</div>
+      <div style="margin-top:.75rem"><button class="pu-btn" type="submit">Add channel</button></div>
+    </form>
+  </details>`
 }
 
 export function settingsPage(d: SettingsPageData): string {
@@ -2349,6 +2428,11 @@ export function settingsPage(d: SettingsPageData): string {
     ${fieldError('slug', errors)}
     <div style="margin-top:1.25rem"><button class="pu-btn" type="submit">Save slug</button></div>
   </form>
+</section>
+<section class="pu-card" aria-label="Notifications" style="margin-top:1.25rem">
+  <h2>Notifications</h2>
+  <p class="pu-muted">Besides email: post your bookings to a Slack channel or a Telegram chat. A team's channels are set on its card under Teams.</p>
+  ${channelsPanel({ csrf: d.csrf, action: '/dashboard/notifications', channels: d.channels, errorKey: 'channel', errors, draft: d.channelDraft, idPrefix: 'ch' })}
 </section>
 </section>` +
     shellBottom(d.brandName)

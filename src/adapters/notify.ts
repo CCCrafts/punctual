@@ -15,6 +15,7 @@ import type { Booking, EventType, User, WebhookEvent } from '../core/domain/type
 import type { EnginePorts } from '../ports.js'
 import { calendarDescription, calendarTitle, participantsFor } from '../core/domain/calendar-text.js'
 import { hostSettings } from '../core/domain/hosts.js'
+import type { NotificationChannel } from '../core/domain/chat-notify.js'
 import {
   bookingCancelled,
   bookingConfirmationForGuest,
@@ -200,6 +201,30 @@ export async function notifyWebhooks(
           attempt: 0,
         })
         .catch((err) => console.error('[punctual] webhook failed to queue', err))
+    }
+  }
+
+  // Chat channels, the same way: each attending host's own, plus the
+  // owning team's. The message is built at delivery from the booking's
+  // state then, so a channel only needs to know which booking and why.
+  const channelIds = new Set<string>()
+  const owners: Array<['user' | 'team', string]> = (booking.hostUserIds.length > 0 ? booking.hostUserIds : [booking.hostUserId]).map((id) => ['user', id] as ['user', string])
+  if (eventType.ownerTeamId) owners.push(['team', eventType.ownerTeamId])
+  for (const [kind, id] of owners) {
+    // Through a resolved promise, so a repository set that predates
+    // channels (older fakes, a partial port) is a quiet empty list rather
+    // than a thrown TypeError that would take the webhooks down with it.
+    const channels = await Promise.resolve()
+      .then(() => repos.channels.listForOwner(kind, id))
+      .catch(() => [] as NotificationChannel[])
+    for (const ch of channels) {
+      if (channelIds.has(ch.id) || !ch.events.includes(event)) continue
+      channelIds.add(ch.id)
+      const hostsAdded = Array.isArray(extra['hostsAdded']) ? (extra['hostsAdded'] as string[]) : undefined
+      const hostsRemoved = Array.isArray(extra['hostsRemoved']) ? (extra['hostsRemoved'] as string[]) : undefined
+      await ports.queue
+        .send({ kind: 'chat', channelId: ch.id, event, bookingId: booking.id, ...(hostsAdded || hostsRemoved ? { extra: { ...(hostsAdded ? { hostsAdded } : {}), ...(hostsRemoved ? { hostsRemoved } : {}) } } : {}) })
+        .catch((err) => console.error('[punctual] chat notification failed to queue', err))
     }
   }
 }

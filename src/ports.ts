@@ -15,7 +15,8 @@
 
 import type { HomeOwner } from './core/domain/home.js'
 import type { BookingDayStats, InsightEvent, InsightsPeriod, InsightsViews } from './core/domain/insights.js'
-import type {
+import type { ChannelOwnerKind, NotificationChannel } from './core/domain/chat-notify.js'
+import type { WebhookEvent,
   ApiKey,
   CompanyLogo,
   Booking,
@@ -59,6 +60,7 @@ export interface Repositories {
   sessions: SessionRepository
   apiKeys: ApiKeyRepository
   webhooks: WebhookRepository
+  channels: NotificationChannelRepository
   idempotency: IdempotencyRepository
   settings: SettingsRepository
 
@@ -508,6 +510,14 @@ export interface WebhookRepository {
   delete(id: string): Promise<void>
 }
 
+/** Slack / Telegram destinations for booking notifications (core/domain/chat-notify.ts). */
+export interface NotificationChannelRepository {
+  listForOwner(ownerKind: ChannelOwnerKind, ownerId: string): Promise<NotificationChannel[]>
+  byId(id: string): Promise<NotificationChannel | null>
+  create(channel: NotificationChannel): Promise<void>
+  delete(id: string): Promise<void>
+}
+
 export interface IdempotencyRepository {
   get(key: string, scope: string): Promise<StoredIdempotentResponse | null>
   put(record: StoredIdempotentResponse): Promise<void>
@@ -747,6 +757,8 @@ export interface QueuePort {
 export type QueueMessage =
   | { kind: 'email'; message: EmailMessage }
   | { kind: 'webhook'; webhookId: string; event: string; payload: unknown; attempt: number }
+  /** A booking notification to a Slack or Telegram channel; the message is built at delivery time from the booking's current state. */
+  | { kind: 'chat'; channelId: string; event: WebhookEvent; bookingId: string; extra?: { hostsAdded?: string[]; hostsRemoved?: string[] } }
   | {
       kind: 'calendar.sync'
       bookingId: string

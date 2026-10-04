@@ -318,6 +318,8 @@ time,.pu-time{font-family:var(--pu-font-mono);font-variant-numeric:tabular-nums}
 .pu-home-foot{max-width:56rem;margin:2.5rem auto 2rem;padding:1.25rem 1.25rem 0;border-top:1px solid var(--pu-line);font-size:.875rem;color:var(--pu-text-secondary)}
 .pu-home-foot p{margin:.25rem 0}
 .pu-home-foot-by{font-size:.8125rem}
+.pu-channel-add summary{cursor:pointer;font-weight:500}
+.pu-channel-add{margin-top:.25rem}
 .pu-ins-kpis{display:grid;gap:1rem 1.25rem;grid-template-columns:repeat(auto-fit,minmax(6.75rem,1fr))}
 .pu-ins-kpi{display:flex;flex-direction:column;gap:.15rem}
 .pu-ins-kpi-value{font-family:var(--pu-font-mono);font-weight:700;font-size:1.5rem;font-variant-numeric:tabular-nums}

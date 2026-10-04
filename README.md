@@ -80,7 +80,7 @@ Full walkthrough, including connecting Google and Microsoft calendars:
 - **Branding** — a company logo and per-event-type logos, as a circle or
   in their own proportions; social cards with the hosts' faces
 - **Emails with .ics invites**, reschedule and cancel links, 24 h and 1 h
-  reminders
+  reminders; **Slack and Telegram** notifications per host and per team
 - **REST API**, HMAC-signed webhooks, embed widget
 - **A built-in MCP server** — your calendar as a tool an AI agent can call
 
