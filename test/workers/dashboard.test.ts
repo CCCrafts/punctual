@@ -1499,3 +1499,20 @@ describe('API keys — scopes and revocation', () => {
     expect(res.status).toBe(404)
   })
 })
+
+describe('settings — morning digest', () => {
+  it('saves the chosen hour, turns it off again, and refuses an hour off the list', async () => {
+    const cookie = await seedSession(HOST_ID)
+    const csrf = await crypto_.hash(`csrf|${await crypto_.hash(cookie.slice(cookie.indexOf('=') + 1))}`)
+    const on = await post('/dashboard/settings/profile', { csrf, name: 'Digest Host', job_title: '', company: '', company_url: '', digest_hour: '8' }, cookie)
+    expect(on.status).toBe(200)
+    expect(await on.text()).toContain('<option value="8" selected>')
+    expect((await db.prepare('SELECT digest_hour FROM users WHERE id = ?').bind(HOST_ID).first<{ digest_hour: number | null }>())?.digest_hour).toBe(8)
+    const bad = await post('/dashboard/settings/profile', { csrf, name: 'Digest Host', job_title: '', company: '', company_url: '', digest_hour: '3' }, cookie)
+    expect(bad.status).toBe(400)
+    expect(await bad.text()).toContain('Pick an hour from the list')
+    const off = await post('/dashboard/settings/profile', { csrf, name: 'Digest Host', job_title: '', company: '', company_url: '', digest_hour: 'off' }, cookie)
+    expect(off.status).toBe(200)
+    expect((await db.prepare('SELECT digest_hour FROM users WHERE id = ?').bind(HOST_ID).first<{ digest_hour: number | null }>())?.digest_hour).toBeNull()
+  })
+})

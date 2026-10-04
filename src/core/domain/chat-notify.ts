@@ -139,9 +139,15 @@ export function chatMessage(input: ChatMessageInput): ChatMessage {
   return { headline: `${HEADLINE[input.event]}: ${eventType.title}`, lines: lines.filter(Boolean), link: input.link }
 }
 
-/** What goes over the wire to each service. Both are plain text with a link; no markup to escape wrong. */
+/**
+ * What goes over the wire to each service. Slack reads `text` as mrkdwn,
+ * where `<…>` is a mention or a link — and the guest's name is public,
+ * unauthenticated input (a guest named `<!channel>` would page the room;
+ * caught by review). Slack's own rule: escape exactly `&`, `<`, `>`.
+ */
 export function slackPayload(m: ChatMessage): Record<string, unknown> {
-  return { text: `*${m.headline}*\n${m.lines.join('\n')}\n<${m.link}|Open booking>` }
+  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  return { text: `*${esc(m.headline)}*\n${m.lines.map(esc).join('\n')}\n<${m.link}|Open booking>` }
 }
 
 export function telegramPayload(m: ChatMessage, chatId: string): Record<string, unknown> {

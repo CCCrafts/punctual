@@ -83,6 +83,10 @@ export interface UserRepository {
   create(user: Omit<User, 'createdAt'>): Promise<User | null>
   /** Every user, oldest first — the admin page's user list. A single team's worth of rows, not a paginated feed. */
   listAll(): Promise<User[]>
+  /** Everyone with a digest hour set — the cron's candidates; `digestDue` decides who is actually due. */
+  listDigestRecipients(): Promise<User[]>
+  /** Record that today's digest went out, BEFORE sending, so an overlapping tick does not send a second. */
+  markDigestSent(id: string, localDate: string): Promise<void>
   /** How many users exist at all — the first-user-becomes-admin bootstrap check. */
   count(): Promise<number>
   /**
@@ -103,7 +107,7 @@ export interface UserRepository {
   update(
     id: string,
     patch: Partial<
-      Pick<User, 'name' | 'tz' | 'slug' | 'avatarKey' | 'company' | 'jobTitle' | 'companyUrl' | 'role'>
+      Pick<User, 'name' | 'tz' | 'slug' | 'avatarKey' | 'company' | 'jobTitle' | 'companyUrl' | 'role' | 'digestHour'>
     >,
   ): Promise<boolean>
 }

@@ -101,6 +101,13 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
     async bySlug(slug) {
       return mapUser(await first('SELECT * FROM users WHERE slug = ?', slug))
     },
+    async listDigestRecipients() {
+      const rows = await all<Record<string, unknown>>('SELECT * FROM users WHERE digest_hour IS NOT NULL')
+      return rows.map((r) => mapUser(r)!)
+    },
+    async markDigestSent(id, localDate) {
+      await run('UPDATE users SET digest_sent_on = ? WHERE id = ?', localDate, id)
+    },
     async listAll() {
       const rows = await all<Record<string, unknown>>('SELECT * FROM users ORDER BY created_at')
       return rows.map((r) => mapUser(r)!).filter(Boolean)
@@ -164,6 +171,7 @@ export function createD1Repositories(db: D1Database, scope: RequestScope): Repos
       if (patch.jobTitle !== undefined) (sets.push('job_title = ?'), binds.push(patch.jobTitle))
       if (patch.companyUrl !== undefined) (sets.push('company_url = ?'), binds.push(patch.companyUrl))
       if (patch.role !== undefined) (sets.push('role = ?'), binds.push(patch.role))
+      if (patch.digestHour !== undefined) (sets.push('digest_hour = ?'), binds.push(patch.digestHour))
       if (sets.length === 0) return true
       binds.push(id)
       try {
@@ -1657,6 +1665,8 @@ function mapUser(row: Record<string, unknown> | null): User | null {
     jobTitle: row['job_title'] == null ? null : String(row['job_title']),
     companyUrl: row['company_url'] == null ? null : String(row['company_url']),
     role: row['role'] === 'admin' ? 'admin' : 'member',
+    digestHour: row['digest_hour'] == null ? null : Number(row['digest_hour']),
+    digestSentOn: row['digest_sent_on'] == null ? null : String(row['digest_sent_on']),
     createdAt: Number(row['created_at']),
   }
 }

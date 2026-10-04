@@ -48,6 +48,10 @@ export interface User {
    * demote the last admin, or the instance locks itself out.
    */
   role: 'admin' | 'member'
+  /** Local hour (0–23) the morning digest goes out at; null or absent = off (core/domain/digest.ts). */
+  digestHour?: number | null
+  /** Host-local date (YYYY-MM-DD) the digest last went out on. */
+  digestSentOn?: string | null
   createdAt: number
 }
 

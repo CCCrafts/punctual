@@ -84,6 +84,7 @@ import { saveCalendarConnection } from './calendar-connect.js'
 import { insightsPage } from './pages/insights.js'
 import { CHANNEL_EVENTS, channelAad, parseChannelEvents, parseDestination, type ChannelConfig, type NotificationChannel } from '../core/domain/chat-notify.js'
 import { postChatMessage } from '../adapters/chat.js'
+import { parseDigestHour } from '../core/domain/digest.js'
 import { buildInsightsReport, periodFrom, periodStart } from '../core/domain/insights.js'
 import { HOME_CONTACT, HOME_EVENT_TYPES, HOME_FEATURED, HOME_INTRO, HOME_INTRO_MAX, HOME_KEYS, HOME_MODE, HOME_TITLE, HOME_TITLE_MAX, HOME_WEBSITE, isEmailAddress, parseHomeSettings } from '../core/domain/home.js'
 import { notifyNewHosts as notifyNewHostsShared } from './host-notifications.js'
@@ -2195,8 +2196,12 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
     const company = companyRaw.length > 0 ? companyRaw : null
     const jobTitle = jobTitleRaw.length > 0 ? jobTitleRaw : null
     const companyUrl = companyUrlRaw.length > 0 ? companyUrlRaw : null
+    const digestHour = parseDigestHour(form.get('digest_hour') as string | null)
     const repos = c.get('repos')
-    await repos.users.update(user.id, { name, company, jobTitle, companyUrl })
+    if (digestHour === 'invalid') {
+      return c.html(settingsPage({ channels: await repos.channels.listForOwner('user', user.id), brandName, baseUrl: ports.config.baseUrl, user, csrf: c.get('csrf'), emailDelivery, ...(emailProblem ? { emailProblem } : {}), errors: { digest_hour: 'Pick an hour from the list' } }), 400)
+    }
+    await repos.users.update(user.id, { name, company, jobTitle, companyUrl, digestHour })
     await advanceBookmark(c)
 
     return c.html(
@@ -2204,7 +2209,7 @@ export function buildDashboardRoutes(ports: EnginePorts, slots: SlotService): Ap
         channels: await repos.channels.listForOwner('user', user.id),
         brandName,
         baseUrl: ports.config.baseUrl,
-        user: { ...user, name, company, jobTitle, companyUrl },
+        user: { ...user, name, company, jobTitle, companyUrl, digestHour },
         csrf: c.get('csrf'),
         emailDelivery,
         ...(emailProblem ? { emailProblem } : {}),

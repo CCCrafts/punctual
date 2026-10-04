@@ -7,6 +7,7 @@
  */
 
 import type { EnginePorts } from '../ports.js'
+import type { Booking, EventType, User } from '../core/domain/types.js'
 
 const MINUTE = 60_000
 const HOUR = 3_600_000
@@ -17,6 +18,7 @@ export async function runScheduledTasks(ports: EnginePorts, now: number): Promis
     ['expire-holds', expireHolds(ports, now)],
     ['prune-locks', pruneLocks(ports, now)],
     ['reminders', sendReminders(ports, now)],
+    ['digests', sendDigests(ports, now)],
   ]
   if (ports.config.telemetryEnabled) tasks.push(['telemetry', sendTelemetry(ports, now)])
 
@@ -102,6 +104,48 @@ async function sendReminders(ports: EnginePorts, now: number): Promise<void> {
         },
       })
     }
+  }
+}
+
+/**
+ * The morning digest (core/domain/digest.ts): for each host who opted in
+ * and is due right now, today's confirmed meetings in their timezone.
+ * The day is marked sent before the email is built, so an overlapping or
+ * repeated tick sends nothing more; an empty day is marked too and sends
+ * nothing at all.
+ */
+export async function sendDigests(ports: EnginePorts, now: number): Promise<void> {
+  const repos = ports.repositories({ consistency: 'unconstrained' })
+  const { dailyDigestEmail } = await import('../core/email-templates.js')
+  const { digestBookings, digestDue, digestRange } = await import('../core/domain/digest.js')
+  for (const host of await repos.users.listDigestRecipients()) {
+    const date = digestDue(host, now)
+    if (!date) continue
+    await repos.users.markDigestSent(host.id, date)
+    const range = digestRange(date, host.tz)
+    const todays = digestBookings(await repos.bookings.listForHost(host.id, range))
+    if (todays.length === 0) continue
+    const meetings: Array<{ booking: Booking; eventType: EventType; coHosts: User[] }> = []
+    for (const booking of todays) {
+      const eventType = await repos.eventTypes.byId(booking.eventTypeId)
+      if (!eventType) continue
+      const coHosts: User[] = []
+      for (const id of booking.hostUserIds.filter((h) => h !== host.id)) {
+        const u = await repos.users.byId(id)
+        if (u) coHosts.push(u)
+      }
+      meetings.push({ booking, eventType, coHosts })
+    }
+    if (meetings.length === 0) continue
+    const mail = dailyDigestEmail({
+      brandName: ports.config.brandName,
+      ...(ports.config.supportEmail ? { supportEmail: ports.config.supportEmail } : {}),
+      host,
+      date,
+      meetings,
+      dashboardUrl: `${ports.config.baseUrl.replace(/\/$/, '')}/dashboard`,
+    })
+    await ports.queue.send({ kind: 'email', message: { to: host.email, toName: host.name, subject: mail.subject, html: mail.html, text: mail.text } })
   }
 }
 

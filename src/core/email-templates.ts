@@ -737,3 +737,41 @@ export function magicLinkEmail(input: MagicLinkInput): EmailContent {
   // that mangles the button falls back to.
   return render(shellInput, `Sign in to ${brandName}`)
 }
+
+// ---------------------------------------------------------------------------
+// The morning digest (core/domain/digest.ts)
+// ---------------------------------------------------------------------------
+
+export interface DigestEmailInput {
+  brandName: string
+  supportEmail?: string
+  host: User
+  /** Host-local date, YYYY-MM-DD. */
+  date: string
+  meetings: Array<{ booking: Booking; eventType: EventType; coHosts: User[] }>
+  dashboardUrl: string
+}
+
+export function dailyDigestEmail(input: DigestEmailInput): EmailContent {
+  const tz = input.host.tz
+  const n = input.meetings.length
+  const dayLabel = formatInZone(input.meetings[0]?.booking.startUtc ?? Date.now(), tz, { weekday: 'long', month: 'long', day: 'numeric' })
+  const rows: DetailRow[] = input.meetings.map(({ booking, eventType, coHosts }) => ({
+    label: formatInZone(booking.startUtc, tz, { hour: 'numeric', minute: '2-digit' }),
+    value: `${eventType.title} — ${booking.guestName}${coHosts.length > 0 ? ` (with ${coHosts.map((u) => u.name || u.slug).join(', ')})` : ''}`,
+    href: `${input.dashboardUrl.replace(/\/$/, '')}/bookings/${booking.id}`,
+  }))
+  const shellInput: ShellInput = {
+    brandName: input.brandName,
+    preheader: `${n} ${n === 1 ? 'meeting' : 'meetings'} today`,
+    heading: `Today: ${n} ${n === 1 ? 'meeting' : 'meetings'}`,
+    intro: `${dayLabel}. Your confirmed meetings, in ${tz}.`,
+    rows,
+    ctas: [{ label: 'Open the dashboard', url: input.dashboardUrl, primary: true }],
+    notes: [
+      'You get this because you turned on the morning digest under Settings; turn it off there any time.',
+      ...(input.supportEmail ? [`Questions? Write to ${input.supportEmail}.`] : []),
+    ],
+  }
+  return render(shellInput, `Today: ${n} ${n === 1 ? 'meeting' : 'meetings'} — ${dayLabel}`)
+}

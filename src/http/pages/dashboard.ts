@@ -47,6 +47,7 @@ import type { BookingListView, CalendarProviderName, EmailDelivery } from '../..
 import type { HostChangeFailure } from '../../core/domain/booking-hosts.js'
 import { HOME_INTRO_MAX, HOME_TITLE_MAX, type HomeSettings } from '../../core/domain/home.js'
 import { CHANNEL_EVENTS, type NotificationChannel } from '../../core/domain/chat-notify.js'
+import { DIGEST_HOURS } from '../../core/domain/digest.js'
 import { slotStateClassName } from '../../core/slot-state.js'
 import { slugify } from '../../core/domain/booking-service.js'
 import { formatInZone, localDateString, offsetLabel } from '../../core/time/zone.js'
@@ -2403,6 +2404,13 @@ export function settingsPage(d: SettingsPageData): string {
              value="${escapeHtml(companyUrlValue)}"${describedBy('company_url', errors)}>
       <p class="pu-muted" style="font-size:.8125rem;margin:.25rem 0 0">Wraps the company name on your booking page.</p>
       ${fieldError('company_url', errors)}
+      <label for="digest_hour" style="margin-top:.75rem">Morning digest</label>
+      <select id="digest_hour" name="digest_hour">
+        <option value="off"${d.user.digestHour == null ? ' selected' : ''}>Off</option>
+        ${DIGEST_HOURS.map((h) => `<option value="${h}"${d.user.digestHour === h ? ' selected' : ''}>${h}:00 — today's meetings, by email</option>`).join('')}
+      </select>
+      <p class="pu-muted" style="font-size:.8125rem;margin:.25rem 0 0">In your timezone (${escapeHtml(d.user.tz)}). Nothing is sent on a day with no meetings.</p>
+      ${fieldError('digest_hour', errors)}
       <div style="margin-top:1.25rem"><button class="pu-btn" type="submit">Save profile</button></div>
     </form>
   </div>

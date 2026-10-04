@@ -248,6 +248,10 @@ confirmation emails. To reword it or make it required, add your own line
 starting with `Agenda |` to the event type's questions (e.g.
 `Agenda | textarea | required`); your version replaces the built-in one.
 
+**Morning digest.** Each host can turn on a daily email under Settings →
+*Morning digest* — one message at the hour they pick, in their timezone,
+listing the day's meetings. It rides the five-minute cron you already have.
+
 **Slack and Telegram.** Besides email, bookings can be posted to a Slack
 channel (an incoming webhook URL) or a Telegram chat (a bot token from
 @BotFather and the chat id). Each host sets their own under Settings →

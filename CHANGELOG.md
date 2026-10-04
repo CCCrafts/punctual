@@ -8,6 +8,10 @@ still change interfaces.
 
 ### Added
 
+- **Morning digest.** Opt in under Settings → Morning digest and pick an
+  hour: one email, in your timezone, listing today's confirmed meetings
+  with their times, guests and co-hosts, each linked to its booking.
+  Nothing is sent on a day with no meetings. Migration 0017.
 - **Slack and Telegram notifications.** A host, and a team's admins, can
   add a Slack incoming webhook or a Telegram bot + chat to be told about
   new bookings, reschedules, cancellations and host changes — in Settings

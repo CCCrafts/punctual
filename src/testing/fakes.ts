@@ -159,6 +159,13 @@ export function createFakeRepositories(): FakeRepositories {
     async listAll() {
       return [...users.values()].sort((a, b) => a.createdAt - b.createdAt)
     },
+    async listDigestRecipients() {
+      return [...users.values()].filter((u) => u.digestHour !== null && u.digestHour !== undefined)
+    },
+    async markDigestSent(id, localDate) {
+      const u = users.get(id)
+      if (u) users.set(id, { ...u, digestSentOn: localDate })
+    },
     async count() {
       return users.size
     },
@@ -241,6 +248,11 @@ export function createFakeRepositories(): FakeRepositories {
     async byManageToken(tokenHash: string) {
       for (const b of bookings.values()) if (b.manageTokenHash === tokenHash) return b
       return null
+    },
+    async listForHost(hostUserId: string, range: Interval) {
+      return [...bookings.values()]
+        .filter((b) => (b.hostUserIds.includes(hostUserId) || b.hostUserId === hostUserId) && b.startUtc >= range.start && b.startUtc < range.end)
+        .sort((a, b) => a.startUtc - b.startUtc)
     },
     async statsForEventTypes(eventTypeIds: string[], range: Interval) {
       const out = new Map<string, { eventTypeId: string; day: string; booked: number; rescheduled: number; cancelled: number }>()

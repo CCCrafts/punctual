@@ -49,7 +49,11 @@ describe('the message', () => {
 
   it('renders for Slack as mrkdwn and for Telegram as escaped HTML', () => {
     const m = chatMessage({ event: 'booking.cancelled', booking, eventType, hosts, tz: 'UTC', link: 'https://punctual.test/dashboard/bookings/bk_1?a=1&b=2' })
-    expect(slackPayload(m)).toEqual({ text: `*Booking cancelled: Intro call*\n${m.lines.join('\n')}\n<https://punctual.test/dashboard/bookings/bk_1?a=1&b=2|Open booking>` })
+    // Slack mrkdwn: the guest's angle brackets are text, not a mention; the link stays a link.
+    const slack = String(slackPayload(m)['text'])
+    expect(slack).toContain('Ada &lt;Lovelace&gt; &lt;ada@example.com&gt;')
+    expect(slack).toContain('\n<https://punctual.test/dashboard/bookings/bk_1?a=1&b=2|Open booking>')
+    expect(slackPayload(chatMessage({ event: 'booking.created', booking: { ...booking, guestName: '<!channel>' }, eventType, hosts, tz: 'UTC', link: 'x' }))['text']).not.toContain('<!channel>')
     const tg = telegramPayload(m, '-100')
     expect(tg['chat_id']).toBe('-100')
     expect(tg['parse_mode']).toBe('HTML')
