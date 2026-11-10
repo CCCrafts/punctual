@@ -57,6 +57,8 @@ openssl rand -base64 32 | npx wrangler secret put SIGNING_KEY
 `ENCRYPTION_KEY_V1` encrypts calendar refresh tokens at rest (AES-GCM).
 `SIGNING_KEY` signs the reschedule and cancel links in your emails.
 
+The checked-in [`.dev.vars.example`](../.dev.vars.example) also uses Varlock-compatible `@env-spec` annotations (`@type`, `@required` and `@sensitive`) to document local variables. Varlock is optional; Punctual does not depend on it, and `npm run dev` continues to copy this file to `.dev.vars`. The example values are public development-only values, not production secrets.
+
 **Keep both.** Losing `ENCRYPTION_KEY_V1` means every host must reconnect their
 calendar. Rotating it later is supported — add `ENCRYPTION_KEY_V2` and the
 engine decrypts with the old key while encrypting with the new one.
