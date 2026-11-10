@@ -1,10 +1,17 @@
-# Local development overrides for `npm run dev` — wrangler reads .dev.vars
+# Local development overrides for `npm run dev` — Wrangler reads .dev.vars
 # and it wins over wrangler.toml's [vars]. `npm run dev` copies this file to
 # .dev.vars automatically when none exists.
 #
-# The two keys below are FIXED, PUBLIC DEV VALUES — fine for a local
-# Miniflare instance whose data is throwaway, never for a deployment. Real
-# deployments set both as secrets: see docs/self-hosting.md §3.
+# Base URL used to build links and callbacks in the local development server.
+# @required @sensitive=false @type=url
 BASE_URL=http://localhost:8787
+#
+# Fixed, public development value for local Miniflare data only.
+# Real deployments must set this as a Wrangler secret; never deploy this value.
+# @required @sensitive=false @type=string
 ENCRYPTION_KEY_V1=ZGV2LW9ubHktZW5jcnlwdGlvbi1rZXktMzItYnl0ZXM=
+#
+# Fixed, public development value for local reschedule and cancel links only.
+# Real deployments must set this as a Wrangler secret; never deploy this value.
+# @required @sensitive=false @type=string
 SIGNING_KEY=ZGV2LW9ubHktc2lnbmluZy1rZXktLTMyLWJ5dGVzISE=
